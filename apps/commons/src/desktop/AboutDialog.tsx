@@ -8,10 +8,10 @@ import {
   Stack,
   Typography,
 } from '@mui/material';
-import { useActions } from '@src/overmind';
 import { useEffect, useState } from 'react';
 
-const PROJECT_URL = 'https://github.com/grognard-xml/grognard';
+const PROJECT_URL = 'https://grognard-xml.github.io/site';
+const PRIVACY_URL = 'https://grognard-xml.github.io/site/privacy.html';
 const BUG_REPORT_URL = 'https://github.com/grognard-xml/grognard/issues/new?template=bug_report.md';
 
 interface AboutDialogProps {
@@ -20,7 +20,6 @@ interface AboutDialogProps {
 }
 
 export const AboutDialog = ({ onClose, open }: AboutDialogProps) => {
-  const { openDialog } = useActions().ui;
   const [appVersion, setAppVersion] = useState<string | null>(null);
 
   useEffect(() => {
@@ -35,11 +34,6 @@ export const AboutDialog = ({ onClose, open }: AboutDialogProps) => {
       cancelled = true;
     };
   }, [open]);
-
-  const handlePrivacy = () => {
-    onClose();
-    openDialog({ type: 'privacy' });
-  };
 
   return (
     <Dialog fullWidth maxWidth="xs" onClose={onClose} open={open}>
@@ -58,7 +52,7 @@ export const AboutDialog = ({ onClose, open }: AboutDialogProps) => {
             </Typography>
           )}
           <Stack direction="row" flexWrap="wrap" gap={2}>
-            <Link component="button" onClick={handlePrivacy} variant="body2">
+            <Link href={PRIVACY_URL} rel="noopener noreferrer" target="_blank" variant="body2">
               Privacy policy
             </Link>
             <Link href={BUG_REPORT_URL} rel="noopener noreferrer" target="_blank" variant="body2">
