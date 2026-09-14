@@ -141,13 +141,22 @@ function isValidManifest(raw: unknown): raw is PluginManifest {
   );
 }
 
+/** Plugins installed before the Le Jean-Baptiste → Grognard rename key their manifest's
+ *  app-compat block as `ljb` instead of `grognard`. Accept either. */
+function normalizeLegacyAppKey(raw: unknown): unknown {
+  if (!raw || typeof raw !== 'object') return raw;
+  const m = raw as PluginManifest & { ljb?: { minVersion: string; maxVersion?: string } };
+  if (!m.grognard && m.ljb) m.grognard = m.ljb;
+  return m;
+}
+
 async function readManifest(
   installDir: string,
   options?: { requireFolderMatch?: boolean },
 ): Promise<{ manifest?: PluginManifest; error?: string }> {
   const manifestPath = path.join(installDir, PLUGIN_MANIFEST_FILENAME);
   try {
-    const raw = JSON.parse(await fsp.readFile(manifestPath, 'utf8')) as unknown;
+    const raw = normalizeLegacyAppKey(JSON.parse(await fsp.readFile(manifestPath, 'utf8')));
     if (!isValidManifest(raw)) {
       return { error: 'Invalid or unsupported plugin.manifest.json' };
     }
