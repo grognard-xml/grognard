@@ -11,7 +11,7 @@
  * `sync_conflicts` holds whole-entity snapshots for manual resolution; while a
  * row is open for an entity, that entity is held back from push.
  */
-import type { EntitySqliteRepository, SqliteEntityKind } from './repository';
+import { EntitySqliteRepository, type SqliteEntityKind } from './repository';
 import { computeEntityContentHash, exportEntityElementXml, importEntitiesXml } from './xmlCodec';
 
 const TEI_NS = 'http://www.tei-c.org/ns/1.0';
@@ -36,21 +36,21 @@ const ENTITY_LIST_BY_KIND: Record<SqliteEntityKind, { tag: string; type?: string
 
 // --- cursor / device --------------------------------------------------------
 
-export const getSyncCursor = (repo: EntitySqliteRepository): number => {
-  const raw = repo.getMetadata(CURSOR_KEY);
+export const getSyncCursor = async (repo: EntitySqliteRepository): Promise<number> => {
+  const raw = await repo.getMetadata(CURSOR_KEY);
   const value = raw === null ? 0 : Number(raw);
   return Number.isFinite(value) && value >= 0 ? Math.floor(value) : 0;
 };
 
-export const setSyncCursor = (repo: EntitySqliteRepository, seq: number): void => {
-  repo.setMetadata(CURSOR_KEY, String(Math.max(0, Math.floor(seq))));
+export const setSyncCursor = async (repo: EntitySqliteRepository, seq: number): Promise<void> => {
+  await repo.setMetadata(CURSOR_KEY, String(Math.max(0, Math.floor(seq))));
 };
 
-export const getOrCreateDeviceId = (repo: EntitySqliteRepository): string => {
-  const existing = repo.getMetadata(DEVICE_KEY);
+export const getOrCreateDeviceId = async (repo: EntitySqliteRepository): Promise<string> => {
+  const existing = await repo.getMetadata(DEVICE_KEY);
   if (existing) return existing;
   const id = crypto.randomUUID();
-  repo.setMetadata(DEVICE_KEY, id);
+  await repo.setMetadata(DEVICE_KEY, id);
   return id;
 };
 
@@ -73,10 +73,9 @@ export interface DirtyEntity {
  * `project_revision` that no longer matches `entities.revision`. Entities with
  * an open conflict are excluded — they can't push until resolved.
  */
-export const listDirtyForSync = (repo: EntitySqliteRepository): DirtyEntity[] => {
-  const rows = repo.db
-    .prepare(
-      `SELECT e.id                          AS localId,
+export const listDirtyForSync = async (repo: EntitySqliteRepository): Promise<DirtyEntity[]> => {
+  const rows = (await repo.backend.all(
+    `SELECT e.id                          AS localId,
               e.kind                        AS kind,
               e.revision                    AS revision,
               CASE WHEN e.deleted_at IS NOT NULL THEN 1 ELSE 0 END AS deleted,
@@ -91,8 +90,7 @@ export const listDirtyForSync = (repo: EntitySqliteRepository): DirtyEntity[] =>
               WHERE c.status = 'open' AND c.project_entity_id = e.id
            )
          ORDER BY e.id`,
-    )
-    .all() as {
+  )) as {
     localId: string;
     kind: SqliteEntityKind;
     revision: number;
@@ -124,17 +122,16 @@ export interface SyncStateRow {
   projectHash: string;
 }
 
-export const getSyncState = (
+export const getSyncState = async (
   repo: EntitySqliteRepository,
   projectEntityId: string,
-): SyncStateRow | null => {
-  const row = repo.db
-    .prepare(
-      `SELECT project_entity_id, central_entity_id, central_revision,
+): Promise<SyncStateRow | null> => {
+  const row = (await repo.backend.get(
+    `SELECT project_entity_id, central_entity_id, central_revision,
               project_revision, central_hash, project_hash
          FROM sync_state WHERE project_entity_id = ?`,
-    )
-    .get(projectEntityId) as
+    [projectEntityId],
+  )) as
     | {
         project_entity_id: string;
         central_entity_id: string;
@@ -155,10 +152,12 @@ export const getSyncState = (
   };
 };
 
-export const upsertSyncState = (repo: EntitySqliteRepository, state: SyncStateRow): void => {
-  repo.db
-    .prepare(
-      `INSERT INTO sync_state
+export const upsertSyncState = async (
+  repo: EntitySqliteRepository,
+  state: SyncStateRow,
+): Promise<void> => {
+  await repo.backend.run(
+    `INSERT INTO sync_state
          (project_entity_id, central_entity_id, central_revision, project_revision,
           central_hash, project_hash, synced_at)
        VALUES (?, ?, ?, ?, ?, ?, ?)
@@ -168,8 +167,7 @@ export const upsertSyncState = (repo: EntitySqliteRepository, state: SyncStateRo
          central_hash     = excluded.central_hash,
          project_hash     = excluded.project_hash,
          synced_at        = excluded.synced_at`,
-    )
-    .run(
+    [
       state.projectEntityId,
       state.centralEntityId,
       state.centralRevision,
@@ -177,7 +175,8 @@ export const upsertSyncState = (repo: EntitySqliteRepository, state: SyncStateRo
       state.centralHash,
       state.projectHash,
       new Date().toISOString(),
-    );
+    ],
+  );
 };
 
 // --- sync_conflicts ---------------------------------------------------
@@ -198,10 +197,12 @@ export interface SyncConflict extends OpenConflictInput {
 }
 
 /** Insert a conflict unless one is already open for the same entity pair. */
-export const openConflict = (repo: EntitySqliteRepository, input: OpenConflictInput): void => {
-  repo.db
-    .prepare(
-      `INSERT INTO sync_conflicts
+export const openConflict = async (
+  repo: EntitySqliteRepository,
+  input: OpenConflictInput,
+): Promise<void> => {
+  await repo.backend.run(
+    `INSERT INTO sync_conflicts
          (project_entity_id, central_entity_id, reason, project_revision, central_revision,
           project_snapshot, central_snapshot, status, created_at)
        SELECT ?, ?, ?, ?, ?, ?, ?, 'open', ?
@@ -209,8 +210,7 @@ export const openConflict = (repo: EntitySqliteRepository, input: OpenConflictIn
          SELECT 1 FROM sync_conflicts
           WHERE status = 'open' AND project_entity_id = ? AND central_entity_id = ?
        )`,
-    )
-    .run(
+    [
       input.projectEntityId,
       input.centralEntityId,
       input.reason,
@@ -221,17 +221,16 @@ export const openConflict = (repo: EntitySqliteRepository, input: OpenConflictIn
       new Date().toISOString(),
       input.projectEntityId,
       input.centralEntityId,
-    );
+    ],
+  );
 };
 
-export const listOpenConflicts = (repo: EntitySqliteRepository): SyncConflict[] => {
-  const rows = repo.db
-    .prepare(
-      `SELECT id, project_entity_id, central_entity_id, reason, project_revision,
+export const listOpenConflicts = async (repo: EntitySqliteRepository): Promise<SyncConflict[]> => {
+  const rows = (await repo.backend.all(
+    `SELECT id, project_entity_id, central_entity_id, reason, project_revision,
               central_revision, project_snapshot, central_snapshot, created_at
          FROM sync_conflicts WHERE status = 'open' ORDER BY created_at, id`,
-    )
-    .all() as Record<string, unknown>[];
+  )) as Record<string, unknown>[];
   return rows.map((row) => ({
     id: Number(row.id),
     projectEntityId: String(row.project_entity_id),
@@ -245,20 +244,19 @@ export const listOpenConflicts = (repo: EntitySqliteRepository): SyncConflict[] 
   }));
 };
 
-export const countOpenConflicts = (repo: EntitySqliteRepository): number => {
-  const row = repo.db
-    .prepare(`SELECT COUNT(*) AS n FROM sync_conflicts WHERE status = 'open'`)
-    .get() as { n: number };
+export const countOpenConflicts = async (repo: EntitySqliteRepository): Promise<number> => {
+  const row = (await repo.backend.get(
+    `SELECT COUNT(*) AS n FROM sync_conflicts WHERE status = 'open'`,
+  )) as { n: number };
   return row.n;
 };
 
-export const resolveConflict = (repo: EntitySqliteRepository, id: number): boolean => {
-  const result = repo.db
-    .prepare(
-      `UPDATE sync_conflicts SET status = 'resolved', resolved_at = ?
+export const resolveConflict = async (repo: EntitySqliteRepository, id: number): Promise<boolean> => {
+  const result = await repo.backend.run(
+    `UPDATE sync_conflicts SET status = 'resolved', resolved_at = ?
         WHERE id = ? AND status = 'open'`,
-    )
-    .run(new Date().toISOString(), id);
+    [new Date().toISOString(), id],
+  );
   return result.changes > 0;
 };
 
@@ -280,18 +278,17 @@ export interface ApplyRemoteResult {
  *
  * Caller runs this inside `repo.transaction()`.
  */
-export const applyRemoteEntity = (
+export const applyRemoteEntity = async (
   repo: EntitySqliteRepository,
   change: { centralId: string; kind: SqliteEntityKind; contentXml: string; deleted: boolean },
-): ApplyRemoteResult => {
-  const RepoCtor = repo.constructor as new (path: string) => EntitySqliteRepository;
-  const existing = repo.getEntity(change.centralId);
+): Promise<ApplyRemoteResult> => {
+  const existing = await repo.getEntity(change.centralId);
 
   if (change.deleted) {
-    if (existing && !existing.deletedAt) repo.softDeleteEntity(change.centralId);
-    const after = repo.getEntity(change.centralId);
+    if (existing && !existing.deletedAt) await repo.softDeleteEntity(change.centralId);
+    const after = await repo.getEntity(change.centralId);
     return {
-      afterHash: computeEntityContentHash(repo, change.centralId) ?? '',
+      afterHash: (await computeEntityContentHash(repo, change.centralId)) ?? '',
       projectRevision: after?.revision ?? existing?.revision ?? 0,
     };
   }
@@ -305,23 +302,23 @@ export const applyRemoteEntity = (
     `</publicationStmt></fileDesc></teiHeader>` +
     `<standOff>${openTag}${change.contentXml}</${wrapper.tag}></standOff></TEI>`;
 
-  const staging = new RepoCtor(':memory:');
+  const staging = await EntitySqliteRepository.open(':memory:');
   try {
-    importEntitiesXml(staging, wrapped, { replace: true });
+    await importEntitiesXml(staging, wrapped, { replace: true });
     if (!existing) {
-      repo.createEntity({ id: change.centralId, kind: change.kind });
+      await repo.createEntity({ id: change.centralId, kind: change.kind });
     } else if (existing.deletedAt) {
       // Central un-deleted it; clear the tombstone before copying content back.
-      repo.db.prepare(`UPDATE entities SET deleted_at = NULL WHERE id = ?`).run(change.centralId);
+      await repo.backend.run(`UPDATE entities SET deleted_at = NULL WHERE id = ?`, [change.centralId]);
     }
-    repo.replaceEntityContentFrom(staging, change.centralId, change.centralId);
+    await repo.replaceEntityContentFrom(staging, change.centralId, change.centralId);
   } finally {
-    staging.close();
+    await staging.close();
   }
 
-  const after = repo.getEntity(change.centralId);
+  const after = await repo.getEntity(change.centralId);
   return {
-    afterHash: computeEntityContentHash(repo, change.centralId) ?? '',
+    afterHash: (await computeEntityContentHash(repo, change.centralId)) ?? '',
     projectRevision: after?.revision ?? 0,
   };
 };
