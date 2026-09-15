@@ -30,3 +30,8 @@ export interface EntityDbBackend {
   exec(sql: string): Promise<void>;
   close(): Promise<void>;
 }
+
+/** Which storage a repository should open, and how. */
+export type EntityDbConnection =
+  | { backend: 'local'; path: string }
+  | { backend: 'turso'; url: string; authToken?: string };

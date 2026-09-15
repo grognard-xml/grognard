@@ -587,22 +587,25 @@ export async function applyEntityDbMigrations(db: EntityDbBackend): Promise<void
     if (!sql) throw new Error(`Missing entity database migration ${version}.`);
     const isRebuild = FOREIGN_KEY_REBUILD_VERSIONS.has(version);
     if (isRebuild) await db.exec('PRAGMA foreign_keys = OFF;');
-    await db.exec('BEGIN IMMEDIATE;');
     try {
-      await db.exec(sql);
-      if (isRebuild) {
-        const violations = await db.all('PRAGMA foreign_key_check;');
-        if (violations.length > 0) {
-          throw new Error(
-            `Migration ${version} left dangling foreign keys: ${JSON.stringify(violations)}`,
-          );
+      // Use the backend's own transaction() rather than hand-rolled
+      // BEGIN/COMMIT/ROLLBACK text: those only share connection state across
+      // separate exec() calls for a single persistent local handle
+      // (NodeSqliteBackend). A network backend's exec() may run each call on
+      // its own logical connection, so raw transaction-control statements
+      // don't reliably span multiple exec() calls the way transaction() does.
+      await db.transaction(async (tx) => {
+        await tx.exec(sql);
+        if (isRebuild) {
+          const violations = await tx.all('PRAGMA foreign_key_check;');
+          if (violations.length > 0) {
+            throw new Error(
+              `Migration ${version} left dangling foreign keys: ${JSON.stringify(violations)}`,
+            );
+          }
         }
-      }
-      await db.exec(`PRAGMA user_version = ${version};`);
-      await db.exec('COMMIT;');
-    } catch (error) {
-      await db.exec('ROLLBACK;');
-      throw error;
+        await tx.exec(`PRAGMA user_version = ${version};`);
+      });
     } finally {
       if (isRebuild) await db.exec('PRAGMA foreign_keys = ON;');
     }

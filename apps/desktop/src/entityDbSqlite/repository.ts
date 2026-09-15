@@ -5,7 +5,7 @@ import {
   latnLangFor,
 } from '../../../../packages/cwrc-leafwriter/src/utilities/languageCodes';
 import type { EntityDbBackend } from './backend';
-import { NodeSqliteBackend } from './nodeSqliteBackend';
+import { type EntityDbConnectionInput, openBackendForConnection } from './openBackend';
 import { applyEntityDbMigrations } from './schema';
 
 export type SqliteEntityKind = 'person' | 'place' | 'work' | 'office' | 'org' | 'thing';
@@ -970,9 +970,16 @@ export class EntitySqliteRepository {
     this.activeBackend = backend;
   }
 
-  /** Opens (and migrates) a local-file-backed repository. Mirrors today's `new EntitySqliteRepository(path)`. */
-  static async open(databasePath = ':memory:'): Promise<EntitySqliteRepository> {
-    const backend = new NodeSqliteBackend(databasePath);
+  /**
+   * Opens (and migrates) a repository. A bare string is shorthand for a
+   * local file (`{ backend: 'local', path }`) — mirrors today's
+   * `new EntitySqliteRepository(path)`. Pass `{ backend: 'turso', url, authToken }`
+   * for a shared, network-accessible project database.
+   */
+  static async open(
+    connection: EntityDbConnectionInput = ':memory:',
+  ): Promise<EntitySqliteRepository> {
+    const backend = openBackendForConnection(connection);
     await applyEntityDbMigrations(backend);
     return new EntitySqliteRepository(backend);
   }
@@ -4460,6 +4467,8 @@ export class EntitySqliteRepository {
   }
 }
 
-export async function openEntitySqliteRepository(databasePath: string): Promise<EntitySqliteRepository> {
-  return EntitySqliteRepository.open(databasePath);
+export async function openEntitySqliteRepository(
+  connection: EntityDbConnectionInput,
+): Promise<EntitySqliteRepository> {
+  return EntitySqliteRepository.open(connection);
 }

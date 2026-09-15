@@ -1,5 +1,6 @@
 import fs from 'fs/promises';
 import path from 'path';
+import { entityDbConnectionKey, type EntityDbConnectionInput } from './openBackend';
 import {
   exportEntitiesXml,
   importEntitiesXml,
@@ -270,12 +271,20 @@ const DECISION_TARGET_BACKFILL_META = 'decision_targets_backfill_v1';
 
 const repositories = new Map<string, EntitySqliteRepository>();
 
-/** Shared, process-wide open repository per `entities.sqlite` path. */
-export const repositoryFor = async (databasePath: string): Promise<EntitySqliteRepository> => {
-  const existing = repositories.get(databasePath);
+/**
+ * Shared, process-wide open repository per connection. Keyed by a stable
+ * string derived from the connection (a bare string — today's local-file
+ * `entities.sqlite` path — is shorthand for `{ backend: 'local', path }`;
+ * see entityDbConnectionKey).
+ */
+export const repositoryFor = async (
+  connection: EntityDbConnectionInput,
+): Promise<EntitySqliteRepository> => {
+  const key = entityDbConnectionKey(connection);
+  const existing = repositories.get(key);
   if (existing) return existing;
-  const repository = await EntitySqliteRepository.open(databasePath);
-  repositories.set(databasePath, repository);
+  const repository = await EntitySqliteRepository.open(connection);
+  repositories.set(key, repository);
   return repository;
 };
 
