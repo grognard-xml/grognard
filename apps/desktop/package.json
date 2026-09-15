@@ -48,6 +48,7 @@
     "package:deb": "npm run build && CUSTOM_FPM_PATH=$PWD/scripts/fpm-deb.mjs XDG_CACHE_HOME=/tmp electron-builder --config electron-builder.linux.json --linux deb"
   },
   "dependencies": {
+    "@libsql/client": "^0.18.0",
     "@xmldom/xmldom": "^0.8.11",
     "electron-updater": "^6.8.9",
     "jszip": "^3.10.1",
