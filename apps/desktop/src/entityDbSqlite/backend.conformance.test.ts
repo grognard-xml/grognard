@@ -11,12 +11,15 @@ import type { EntityDbBackend } from './backend';
 import { NodeSqliteBackend } from './nodeSqliteBackend';
 import { TursoBackend } from './tursoBackend';
 
+let lastTursoDir: string | null = null;
+
 const backends: { name: string; open: () => EntityDbBackend | Promise<EntityDbBackend> }[] = [
   { name: 'NodeSqliteBackend', open: () => new NodeSqliteBackend(':memory:') },
   {
     name: 'TursoBackend (file:)',
     open: () => {
       const directory = mkdtempSync(path.join(tmpdir(), 'grognard-turso-conformance-'));
+      lastTursoDir = directory;
       return new TursoBackend({ url: `file:${path.join(directory, 'entities.sqlite')}` });
     },
   },
@@ -26,6 +29,7 @@ describe.each(backends)('$name conformance', ({ open }) => {
   let backend: EntityDbBackend;
 
   beforeEach(async () => {
+    lastTursoDir = null;
     backend = await open();
     await backend.exec(
       'CREATE TABLE widgets (id INTEGER PRIMARY KEY, name TEXT NOT NULL, qty INTEGER)',
@@ -34,6 +38,7 @@ describe.each(backends)('$name conformance', ({ open }) => {
 
   afterEach(async () => {
     await backend.close();
+    if (lastTursoDir) rmSync(lastTursoDir, { recursive: true, force: true });
   });
 
   it('run() inserts and reports changes + lastInsertRowid', async () => {
