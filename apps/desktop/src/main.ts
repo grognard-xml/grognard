@@ -106,6 +106,7 @@ import {
   restoreSnapshot,
   checkEntityDbIntegrity,
   probeBackupTarget,
+  setActiveProjectPedb,
 } from './entityDbBackup';
 import {
   ensureDefaultEntityDatabase,
@@ -990,6 +991,7 @@ const activateProjectBundle = (bundle: ProjectBundle | null): void => {
   setActiveProjectRoot(bundle?.rootPath ?? null);
   setPluginProject(bundle?.projectFilePath ?? null, bundle?.config.plugins ?? []);
   if (bundle?.config.pedb?.backend === 'turso') sessionTursoUrls.add(bundle.config.pedb.url);
+  setActiveProjectPedb(bundle?.config.pedb ?? null);
   buildApplicationMenu();
 };
 

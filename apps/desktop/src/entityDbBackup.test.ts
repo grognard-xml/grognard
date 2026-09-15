@@ -11,13 +11,16 @@ jest.mock('electron', () => ({
   dialog: {},
 }));
 
-import { selectSnapshotsToPrune, __testing } from './entityDbBackup';
+import { selectSnapshotsToPrune, restoreSnapshot, __testing } from './entityDbBackup';
 
 const { parseSnapshotKey, companionAchievementsKey, sqlStringLiteral } = __testing;
 
 const PREFIX = 'entity-db-backups/snapshots/';
+const LOGICAL_PREFIX = 'entity-db-backups/snapshots-logical/';
 const keyAt = (iso: string, reason = 'timer') =>
   `${PREFIX}entities-${iso.replace(/[:-]|\.\d{3}/g, '')}-${reason}.sqlite.gz`;
+const logicalKeyAt = (iso: string, reason = 'timer') =>
+  `${LOGICAL_PREFIX}entities-${iso.replace(/[:-]|\.\d{3}/g, '')}-${reason}.sql.gz`;
 
 describe('parseSnapshotKey', () => {
   it('recovers the timestamp from a well-formed key', () => {
@@ -28,6 +31,11 @@ describe('parseSnapshotKey', () => {
   it('rejects keys that are not snapshots', () => {
     expect(parseSnapshotKey(`${PREFIX}notes.txt`)).toBeNull();
     expect(parseSnapshotKey(`${PREFIX}entities-garbage.sqlite.gz`)).toBeNull();
+  });
+
+  it('also recovers the timestamp from a Turso logical-export key', () => {
+    const parsed = parseSnapshotKey(logicalKeyAt('2026-09-01T20:30:15.000Z', 'quit'));
+    expect(parsed?.date.toISOString()).toBe('2026-09-01T20:30:15.000Z');
   });
 });
 
@@ -41,6 +49,21 @@ describe('companionAchievementsKey', () => {
 
   it('returns null for non-entity keys', () => {
     expect(companionAchievementsKey(`${PREFIX}notes.txt`)).toBeNull();
+  });
+
+  it('also pairs a logical-export key with an achievements sidecar key', () => {
+    const entityKey = logicalKeyAt('2026-09-01T20:30:15.000Z', 'manual');
+    expect(companionAchievementsKey(entityKey)).toBe(
+      `${LOGICAL_PREFIX}achievements-20260901T203015Z-manual.json.gz`,
+    );
+  });
+});
+
+describe('restoreSnapshot', () => {
+  it('refuses to restore a Turso logical-export snapshot in place', async () => {
+    await expect(restoreSnapshot(logicalKeyAt('2026-09-01T20:30:15.000Z'))).rejects.toThrow(
+      /logical-export snapshot/,
+    );
   });
 });
 
