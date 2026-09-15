@@ -84,21 +84,20 @@ const emptyResult = (cursor: number): SyncRunResult => ({
 
 export async function runSync(options: RunSyncOptions): Promise<SyncRunResult> {
   const { repo, client, pullLimit = 500, signal, onProgress } = options;
-  const result = emptyResult(getSyncCursor(repo));
+  const result = emptyResult(await getSyncCursor(repo));
 
   // ---- pull ----
   result.cursor = await pullPhase(repo, client, pullLimit, result, signal, onProgress);
 
   // ---- push ----
-  const dirty = listDirtyForSync(repo);
+  const dirty = await listDirtyForSync(repo);
   const batches = [...chunked(dirty, EntitySyncClient.pushChunkLimit)];
   let chunkIndex = 0;
   for (const batch of batches) {
     chunkIndex += 1;
     checkAborted(signal);
-    const payload = batch
-      .map((d) => toPushEntity(repo, d))
-      .filter((p): p is SyncPushEntity => p !== null);
+    const payloadResults = await Promise.all(batch.map((d) => toPushEntity(repo, d)));
+    const payload = payloadResults.filter((p): p is SyncPushEntity => p !== null);
     if (payload.length === 0) continue;
 
     let res: Awaited<ReturnType<typeof client.push>>;
@@ -114,23 +113,23 @@ export async function runSync(options: RunSyncOptions): Promise<SyncRunResult> {
       throw error;
     }
     const byLocal = new Map(batch.map((d) => [d.localId, d]));
-    repo.transaction(() => {
+    await repo.transaction(async () => {
       for (const applied of res.applied) {
         const d = byLocal.get(applied.localId);
         if (!d) continue;
-        recordPushSuccess(repo, d, applied);
+        await recordPushSuccess(repo, d, applied);
         result.pushedApplied += 1;
       }
       for (const reconciled of res.reconciled) {
         const d = byLocal.get(reconciled.localId);
         if (!d) continue;
-        recordPushSuccess(repo, d, reconciled);
+        await recordPushSuccess(repo, d, reconciled);
         result.pushedReconciled += 1;
       }
       for (const conflict of res.conflicts) {
         const d = byLocal.get(conflict.localId);
         if (!d) continue;
-        recordPushConflict(repo, d, conflict);
+        await recordPushConflict(repo, d, conflict);
         result.pushedConflicts += 1;
       }
     });
@@ -149,7 +148,7 @@ export async function runSync(options: RunSyncOptions): Promise<SyncRunResult> {
     result.cursor = await pullPhase(repo, client, pullLimit, result, signal, onProgress);
   }
 
-  result.openConflicts = countOpenConflicts(repo);
+  result.openConflicts = await countOpenConflicts(repo);
   return result;
 }
 
@@ -163,21 +162,21 @@ async function pullPhase(
   signal: AbortSignal | undefined,
   onProgress: ((progress: SyncProgress) => void) | undefined,
 ): Promise<number> {
-  let cursor = getSyncCursor(repo);
+  let cursor = await getSyncCursor(repo);
   let page = 0;
   for (;;) {
     checkAborted(signal);
     page += 1;
     const pulled = await client.pull(cursor, pullLimit);
     if (pulled.changes.length > 0) {
-      repo.transaction(() => {
-        for (const change of pulled.changes) applyPulledChange(repo, change, result);
+      await repo.transaction(async () => {
+        for (const change of pulled.changes) await applyPulledChange(repo, change, result);
         cursor = Math.max(cursor, pulled.highSeq);
-        setSyncCursor(repo, cursor);
+        await setSyncCursor(repo, cursor);
       });
     } else {
       cursor = Math.max(cursor, pulled.highSeq);
-      setSyncCursor(repo, cursor);
+      await setSyncCursor(repo, cursor);
     }
     onProgress?.({
       phase: 'pull',
@@ -191,13 +190,13 @@ async function pullPhase(
   return cursor;
 }
 
-function applyPulledChange(
+async function applyPulledChange(
   repo: EntitySqliteRepository,
   change: SyncPullChange,
   result: SyncRunResult,
-): void {
-  const localEntity = repo.getEntity(change.centralId);
-  const state = getSyncState(repo, change.centralId);
+): Promise<void> {
+  const localEntity = await repo.getEntity(change.centralId);
+  const state = await getSyncState(repo, change.centralId);
 
   // Already in sync with this exact version — typically our own just-pushed
   // write coming back on the next pull. Nothing to do; the cursor still
@@ -212,7 +211,7 @@ function applyPulledChange(
 
   const localHash =
     localEntity && !localEntity.deletedAt
-      ? (localEntityHash(repo, change.centralId) ?? '')
+      ? ((await localEntityHash(repo, change.centralId)) ?? '')
       : localEntity?.deletedAt
         ? ''
         : null;
@@ -226,7 +225,7 @@ function applyPulledChange(
     localHash === change.contentHash &&
     Boolean(localEntity.deletedAt) === change.deleted
   ) {
-    upsertSyncState(repo, {
+    await upsertSyncState(repo, {
       projectEntityId: change.centralId,
       centralEntityId: change.centralId,
       centralRevision: change.revision,
@@ -244,7 +243,7 @@ function applyPulledChange(
 
   if (localEntity && localIsDirty) {
     if (localHash !== change.contentHash) {
-      openConflict(repo, {
+      await openConflict(repo, {
         projectEntityId: change.centralId,
         centralEntityId: change.centralId,
         reason: 'pull-collision',
@@ -252,7 +251,7 @@ function applyPulledChange(
         centralRevision: change.revision,
         projectSnapshot: localEntity.deletedAt
           ? ''
-          : (exportLocalEntityXml(repo, change.centralId) ?? ''),
+          : ((await exportLocalEntityXml(repo, change.centralId)) ?? ''),
         centralSnapshot: change.contentXml,
       });
       result.pulledConflicts += 1;
@@ -260,13 +259,13 @@ function applyPulledChange(
     }
   }
 
-  const { afterHash, projectRevision } = applyRemoteEntity(repo, {
+  const { afterHash, projectRevision } = await applyRemoteEntity(repo, {
     centralId: change.centralId,
     kind: change.kind,
     contentXml: change.contentXml,
     deleted: change.deleted,
   });
-  upsertSyncState(repo, {
+  await upsertSyncState(repo, {
     projectEntityId: change.centralId,
     centralEntityId: change.centralId,
     centralRevision: change.revision,
@@ -279,7 +278,10 @@ function applyPulledChange(
 
 // --- push ----------------------------------------------------------------
 
-function toPushEntity(repo: EntitySqliteRepository, d: DirtyEntity): SyncPushEntity | null {
+async function toPushEntity(
+  repo: EntitySqliteRepository,
+  d: DirtyEntity,
+): Promise<SyncPushEntity | null> {
   if (d.deleted) {
     return {
       localId: d.localId,
@@ -291,8 +293,8 @@ function toPushEntity(repo: EntitySqliteRepository, d: DirtyEntity): SyncPushEnt
       deleted: true,
     };
   }
-  const contentXml = exportLocalEntityXml(repo, d.localId);
-  const contentHash = localEntityHash(repo, d.localId);
+  const contentXml = await exportLocalEntityXml(repo, d.localId);
+  const contentHash = await localEntityHash(repo, d.localId);
   if (!contentXml || !contentHash) return null; // entity vanished mid-run
   return {
     localId: d.localId,
@@ -305,14 +307,14 @@ function toPushEntity(repo: EntitySqliteRepository, d: DirtyEntity): SyncPushEnt
   };
 }
 
-function recordPushSuccess(
+async function recordPushSuccess(
   repo: EntitySqliteRepository,
   d: DirtyEntity,
   outcome: SyncAppliedEntity,
-): void {
-  const liveRevision = repo.getEntity(d.localId)?.revision ?? d.revision;
-  const hash = d.deleted ? '' : (localEntityHash(repo, d.localId) ?? '');
-  upsertSyncState(repo, {
+): Promise<void> {
+  const liveRevision = (await repo.getEntity(d.localId))?.revision ?? d.revision;
+  const hash = d.deleted ? '' : ((await localEntityHash(repo, d.localId)) ?? '');
+  await upsertSyncState(repo, {
     projectEntityId: d.localId,
     centralEntityId: outcome.centralId,
     centralRevision: outcome.revision,
@@ -324,18 +326,18 @@ function recordPushSuccess(
   });
 }
 
-function recordPushConflict(
+async function recordPushConflict(
   repo: EntitySqliteRepository,
   d: DirtyEntity,
   conflict: SyncConflictEntity,
-): void {
-  openConflict(repo, {
+): Promise<void> {
+  await openConflict(repo, {
     projectEntityId: d.localId,
     centralEntityId: conflict.centralId,
     reason: 'push-rejected',
-    projectRevision: repo.getEntity(d.localId)?.revision ?? d.revision,
+    projectRevision: (await repo.getEntity(d.localId))?.revision ?? d.revision,
     centralRevision: conflict.serverRevision,
-    projectSnapshot: d.deleted ? '' : (exportLocalEntityXml(repo, d.localId) ?? ''),
+    projectSnapshot: d.deleted ? '' : ((await exportLocalEntityXml(repo, d.localId)) ?? ''),
     centralSnapshot: conflict.serverXml,
   });
 }
@@ -345,21 +347,20 @@ function recordPushConflict(
 const STAYS_DIRTY = -1;
 
 /** Keep the local version: next sync pushes it against the server's revision. */
-export function resolveConflictKeepLocal(
+export async function resolveConflictKeepLocal(
   repo: EntitySqliteRepository,
   conflictId: number,
-): boolean {
-  const conflict = repo.db
-    .prepare(
-      `SELECT project_entity_id, central_entity_id, central_revision
+): Promise<boolean> {
+  const conflict = (await repo.backend.get(
+    `SELECT project_entity_id, central_entity_id, central_revision
          FROM sync_conflicts WHERE id = ? AND status = 'open'`,
-    )
-    .get(conflictId) as
+    [conflictId],
+  )) as
     { project_entity_id: string; central_entity_id: string; central_revision: number } | undefined;
   if (!conflict) return false;
 
-  repo.transaction(() => {
-    upsertSyncState(repo, {
+  await repo.transaction(async () => {
+    await upsertSyncState(repo, {
       projectEntityId: conflict.project_entity_id,
       centralEntityId: conflict.central_entity_id,
       centralRevision: conflict.central_revision,
@@ -369,22 +370,21 @@ export function resolveConflictKeepLocal(
       centralHash: '',
       projectHash: '',
     });
-    resolveConflict(repo, conflictId);
+    await resolveConflict(repo, conflictId);
   });
   return true;
 }
 
 /** Keep the server version: apply its snapshot over the local entity. */
-export function resolveConflictKeepRemote(
+export async function resolveConflictKeepRemote(
   repo: EntitySqliteRepository,
   conflictId: number,
-): boolean {
-  const conflict = repo.db
-    .prepare(
-      `SELECT project_entity_id, central_entity_id, central_revision, central_snapshot
+): Promise<boolean> {
+  const conflict = (await repo.backend.get(
+    `SELECT project_entity_id, central_entity_id, central_revision, central_snapshot
          FROM sync_conflicts WHERE id = ? AND status = 'open'`,
-    )
-    .get(conflictId) as
+    [conflictId],
+  )) as
     | {
         project_entity_id: string;
         central_entity_id: string;
@@ -394,18 +394,18 @@ export function resolveConflictKeepRemote(
     | undefined;
   if (!conflict) return false;
 
-  const kind = repo.getEntity(conflict.central_entity_id)?.kind;
+  const kind = (await repo.getEntity(conflict.central_entity_id))?.kind;
   if (!kind) return false;
   const deleted = conflict.central_snapshot.trim().length === 0;
 
-  repo.transaction(() => {
-    const { afterHash, projectRevision } = applyRemoteEntity(repo, {
+  await repo.transaction(async () => {
+    const { afterHash, projectRevision } = await applyRemoteEntity(repo, {
       centralId: conflict.central_entity_id,
       kind,
       contentXml: conflict.central_snapshot,
       deleted,
     });
-    upsertSyncState(repo, {
+    await upsertSyncState(repo, {
       projectEntityId: conflict.project_entity_id,
       centralEntityId: conflict.central_entity_id,
       centralRevision: conflict.central_revision,
@@ -413,7 +413,7 @@ export function resolveConflictKeepRemote(
       centralHash: deleted ? '' : afterHash,
       projectHash: deleted ? '' : afterHash,
     });
-    resolveConflict(repo, conflictId);
+    await resolveConflict(repo, conflictId);
   });
   return true;
 }

@@ -141,7 +141,7 @@ export const runEntitySync = async (reason: SyncReason): Promise<SyncRunSummary>
   const abort = new AbortController();
   const watchdog = setTimeout(() => abort.abort(), RUN_TIMEOUT_MS);
   try {
-    const repo = repositoryFor(dbPath);
+    const repo = await repositoryFor(dbPath);
     const client = new EntitySyncClient({
       endpoint: config.endpoint,
       getToken: resolveTokenProvider(config),
@@ -230,9 +230,9 @@ export const getEntitySyncStatus = async (): Promise<EntitySyncStatus> => {
   let openConflicts: number | null = null;
   if (dbPath) {
     try {
-      const repo = repositoryFor(dbPath);
-      cursor = getSyncCursor(repo);
-      openConflicts = countOpenConflicts(repo);
+      const repo = await repositoryFor(dbPath);
+      cursor = await getSyncCursor(repo);
+      openConflicts = await countOpenConflicts(repo);
     } catch {
       // status is best-effort
     }
@@ -253,7 +253,7 @@ export const setEntitySyncConfig = async (
 export const listEntitySyncConflicts = async (): Promise<SyncConflict[]> => {
   const dbPath = await getEntityDbPath();
   if (!dbPath) return [];
-  return listOpenConflicts(repositoryFor(dbPath));
+  return listOpenConflicts(await repositoryFor(dbPath));
 };
 
 export const resolveEntitySyncConflict = async (
@@ -262,9 +262,9 @@ export const resolveEntitySyncConflict = async (
 ): Promise<{ ok: boolean }> => {
   const dbPath = await getEntityDbPath();
   if (!dbPath) return { ok: false };
-  const repo = repositoryFor(dbPath);
+  const repo = await repositoryFor(dbPath);
   const ok =
-    keep === 'local' ? resolveConflictKeepLocal(repo, id) : resolveConflictKeepRemote(repo, id);
+    keep === 'local' ? await resolveConflictKeepLocal(repo, id) : await resolveConflictKeepRemote(repo, id);
   return { ok };
 };
 
