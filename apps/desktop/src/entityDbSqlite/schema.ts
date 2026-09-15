@@ -6,7 +6,7 @@
  * a later application version and upgraded exactly once per version.
  */
 
-import type { DatabaseSync } from 'node:sqlite';
+import type { EntityDbBackend } from './backend';
 
 export const ENTITY_DB_SCHEMA_VERSION = 11;
 
@@ -571,11 +571,12 @@ export const migrations: Record<number, string> = {
  */
 const FOREIGN_KEY_REBUILD_VERSIONS = new Set([11]);
 
-export function applyEntityDbMigrations(db: DatabaseSync): void {
-  db.exec('PRAGMA foreign_keys = ON;');
-  db.exec('PRAGMA journal_mode = WAL;');
-  db.exec('PRAGMA synchronous = NORMAL;');
-  const current = Number(db.prepare('PRAGMA user_version').get()?.user_version ?? 0);
+export async function applyEntityDbMigrations(db: EntityDbBackend): Promise<void> {
+  await db.exec('PRAGMA foreign_keys = ON;');
+  await db.exec('PRAGMA journal_mode = WAL;');
+  await db.exec('PRAGMA synchronous = NORMAL;');
+  const versionRow = (await db.get<{ user_version?: number }>('PRAGMA user_version'));
+  const current = Number(versionRow?.user_version ?? 0);
   if (current > ENTITY_DB_SCHEMA_VERSION) {
     throw new Error(
       `Entity database schema ${current} is newer than this application supports (${ENTITY_DB_SCHEMA_VERSION}).`,
@@ -585,25 +586,25 @@ export function applyEntityDbMigrations(db: DatabaseSync): void {
     const sql = migrations[version];
     if (!sql) throw new Error(`Missing entity database migration ${version}.`);
     const isRebuild = FOREIGN_KEY_REBUILD_VERSIONS.has(version);
-    if (isRebuild) db.exec('PRAGMA foreign_keys = OFF;');
-    db.exec('BEGIN IMMEDIATE;');
+    if (isRebuild) await db.exec('PRAGMA foreign_keys = OFF;');
+    await db.exec('BEGIN IMMEDIATE;');
     try {
-      db.exec(sql);
+      await db.exec(sql);
       if (isRebuild) {
-        const violations = db.prepare('PRAGMA foreign_key_check;').all();
+        const violations = await db.all('PRAGMA foreign_key_check;');
         if (violations.length > 0) {
           throw new Error(
             `Migration ${version} left dangling foreign keys: ${JSON.stringify(violations)}`,
           );
         }
       }
-      db.exec(`PRAGMA user_version = ${version};`);
-      db.exec('COMMIT;');
+      await db.exec(`PRAGMA user_version = ${version};`);
+      await db.exec('COMMIT;');
     } catch (error) {
-      db.exec('ROLLBACK;');
+      await db.exec('ROLLBACK;');
       throw error;
     } finally {
-      if (isRebuild) db.exec('PRAGMA foreign_keys = ON;');
+      if (isRebuild) await db.exec('PRAGMA foreign_keys = ON;');
     }
   }
 }
