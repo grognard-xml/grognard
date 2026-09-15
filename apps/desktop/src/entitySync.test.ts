@@ -152,144 +152,144 @@ class FakeCentral {
   }
 }
 
-const freshRepo = () => {
-  const repo = new EntitySqliteRepository(':memory:');
-  repo.setMetadata('database_id', 'test-db');
+const freshRepo = async () => {
+  const repo = await EntitySqliteRepository.open(':memory:');
+  await repo.setMetadata('database_id', 'test-db');
   return repo;
 };
 
-const addPerson = (repo: EntitySqliteRepository, id: string, name: string) => {
-  repo.createEntity({ id, kind: 'person' });
-  repo.addName({ entityId: id, text: name, isPrimary: true });
+const addPerson = async (repo: EntitySqliteRepository, id: string, name: string) => {
+  await repo.createEntity({ id, kind: 'person' });
+  await repo.addName({ entityId: id, text: name, isPrimary: true });
 };
 
 describe('runSync', () => {
   it('pushes new local entities to central and marks them clean', async () => {
     const central = new FakeCentral();
-    const repo = freshRepo();
-    addPerson(repo, 'person-a', '張衡');
-    addPerson(repo, 'person-b', '司馬遷');
+    const repo = (await freshRepo());
+    (await addPerson(repo, 'person-a', '張衡'));
+    (await addPerson(repo, 'person-b', '司馬遷'));
 
     const result = await runSync({ repo, client: central });
 
     expect(result.pushedApplied).toBe(2);
     expect(result.pushedConflicts).toBe(0);
-    expect(listDirtyForSync(repo)).toHaveLength(0);
+    expect((await listDirtyForSync(repo))).toHaveLength(0);
 
     // A second device pulls both.
-    const repoB = freshRepo();
+    const repoB = (await freshRepo());
     const resultB = await runSync({ repo: repoB, client: central });
     expect(resultB.pulledApplied).toBe(2);
-    expect(repoB.getEntity('person-a')).not.toBeNull();
-    expect(repoB.listNames('person-b').some((n) => n.text === '司馬遷')).toBe(true);
-    expect(getSyncCursor(repoB)).toBe(resultB.cursor);
+    expect((await repoB.getEntity('person-a'))).not.toBeNull();
+    expect((await repoB.listNames('person-b')).some((n) => n.text === '司馬遷')).toBe(true);
+    expect((await getSyncCursor(repoB))).toBe(resultB.cursor);
   });
 
   it('pushes and pulls `thing` entities too (central sync support for thing has shipped)', async () => {
     const central = new FakeCentral();
-    const repoA = freshRepo();
-    const thing = repoA.createEntity({ id: 'thing-a', kind: 'thing' });
-    repoA.addName({ entityId: thing.id, text: '氣', isPrimary: true });
+    const repoA = (await freshRepo());
+    const thing = (await repoA.createEntity({ id: 'thing-a', kind: 'thing' }));
+    (await repoA.addName({ entityId: thing.id, text: '氣', isPrimary: true }));
 
     const result = await runSync({ repo: repoA, client: central });
     expect(result.pushedApplied).toBe(1);
-    expect(listDirtyForSync(repoA)).toHaveLength(0);
+    expect((await listDirtyForSync(repoA))).toHaveLength(0);
 
-    const repoB = freshRepo();
+    const repoB = (await freshRepo());
     const resultB = await runSync({ repo: repoB, client: central });
     expect(resultB.pulledApplied).toBe(1);
-    expect(repoB.getEntity('thing-a')?.kind).toBe('thing');
-    expect(repoB.listNames('thing-a').some((n) => n.text === '氣')).toBe(true);
+    expect((await repoB.getEntity('thing-a'))?.kind).toBe('thing');
+    expect((await repoB.listNames('thing-a')).some((n) => n.text === '氣')).toBe(true);
   });
 
   it('propagates an edit from one device to another (fast-forward)', async () => {
     const central = new FakeCentral();
-    const repoA = freshRepo();
-    addPerson(repoA, 'person-a', '張衡');
+    const repoA = (await freshRepo());
+    (await addPerson(repoA, 'person-a', '張衡'));
     await runSync({ repo: repoA, client: central });
 
-    const repoB = freshRepo();
+    const repoB = (await freshRepo());
     await runSync({ repo: repoB, client: central });
 
-    repoA.addName({ entityId: 'person-a', text: 'Zhang Heng' });
+    (await repoA.addName({ entityId: 'person-a', text: 'Zhang Heng' }));
     const a2 = await runSync({ repo: repoA, client: central });
     expect(a2.pushedApplied).toBe(1);
     expect(a2.pushedConflicts).toBe(0);
 
     const b2 = await runSync({ repo: repoB, client: central });
     expect(b2.pulledApplied).toBe(1);
-    expect(repoB.listNames('person-a').map((n) => n.text)).toEqual(
+    expect((await repoB.listNames('person-a')).map((n) => n.text)).toEqual(
       expect.arrayContaining(['張衡', 'Zhang Heng']),
     );
-    expect(listDirtyForSync(repoB)).toHaveLength(0);
+    expect((await listDirtyForSync(repoB))).toHaveLength(0);
   });
 
   it('opens a conflict when a pulled change collides with a dirty local edit', async () => {
     const central = new FakeCentral();
-    const repoA = freshRepo();
-    addPerson(repoA, 'person-a', '張衡');
+    const repoA = (await freshRepo());
+    (await addPerson(repoA, 'person-a', '張衡'));
     await runSync({ repo: repoA, client: central });
-    const repoB = freshRepo();
+    const repoB = (await freshRepo());
     await runSync({ repo: repoB, client: central });
 
     // A edits and syncs; B edits differently and has NOT synced yet.
-    repoA.addName({ entityId: 'person-a', text: 'from A' });
+    (await repoA.addName({ entityId: 'person-a', text: 'from A' }));
     await runSync({ repo: repoA, client: central });
-    repoB.addName({ entityId: 'person-a', text: 'from B' });
+    (await repoB.addName({ entityId: 'person-a', text: 'from B' }));
 
     const b = await runSync({ repo: repoB, client: central });
     expect(b.pulledConflicts).toBe(1);
     expect(b.pushedApplied).toBe(0);
-    expect(countOpenConflicts(repoB)).toBe(1);
+    expect((await countOpenConflicts(repoB))).toBe(1);
     // local copy untouched
-    expect(repoB.listNames('person-a').some((n) => n.text === 'from B')).toBe(true);
-    expect(repoB.listNames('person-a').some((n) => n.text === 'from A')).toBe(false);
+    expect((await repoB.listNames('person-a')).some((n) => n.text === 'from B')).toBe(true);
+    expect((await repoB.listNames('person-a')).some((n) => n.text === 'from A')).toBe(false);
 
-    const [conflict] = listOpenConflicts(repoB);
+    const [conflict] = (await listOpenConflicts(repoB));
     expect(conflict!.reason).toBe('pull-collision');
     expect(conflict!.centralSnapshot).toContain('from A');
   });
 
   it('opens a conflict when the server rejects a stale-base push', async () => {
     const central = new FakeCentral();
-    const repoA = freshRepo();
-    addPerson(repoA, 'person-a', '張衡');
+    const repoA = (await freshRepo());
+    (await addPerson(repoA, 'person-a', '張衡'));
     await runSync({ repo: repoA, client: central });
 
     // Server moves ahead out of band, but the client's cursor is bumped past
     // that seq so its pull misses it — the push then arrives with a stale base.
     central.bumpOutOfBand('person-a', '<person xml:id="person-a">server</person>', 'server-hash');
-    setSyncCursor(repoA, 999);
+    (await setSyncCursor(repoA, 999));
 
-    repoA.addName({ entityId: 'person-a', text: 'client edit' });
+    (await repoA.addName({ entityId: 'person-a', text: 'client edit' }));
     const a = await runSync({ repo: repoA, client: central });
 
     expect(a.pushedConflicts).toBe(1);
-    expect(countOpenConflicts(repoA)).toBe(1);
-    expect(listOpenConflicts(repoA)[0]!.reason).toBe('push-rejected');
+    expect((await countOpenConflicts(repoA))).toBe(1);
+    expect((await listOpenConflicts(repoA))[0]!.reason).toBe('push-rejected');
   });
 
   it('round-trips a delete', async () => {
     const central = new FakeCentral();
-    const repoA = freshRepo();
-    addPerson(repoA, 'person-a', '張衡');
+    const repoA = (await freshRepo());
+    (await addPerson(repoA, 'person-a', '張衡'));
     await runSync({ repo: repoA, client: central });
-    const repoB = freshRepo();
+    const repoB = (await freshRepo());
     await runSync({ repo: repoB, client: central });
 
-    repoA.softDeleteEntity('person-a');
+    (await repoA.softDeleteEntity('person-a'));
     const a = await runSync({ repo: repoA, client: central });
     expect(a.pushedApplied).toBe(1);
 
     const b = await runSync({ repo: repoB, client: central });
     expect(b.pulledApplied).toBe(1);
-    expect(repoB.getEntity('person-a')!.deletedAt).not.toBeNull();
+    expect((await repoB.getEntity('person-a'))!.deletedAt).not.toBeNull();
   });
 
   it('bails out when the abort signal is already set', async () => {
     const central = new FakeCentral();
-    const repo = freshRepo();
-    addPerson(repo, 'person-a', '張衡');
+    const repo = (await freshRepo());
+    (await addPerson(repo, 'person-a', '張衡'));
     const controller = new AbortController();
     controller.abort();
     await expect(runSync({ repo, client: central, signal: controller.signal })).rejects.toThrow(
@@ -299,11 +299,11 @@ describe('runSync', () => {
 
   it('reports progress for each pull page and push chunk', async () => {
     const central = new FakeCentral();
-    const repoA = freshRepo();
-    addPerson(repoA, 'person-a', '張衡');
+    const repoA = (await freshRepo());
+    (await addPerson(repoA, 'person-a', '張衡'));
     await runSync({ repo: repoA, client: central });
 
-    const repoB = freshRepo();
+    const repoB = (await freshRepo());
     const events: string[] = [];
     await runSync({
       repo: repoB,
@@ -315,8 +315,8 @@ describe('runSync', () => {
 
   it('is a no-op on the second run when nothing changed', async () => {
     const central = new FakeCentral();
-    const repo = freshRepo();
-    addPerson(repo, 'person-a', '張衡');
+    const repo = (await freshRepo());
+    (await addPerson(repo, 'person-a', '張衡'));
     await runSync({ repo, client: central });
 
     const again = await runSync({ repo, client: central });
@@ -333,82 +333,82 @@ describe('runSync', () => {
   it('stops cleanly (no throw) when the server is out of write quota', async () => {
     const central = new FakeCentral();
     central.quotaAfter = 0; // refuse every push
-    const repo = freshRepo();
-    addPerson(repo, 'person-a', '甲');
+    const repo = (await freshRepo());
+    (await addPerson(repo, 'person-a', '甲'));
 
     const result = await runSync({ repo, client: central });
     expect(result.stoppedEarly).toBe('write-quota');
     expect(result.pushedApplied).toBe(0);
     // the entity stays dirty for a later run; nothing was queued as a conflict
-    expect(listDirtyForSync(repo).map((d) => d.localId)).toEqual(['person-a']);
-    expect(countOpenConflicts(repo)).toBe(0);
+    expect((await listDirtyForSync(repo)).map((d) => d.localId)).toEqual(['person-a']);
+    expect((await countOpenConflicts(repo))).toBe(0);
   });
 
   it('adopts a seeded central row without a re-apply when local content already matches', async () => {
     // Emulate the out-of-band seed: the entity exists locally, an identical
     // row is on central at revision 1, and there's no local sync_state yet.
-    const source = freshRepo();
-    addPerson(source, 'person-x', '司馬遷');
+    const source = (await freshRepo());
+    (await addPerson(source, 'person-x', '司馬遷'));
     const central = new FakeCentral();
     central.seed('person-x', {
       kind: 'person',
-      contentXml: exportLocalEntityXml(source, 'person-x')!,
-      contentHash: localEntityHash(source, 'person-x')!,
+      contentXml: (await exportLocalEntityXml(source, 'person-x'))!,
+      contentHash: (await localEntityHash(source, 'person-x'))!,
     });
 
-    const repo = freshRepo();
-    addPerson(repo, 'person-x', '司馬遷');
-    const before = repo.getEntity('person-x')!.revision;
+    const repo = (await freshRepo());
+    (await addPerson(repo, 'person-x', '司馬遷'));
+    const before = (await repo.getEntity('person-x'))!.revision;
 
     const result = await runSync({ repo, client: central });
     expect(result.pulledApplied).toBe(1);
     expect(result.pulledConflicts).toBe(0);
     // fast path: the local row's content was not re-imported, so its revision
     // is unchanged
-    expect(repo.getEntity('person-x')!.revision).toBe(before);
-    expect(listDirtyForSync(repo)).toHaveLength(0);
+    expect((await repo.getEntity('person-x'))!.revision).toBe(before);
+    expect((await listDirtyForSync(repo))).toHaveLength(0);
   });
 });
 
 describe('conflict resolution', () => {
   const setUpConflict = async () => {
     const central = new FakeCentral();
-    const repoA = freshRepo();
-    addPerson(repoA, 'person-a', '張衡');
+    const repoA = (await freshRepo());
+    (await addPerson(repoA, 'person-a', '張衡'));
     await runSync({ repo: repoA, client: central });
-    const repoB = freshRepo();
+    const repoB = (await freshRepo());
     await runSync({ repo: repoB, client: central });
 
-    repoA.addName({ entityId: 'person-a', text: 'from A' });
+    (await repoA.addName({ entityId: 'person-a', text: 'from A' }));
     await runSync({ repo: repoA, client: central });
-    repoB.addName({ entityId: 'person-a', text: 'from B' });
+    (await repoB.addName({ entityId: 'person-a', text: 'from B' }));
     await runSync({ repo: repoB, client: central });
 
-    return { central, repoB, conflictId: listOpenConflicts(repoB)[0]!.id };
+    return { central, repoB, conflictId: (await listOpenConflicts(repoB))[0]!.id };
   };
 
   it('keep-remote applies the server snapshot and clears the conflict', async () => {
     const { central, repoB, conflictId } = await setUpConflict();
-    expect(resolveConflictKeepRemote(repoB, conflictId)).toBe(true);
+    expect((await resolveConflictKeepRemote(repoB, conflictId))).toBe(true);
 
-    expect(countOpenConflicts(repoB)).toBe(0);
-    expect(repoB.listNames('person-a').some((n) => n.text === 'from A')).toBe(true);
-    expect(repoB.listNames('person-a').some((n) => n.text === 'from B')).toBe(false);
+    expect((await countOpenConflicts(repoB))).toBe(0);
+    expect((await repoB.listNames('person-a')).some((n) => n.text === 'from A')).toBe(true);
+    expect((await repoB.listNames('person-a')).some((n) => n.text === 'from B')).toBe(false);
 
     const after = await runSync({ repo: repoB, client: central });
     expect(after.pushedConflicts).toBe(0);
-    expect(listDirtyForSync(repoB)).toHaveLength(0);
+    expect((await listDirtyForSync(repoB))).toHaveLength(0);
   });
 
   it('keep-local re-pushes the local version and wins', async () => {
     const { central, repoB, conflictId } = await setUpConflict();
-    expect(resolveConflictKeepLocal(repoB, conflictId)).toBe(true);
-    expect(countOpenConflicts(repoB)).toBe(0);
+    expect((await resolveConflictKeepLocal(repoB, conflictId))).toBe(true);
+    expect((await countOpenConflicts(repoB))).toBe(0);
 
     const after = await runSync({ repo: repoB, client: central });
     expect(after.pushedApplied).toBe(1);
     expect(after.pushedConflicts).toBe(0);
-    expect(listDirtyForSync(repoB)).toHaveLength(0);
+    expect((await listDirtyForSync(repoB))).toHaveLength(0);
 
     // central now carries B's version
     const pulled = await central.pull(0);
