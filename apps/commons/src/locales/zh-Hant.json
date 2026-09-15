@@ -672,7 +672,7 @@
       },
       "user_name_prompt": {
         "title": "您的姓名",
-        "message": "Enter the name you'll be tagging as.",
+        "message": "全名(用於您建立並發布之檔案中的中繼資料)。",
         "placeholder": "您的姓名",
         "enable_xml_editing": "Enable advanced features (direct XML editing)",
         "save": "儲存",

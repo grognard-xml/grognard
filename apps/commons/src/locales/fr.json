@@ -954,7 +954,7 @@
       },
       "user_name_prompt": {
         "title": "Votre nom",
-        "message": "Entrez le nom sous lequel vous annoterez.",
+        "message": "Nom complet (pour les métadonnées des fichiers que vous créez et publiez).",
         "placeholder": "Votre nom",
         "enable_xml_editing": "Activer les fonctions avancées (édition directe du XML)",
         "save": "Enregistrer",

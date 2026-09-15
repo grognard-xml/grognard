@@ -879,7 +879,7 @@
       },
       "user_name_prompt": {
         "title": "Ihr Name",
-        "message": "Geben Sie den Namen ein, unter dem Sie markieren werden.",
+        "message": "Vollständiger Name (für die Metadaten der Dateien, die Sie erstellen und veröffentlichen).",
         "placeholder": "Ihr Name",
         "enable_xml_editing": "Erweiterte Funktionen aktivieren (direkte XML-Bearbeitung)",
         "save": "Speichern",
