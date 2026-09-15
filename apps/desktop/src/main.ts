@@ -108,6 +108,7 @@ import {
   probeBackupTarget,
   setActiveProjectPedb,
 } from './entityDbBackup';
+import { migrateProjectLocalEntitiesToTurso } from './entityDbTursoMigration';
 import {
   ensureDefaultEntityDatabase,
   notifyEntityDatabaseChanged,
@@ -3896,6 +3897,10 @@ const registerIpcHandlers = () => {
         await backend.close();
       }
     },
+  );
+
+  ipcMain.handle('entityDbTurso:migrateLocalData', async (_event, projectFilePath: string) =>
+    migrateProjectLocalEntitiesToTurso(projectFilePath),
   );
 
   ipcMain.handle('entitySync:getStatus', async () => getEntitySyncStatus());

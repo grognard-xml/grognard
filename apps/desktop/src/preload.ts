@@ -970,6 +970,14 @@ export interface ElectronAPI {
   entityDbTursoHasToken: (url: string) => Promise<boolean>;
   entityDbTursoSetToken: (url: string, token: string | null) => Promise<void>;
   entityDbTursoTestConnection: (url: string, token: string) => Promise<{ ok: boolean; error?: string }>;
+  /**
+   * One-time copy of an existing local `entities.sqlite`'s rows into the
+   * Turso database this project's config now points at — the switch itself
+   * never moves data on its own. Refuses if the target already has rows.
+   */
+  entityDbTursoMigrateLocalData: (
+    projectFilePath: string,
+  ) => Promise<{ ok: boolean; tables?: number; rows?: number; error?: string }>;
 
   /** Ensure the configured central entity database folder contains entities.sqlite. */
   entityDatabaseEnsure: () => Promise<{ folder: string; dbPath: string; created: boolean } | null>;
@@ -1508,6 +1516,8 @@ const electronAPI: ElectronAPI = {
     ipcRenderer.invoke('entityDbTurso:setToken', url, token),
   entityDbTursoTestConnection: (url: string, token: string) =>
     ipcRenderer.invoke('entityDbTurso:testConnection', url, token),
+  entityDbTursoMigrateLocalData: (projectFilePath: string) =>
+    ipcRenderer.invoke('entityDbTurso:migrateLocalData', projectFilePath),
   entityDatabaseEnsure: () => ipcRenderer.invoke('entityDatabase:ensure'),
   onEntityDatabaseChanged: (callback: () => void) => {
     const listener = () => callback();

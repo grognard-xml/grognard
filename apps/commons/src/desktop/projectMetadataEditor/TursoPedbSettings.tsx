@@ -39,6 +39,13 @@ export const TursoPedbSettings = ({ active = true }: { active?: boolean }) => {
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saveSuccess, setSaveSuccess] = useState(false);
+  const [migrating, setMigrating] = useState(false);
+  const [migrateResult, setMigrateResult] = useState<{
+    ok: boolean;
+    tables?: number;
+    rows?: number;
+    error?: string;
+  } | null>(null);
 
   useEffect(() => {
     if (!active) return;
@@ -74,6 +81,7 @@ export const TursoPedbSettings = ({ active = true }: { active?: boolean }) => {
     setTestResult(null);
     setSaveError(null);
     setSaveSuccess(false);
+    setMigrateResult(null);
   };
 
   const handleTest = async () => {
@@ -129,10 +137,22 @@ export const TursoPedbSettings = ({ active = true }: { active?: boolean }) => {
       setHasStoredToken((await window.electronAPI.entityDbTursoHasToken?.(trimmedUrl)) ?? false);
       setToken('');
       setSaveSuccess(true);
+      setMigrateResult(null);
     } catch (error) {
       setSaveError(error instanceof Error ? error.message : String(error));
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleMigrate = async () => {
+    if (!projectFilePath || !window.electronAPI?.entityDbTursoMigrateLocalData) return;
+    setMigrating(true);
+    setMigrateResult(null);
+    try {
+      setMigrateResult(await window.electronAPI.entityDbTursoMigrateLocalData(projectFilePath));
+    } finally {
+      setMigrating(false);
     }
   };
 
@@ -239,6 +259,41 @@ export const TursoPedbSettings = ({ active = true }: { active?: boolean }) => {
         <Typography color="error" sx={{ pt: 0.5 }} variant="caption" component="p">
           {t('LWC.desktop.project.shared_database_save_failed', { error: saveError })}
         </Typography>
+      )}
+
+      {backend === 'turso' && saveSuccess && (
+        <Box sx={{ pt: 1.5, maxWidth: 480 }}>
+          <Typography color="text.secondary" sx={{ pb: 0.5 }} variant="caption" component="p">
+            {t('LWC.desktop.project.shared_database_migrate_hint')}
+          </Typography>
+          <Button
+            disabled={migrating}
+            onClick={() => void handleMigrate()}
+            size="small"
+            variant="outlined"
+          >
+            {migrating
+              ? t('LWC.desktop.project.shared_database_migrating')
+              : t('LWC.desktop.project.shared_database_migrate')}
+          </Button>
+          {migrateResult && (
+            <Typography
+              color={migrateResult.ok ? 'success.main' : 'error'}
+              sx={{ pt: 0.5 }}
+              variant="caption"
+              component="p"
+            >
+              {migrateResult.ok
+                ? t('LWC.desktop.project.shared_database_migrate_ok', {
+                    rows: migrateResult.rows ?? 0,
+                    tables: migrateResult.tables ?? 0,
+                  })
+                : t('LWC.desktop.project.shared_database_migrate_failed', {
+                    error: migrateResult.error ?? '',
+                  })}
+            </Typography>
+          )}
+        </Box>
       )}
     </Box>
   );

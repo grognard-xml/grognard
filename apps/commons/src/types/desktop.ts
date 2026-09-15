@@ -820,6 +820,9 @@ export interface ElectronAPI {
     url: string,
     token: string,
   ) => Promise<{ ok: boolean; error?: string }>;
+  entityDbTursoMigrateLocalData?: (
+    projectFilePath: string,
+  ) => Promise<{ ok: boolean; tables?: number; rows?: number; error?: string }>;
   entityDatabaseEnsure?: () => Promise<{ folder: string; dbPath: string; created: boolean } | null>;
   onEntityDatabaseChanged?: (callback: () => void) => () => void;
   entitySyncGetStatus?: () => Promise<EntitySyncStatus>;
