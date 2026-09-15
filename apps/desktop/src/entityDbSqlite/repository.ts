@@ -981,6 +981,17 @@ export class EntitySqliteRepository {
     await this.rootBackend.close();
   }
 
+  /**
+   * The current backend — the transaction's own handle while inside
+   * `transaction()`, otherwise the root connection. For sibling modules
+   * (xmlCodec.ts, entitySyncRepo.ts) that need direct query access; kept
+   * backend-agnostic so they work against any `EntityDbBackend`, not just
+   * a local file.
+   */
+  get backend(): EntityDbBackend {
+    return this.activeBackend;
+  }
+
   async integrityCheck(): Promise<string[]> {
     return (await this.activeBackend.all('PRAGMA integrity_check'))
       .map((row) => String((row as Record<string, unknown>).integrity_check));
@@ -1075,7 +1086,7 @@ export class EntitySqliteRepository {
         (await this.activeBackend.run(`INSERT INTO ${tableByKind[input.kind]} (entity_id) VALUES (?)`, [input.id]));
       }
 
-      const insertName = (
+      const insertName = async (
         text: string,
         nameType: string | null,
         isPrimary: boolean,
@@ -1111,7 +1122,7 @@ export class EntitySqliteRepository {
       for (const [index, name] of (input.names ?? []).entries()) {
         const text = name.text.trim();
         if (!text) continue;
-        insertName(
+        await insertName(
           text,
           name.nameType ?? null,
           name.isPrimary ?? index === 0,
@@ -1122,10 +1133,10 @@ export class EntitySqliteRepository {
       }
       if (input.kind === 'person') {
         if (input.familyName?.trim()) {
-          insertName(input.familyName.trim(), 'family', false, null, 'user', null);
+          await insertName(input.familyName.trim(), 'family', false, null, 'user', null);
         }
         if (input.givenName?.trim()) {
-          insertName(input.givenName.trim(), 'given', false, null, 'user', null);
+          await insertName(input.givenName.trim(), 'given', false, null, 'user', null);
         }
       }
       for (const authority of input.authorities ?? []) {
@@ -1835,12 +1846,14 @@ export class EntitySqliteRepository {
        GROUP BY e.id, e.description
        ORDER BY MAX(n.is_primary) DESC, e.id
        LIMIT ?`, [kind, normalized, limit])) as Record<string, unknown>[];
-    return rows.map((row) => ({
-      id: String(row.id),
-      label: String(row.label),
-      ...(row.description ? { description: String(row.description) } : {}),
-      idnos: (await this.activeBackend.all("SELECT authority_type AS type, authority_value AS value FROM entity_authorities WHERE entity_id = ? AND status = 'active' ORDER BY id", [String(row.id)])) as { type: string; value: string }[],
-    }));
+    return Promise.all(
+      rows.map(async (row) => ({
+        id: String(row.id),
+        label: String(row.label),
+        ...(row.description ? { description: String(row.description) } : {}),
+        idnos: (await this.activeBackend.all("SELECT authority_type AS type, authority_value AS value FROM entity_authorities WHERE entity_id = ? AND status = 'active' ORDER BY id", [String(row.id)])) as { type: string; value: string }[],
+      })),
+    );
   }
 
   async listAuthorityDuplicates(): Promise<SqliteDuplicateGroup[]> {
@@ -1933,19 +1946,22 @@ export class EntitySqliteRepository {
   ): Promise<boolean> {
     if ((await this.isConcordanceRejected(association))) return false;
     const [left, right] = concordanceRefs(association);
-    const ownerId =
-      entityId ??
-      (await this.activeBackend.all(`SELECT a.entity_id AS id
+    let ownerId = entityId;
+    if (!ownerId) {
+      const candidates = (await this.activeBackend.all(`SELECT a.entity_id AS id
            FROM entity_authorities a
            JOIN entities e ON e.id = a.entity_id
            WHERE a.status = 'active' AND e.deleted_at IS NULL
              AND a.authority_type != ?
-           ORDER BY a.id`, [CENTRAL_AUTHORITY_TYPE]))
-        .map((row) => row as { id: string })
-        .find((row) => {
-          const refs = (await this.activeAuthorityRefs(row.id));
-          return refs.includes(left) || refs.includes(right);
-        })?.id;
+           ORDER BY a.id`, [CENTRAL_AUTHORITY_TYPE])).map((row) => row as { id: string });
+      for (const candidate of candidates) {
+        const refs = await this.activeAuthorityRefs(candidate.id);
+        if (refs.includes(left) || refs.includes(right)) {
+          ownerId = candidate.id;
+          break;
+        }
+      }
+    }
     if (!ownerId || !(await this.getEntity(ownerId))) return false;
     const now = nowIso();
     const payload =
@@ -3010,7 +3026,7 @@ export class EntitySqliteRepository {
       }
 
       const sourcePrefix = `${type}:`;
-      const purgeBySource = (table: string, ownerCol: string) => {
+      const purgeBySource = async (table: string, ownerCol: string) => {
         const rows = (await this.activeBackend.all(`SELECT id, origin, source, status FROM ${table} WHERE ${ownerCol} = ?`, [input.entityId])) as {
           id: number;
           origin: SqliteValueOrigin;
@@ -3028,13 +3044,13 @@ export class EntitySqliteRepository {
           }
         }
       };
-      purgeBySource('entity_names', 'entity_id');
-      purgeBySource('entity_dates', 'entity_id');
-      purgeBySource('person_nationalities', 'person_id');
-      purgeBySource('person_origins', 'person_id');
-      purgeBySource('person_titles', 'person_id');
-      purgeBySource('person_offices', 'person_id');
-      purgeBySource('work_authors', 'work_id');
+      await purgeBySource('entity_names', 'entity_id');
+      await purgeBySource('entity_dates', 'entity_id');
+      await purgeBySource('person_nationalities', 'person_id');
+      await purgeBySource('person_origins', 'person_id');
+      await purgeBySource('person_titles', 'person_id');
+      await purgeBySource('person_offices', 'person_id');
+      await purgeBySource('work_authors', 'work_id');
 
       (await this.activeBackend.run(`DELETE FROM authority_caches
            WHERE entity_id = ? AND (authority_type = ? OR source = ? OR source = ?)`, [input.entityId, type, type, `${type}:${value}`]));
@@ -3282,7 +3298,7 @@ export class EntitySqliteRepository {
     targetId: string,
     now = nowIso(),
   ): Promise<boolean> {
-    const sourceEntity = source.getEntity(sourceId);
+    const sourceEntity = await source.getEntity(sourceId);
     const targetEntity = (await this.getEntity(targetId));
     if (!sourceEntity || sourceEntity.deletedAt || !targetEntity || targetEntity.deletedAt) {
       return false;
@@ -3338,16 +3354,16 @@ export class EntitySqliteRepository {
     sourceId: string,
     targetId: string,
   ): Promise<void> {
-    const insertRows = (
+    const insertRows = async (
       table: string,
       ownerCol: string,
       rows: Record<string, unknown>[],
-      remap?: (row: Record<string, unknown>) => Record<string, unknown> | null,
+      remap?: (row: Record<string, unknown>) => Promise<Record<string, unknown> | null>,
     ) => {
       for (const row of rows) {
         const next: Record<string, unknown> = { ...row, [ownerCol]: targetId };
         delete next.id;
-        const mapped = remap ? remap(next) : next;
+        const mapped = remap ? await remap(next) : next;
         if (!mapped) continue;
         const columns = Object.keys(mapped);
         if (columns.length === 0) continue;
@@ -3356,14 +3372,14 @@ export class EntitySqliteRepository {
       }
     };
 
-    const sourceRows = (table: string, ownerCol: string) =>
-      source.db.prepare(`SELECT * FROM ${table} WHERE ${ownerCol} = ?`).all(sourceId) as Record<
+    const sourceRows = async (table: string, ownerCol: string) =>
+      (await source.backend.all(`SELECT * FROM ${table} WHERE ${ownerCol} = ?`, [sourceId])) as Record<
         string,
         unknown
       >[];
 
     const dateIdMap = new Map<number, number>();
-    for (const row of sourceRows('entity_dates', 'entity_id')) {
+    for (const row of await sourceRows('entity_dates', 'entity_id')) {
       const oldId = Number(row.id);
       const next: Record<string, unknown> = { ...row, entity_id: targetId };
       delete next.id;
@@ -3373,79 +3389,80 @@ export class EntitySqliteRepository {
       dateIdMap.set(oldId, Number(result.lastInsertRowid));
     }
 
-    insertRows('entity_names', 'entity_id', sourceRows('entity_names', 'entity_id'));
-    insertRows(
+    await insertRows('entity_names', 'entity_id', await sourceRows('entity_names', 'entity_id'));
+    await insertRows(
       'entity_authorities',
       'entity_id',
-      sourceRows('entity_authorities', 'entity_id'),
-      (row) => (String(row.authority_type) === CENTRAL_AUTHORITY_TYPE ? null : row),
+      await sourceRows('entity_authorities', 'entity_id'),
+      async (row) => (String(row.authority_type) === CENTRAL_AUTHORITY_TYPE ? null : row),
     );
-    insertRows('entity_metadata', 'entity_id', sourceRows('entity_metadata', 'entity_id'));
-    insertRows('authority_caches', 'entity_id', sourceRows('authority_caches', 'entity_id'));
-    insertRows('entity_decisions', 'entity_id', sourceRows('entity_decisions', 'entity_id'));
-    insertRows('entity_attributes', 'entity_id', sourceRows('entity_attributes', 'entity_id'));
+    await insertRows('entity_metadata', 'entity_id', await sourceRows('entity_metadata', 'entity_id'));
+    await insertRows('authority_caches', 'entity_id', await sourceRows('authority_caches', 'entity_id'));
+    await insertRows('entity_decisions', 'entity_id', await sourceRows('entity_decisions', 'entity_id'));
+    await insertRows('entity_attributes', 'entity_id', await sourceRows('entity_attributes', 'entity_id'));
     try {
-      insertRows('entity_extensions', 'entity_id', sourceRows('entity_extensions', 'entity_id'));
+      await insertRows('entity_extensions', 'entity_id', await sourceRows('entity_extensions', 'entity_id'));
     } catch {
       /* optional */
     }
     try {
-      insertRows(
+      await insertRows(
         'entity_xml_fragments',
         'entity_id',
-        sourceRows('entity_xml_fragments', 'entity_id'),
+        await sourceRows('entity_xml_fragments', 'entity_id'),
       );
     } catch {
       /* optional */
     }
 
-    const entityExists = (id: string | null | undefined) =>
+    const entityExists = async (id: string | null | undefined) =>
       Boolean(id && (await this.activeBackend.get('SELECT 1 FROM entities WHERE id = ?', [id])));
 
-    insertRows(
+    await insertRows(
       'person_nationalities',
       'person_id',
-      sourceRows('person_nationalities', 'person_id'),
-      (row) => {
+      await sourceRows('person_nationalities', 'person_id'),
+      async (row) => {
         const nationalityId = row.nationality_entity_id ? String(row.nationality_entity_id) : null;
         return {
           ...row,
-          nationality_entity_id: entityExists(nationalityId) ? nationalityId : null,
+          nationality_entity_id: (await entityExists(nationalityId)) ? nationalityId : null,
         };
       },
     );
-    insertRows('person_origins', 'person_id', sourceRows('person_origins', 'person_id'));
-    insertRows('person_titles', 'person_id', sourceRows('person_titles', 'person_id'));
-    insertRows('person_offices', 'person_id', sourceRows('person_offices', 'person_id'), (row) => {
+    await insertRows('person_origins', 'person_id', await sourceRows('person_origins', 'person_id'));
+    await insertRows('person_titles', 'person_id', await sourceRows('person_titles', 'person_id'));
+    await insertRows('person_offices', 'person_id', await sourceRows('person_offices', 'person_id'), async (row) => {
       const officeId = row.office_id ? String(row.office_id) : null;
       const startDateId =
         row.start_date_id != null ? dateIdMap.get(Number(row.start_date_id)) : null;
       const endDateId = row.end_date_id != null ? dateIdMap.get(Number(row.end_date_id)) : null;
       return {
         ...row,
-        office_id: entityExists(officeId) ? officeId : null,
+        office_id: (await entityExists(officeId)) ? officeId : null,
         start_date_id: startDateId ?? null,
         end_date_id: endDateId ?? null,
       };
     });
-    insertRows('work_authors', 'work_id', sourceRows('work_authors', 'work_id'), (row) => {
+    await insertRows('work_authors', 'work_id', await sourceRows('work_authors', 'work_id'), async (row) => {
       const personId = row.person_id ? String(row.person_id) : null;
       return {
         ...row,
-        person_id: entityExists(personId) ? personId : null,
+        person_id: (await entityExists(personId)) ? personId : null,
       };
     });
-    insertRows(
+    await insertRows(
       'office_classifications',
       'office_id',
-      sourceRows('office_classifications', 'office_id'),
+      await sourceRows('office_classifications', 'office_id'),
     );
 
     const kind = (await this.getEntity(targetId))?.kind;
     if (kind === 'person') {
-      const person = source.db
-        .prepare('SELECT family_name, given_name FROM people WHERE entity_id = ?')
-        .get(sourceId) as { family_name: string | null; given_name: string | null } | undefined;
+      const person = (await source.backend.get(
+        'SELECT family_name, given_name FROM people WHERE entity_id = ?',
+        [sourceId],
+      )) as { family_name: string | null; given_name: string | null } | undefined;
       if (person) {
         (await this.activeBackend.run('UPDATE people SET family_name = ?, given_name = ? WHERE entity_id = ?', [person.family_name, person.given_name, targetId]));
       }
@@ -3491,7 +3508,7 @@ export class EntitySqliteRepository {
       let changed = false;
       let namesAdded = 0;
 
-      const upsertAuthorityDate = (
+      const upsertAuthorityDate = async (
         dateKind: 'birth' | 'death' | 'dates',
         source: string,
         startYear: number | null | undefined,
@@ -3722,7 +3739,7 @@ export class EntitySqliteRepository {
           const currentFamily = person?.family_name?.trim() || null;
           const currentGiven = person?.given_name?.trim() || null;
 
-          const ensureSplitNameRow = (text: string, type: 'family' | 'given') => {
+          const ensureSplitNameRow = async (text: string, type: 'family' | 'given') => {
             const rows = (await this.activeBackend.all(`SELECT id, status FROM entity_names
                  WHERE entity_id = ? AND text = ?
                  ORDER BY CASE status WHEN 'active' THEN 0 WHEN 'withdrawn' THEN 1 ELSE 2 END, id`, [patch.entityId, text])) as { id: number; status: string }[];
@@ -3747,7 +3764,7 @@ export class EntitySqliteRepository {
 
           if (!userValidatedFamily && nextFamily) {
             const before = namesAdded;
-            ensureSplitNameRow(nextFamily, 'family');
+            await ensureSplitNameRow(nextFamily, 'family');
             if (currentFamily !== nextFamily) {
               (await this.activeBackend.run('UPDATE people SET family_name = ? WHERE entity_id = ?', [nextFamily, patch.entityId]));
               changed = true;
@@ -3758,7 +3775,7 @@ export class EntitySqliteRepository {
 
           if (!userValidatedGiven && nextGiven) {
             const before = namesAdded;
-            ensureSplitNameRow(nextGiven, 'given');
+            await ensureSplitNameRow(nextGiven, 'given');
             if (currentGiven !== nextGiven) {
               (await this.activeBackend.run('UPDATE people SET given_name = ? WHERE entity_id = ?', [nextGiven, patch.entityId]));
               changed = true;
@@ -3829,15 +3846,15 @@ export class EntitySqliteRepository {
 
       for (const date of patch.dates ?? []) {
         if (date.asFloruit) {
-          upsertAuthorityDate('dates', date.source, date.startYear, date.endYear, 'fl.');
+          await upsertAuthorityDate('dates', date.source, date.startYear, date.endYear, 'fl.');
         } else {
-          upsertAuthorityDate('birth', date.source, date.startYear, undefined);
-          upsertAuthorityDate('death', date.source, date.endYear, undefined);
+          await upsertAuthorityDate('birth', date.source, date.startYear, undefined);
+          await upsertAuthorityDate('death', date.source, date.endYear, undefined);
         }
       }
 
       if (patch.workDate) {
-        upsertAuthorityDate(
+        await upsertAuthorityDate(
           'dates',
           patch.workDate.source,
           patch.workDate.startYear,
@@ -4092,7 +4109,7 @@ export class EntitySqliteRepository {
     let retained = 0;
     let changed = false;
 
-    const withdrawLabeled = (
+    const withdrawLabeled = async (
       table: 'person_nationalities' | 'person_origins' | 'person_offices',
       elements: string[],
       labelCol: string,
@@ -4124,9 +4141,9 @@ export class EntitySqliteRepository {
       }
     };
 
-    withdrawLabeled('person_nationalities', ['nationality'], 'label');
-    withdrawLabeled('person_origins', ['placeName'], 'label');
-    withdrawLabeled('person_offices', ['state', 'affiliation'], 'office_label');
+    await withdrawLabeled('person_nationalities', ['nationality'], 'label');
+    await withdrawLabeled('person_origins', ['placeName'], 'label');
+    await withdrawLabeled('person_offices', ['state', 'affiliation'], 'office_label');
 
     {
       const rows = (await this.activeBackend.all(`SELECT id, place_name, role_name, posthumous_name, origin, status
@@ -4164,13 +4181,13 @@ export class EntitySqliteRepository {
       }
     }
 
-    const rowExists = (sql: string, ...params: (string | number | bigint | null)[]) =>
+    const rowExists = async (sql: string, ...params: (string | number | bigint | null)[]) =>
       Boolean((await this.activeBackend.get(sql, [...params])));
 
     for (const item of mapped) {
       if (item.kind === 'nationality') {
         if (
-          rowExists(
+          await rowExists(
             `SELECT 1 FROM person_nationalities
              WHERE person_id = ? AND source = ? AND label = ?`,
             wrapper.entityId,
@@ -4186,7 +4203,7 @@ export class EntitySqliteRepository {
         changed = true;
       } else if (item.kind === 'origin') {
         if (
-          rowExists(
+          await rowExists(
             `SELECT 1 FROM person_origins
              WHERE person_id = ? AND source = ? AND label = ?`,
             wrapper.entityId,
@@ -4202,7 +4219,7 @@ export class EntitySqliteRepository {
         changed = true;
       } else if (item.kind === 'office') {
         if (
-          rowExists(
+          await rowExists(
             `SELECT 1 FROM person_offices
              WHERE person_id = ? AND source = ? AND office_label = ?`,
             wrapper.entityId,
@@ -4224,7 +4241,7 @@ export class EntitySqliteRepository {
         changed = true;
       } else if (item.kind === 'title') {
         if (
-          rowExists(
+          await rowExists(
             `SELECT 1 FROM person_titles
              WHERE person_id = ? AND source = ?
                AND COALESCE(place_name, '') = ?
@@ -4378,7 +4395,7 @@ export class EntitySqliteRepository {
     entityId: string,
     now: string,
   ): Promise<{ dedupedNames: number; removedNan: number; removedInvalidFamilyGiven: number }> {
-    const remove = (row: { id: number; origin: SqliteValueOrigin }, reason: string): void => {
+    const remove = async (row: { id: number; origin: SqliteValueOrigin }, reason: string): Promise<void> => {
       if (row.origin === 'user') {
         (await this.activeBackend.run('DELETE FROM entity_names WHERE id = ?', [row.id]));
         return;
@@ -4391,7 +4408,7 @@ export class EntitySqliteRepository {
 
     const nanRows = (await this.activeBackend.all(`SELECT id, origin FROM entity_names
          WHERE entity_id = ? AND status = 'active' AND TRIM(text) = 'nan'`, [entityId])) as { id: number; origin: SqliteValueOrigin }[];
-    for (const row of nanRows) remove(row, 'auto-clean-nan');
+    for (const row of nanRows) await remove(row, 'auto-clean-nan');
 
     let dedupedNames = 0;
     const groups = (await this.activeBackend.all(`SELECT text, COALESCE(name_type, '') AS nameTypeKey
@@ -4410,7 +4427,7 @@ export class EntitySqliteRepository {
         origin: SqliteValueOrigin;
       }[];
       for (const row of rows.slice(1)) {
-        remove(row, 'auto-clean-duplicate');
+        await remove(row, 'auto-clean-duplicate');
         dedupedNames += 1;
       }
     }
@@ -4423,7 +4440,7 @@ export class EntitySqliteRepository {
            WHERE entity_id = ? AND status = 'active'
              AND ((name_type IN ('family', 'familyName') OR name_role IN ('family', 'familyName')) AND TRIM(text) = 'n'
                OR (name_type IN ('given', 'givenName') OR name_role IN ('given', 'givenName')) AND TRIM(text) = 'an')`, [entityId])) as { id: number; origin: SqliteValueOrigin }[];
-      for (const row of invalidRows) remove(row, 'auto-clean-invalid-family-given');
+      for (const row of invalidRows) await remove(row, 'auto-clean-invalid-family-given');
       (await this.syncPersonNameScalarsAfterTypeChange(entityId, 'n', 'family', null, now));
       (await this.syncPersonNameScalarsAfterTypeChange(entityId, 'an', 'given', null, now));
       removedInvalidFamilyGiven = 1;
@@ -4443,6 +4460,6 @@ export class EntitySqliteRepository {
   }
 }
 
-export function openEntitySqliteRepository(databasePath: string): EntitySqliteRepository {
-  return new EntitySqliteRepository(databasePath);
+export async function openEntitySqliteRepository(databasePath: string): Promise<EntitySqliteRepository> {
+  return EntitySqliteRepository.open(databasePath);
 }

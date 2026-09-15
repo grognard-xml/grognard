@@ -1,6 +1,6 @@
 import { DOMParser, XMLSerializer } from '@xmldom/xmldom';
-import type { DatabaseSync } from 'node:sqlite';
 import { getDatabaseId } from '../../../../packages/cwrc-leafwriter/src/autoTagging/entities';
+import type { EntityDbBackend } from './backend';
 import {
   EntitySqliteRepository,
   type SqliteEntityKind,
@@ -137,7 +137,7 @@ const kindForList = (list: XmlElement): SqliteEntityKind | null => {
 const serializeChild = (element: XmlElement): string =>
   new XMLSerializer().serializeToString(element as never);
 
-function insertSubtype(db: DatabaseSync, kind: SqliteEntityKind, id: string): void {
+async function insertSubtype(db: EntityDbBackend, kind: SqliteEntityKind, id: string): Promise<void> {
   const tableByKind: Record<SqliteEntityKind, string> = {
     person: 'people',
     place: 'places',
@@ -147,31 +147,32 @@ function insertSubtype(db: DatabaseSync, kind: SqliteEntityKind, id: string): vo
     thing: 'things',
   };
   const table = tableByKind[kind];
-  db.prepare(`INSERT INTO ${table} (entity_id) VALUES (?)`).run(id);
+  await db.run(`INSERT INTO ${table} (entity_id) VALUES (?)`, [id]);
 }
 
-function insertMetadata(
-  db: DatabaseSync,
+async function insertMetadata(
+  db: EntityDbBackend,
   entityId: string,
   key: string,
   value: string,
   item: XmlElement,
   now: string,
-): void {
+): Promise<void> {
   if (!value) return;
   const p = provenance(item, 'xml');
-  db.prepare(
+  await db.run(
     `INSERT INTO entity_metadata (entity_id, key, value, origin, source, status, created_at, updated_at)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-  ).run(entityId, key, value, p.origin, p.source, p.status, now, now);
+    [entityId, key, value, p.origin, p.source, p.status, now, now],
+  );
 }
 
 /** Import one legacy TEI entity database into an empty or replacement SQLite repository. */
-export function importEntitiesXml(
+export async function importEntitiesXml(
   repository: EntitySqliteRepository,
   xml: string,
   options: { replace?: boolean } = {},
-): XmlImportReport {
+): Promise<XmlImportReport> {
   const document = new DOMParser().parseFromString(xml, 'application/xml') as unknown as XmlElement;
   const root = document as unknown as {
     documentElement: XmlElement;
@@ -192,11 +193,11 @@ export function importEntitiesXml(
     unresolvedReferences: [],
     warnings: [],
   };
-  const db = repository.db;
+  const db = repository.backend;
   const importedEntityIds = new Set<string>();
-  repository.transaction(() => {
+  await repository.transaction(async () => {
     if (options.replace !== false) {
-      db.exec(`
+      await db.exec(`
         DELETE FROM sync_conflicts;
         DELETE FROM sync_state;
         DELETE FROM central_mappings;
@@ -228,10 +229,8 @@ export function importEntitiesXml(
         DELETE FROM database_metadata;
       `);
     }
-    db.prepare('INSERT OR REPLACE INTO database_metadata (key, value) VALUES (?, ?)').run(
-      'database_id',
-      databaseId,
-    );
+    (await db.run('INSERT OR REPLACE INTO database_metadata (key, value) VALUES (?, ?)', ['database_id',
+      databaseId,]));
     const header = childElements(root.documentElement).find(
       (child) => localName(child) === 'teiHeader',
     );
@@ -252,10 +251,8 @@ export function importEntitiesXml(
       ['source_description', headerText('sourceDesc')],
     ] as const) {
       if (value)
-        db.prepare('INSERT OR REPLACE INTO database_metadata (key, value) VALUES (?, ?)').run(
-          key,
-          value,
-        );
+        (await db.run('INSERT OR REPLACE INTO database_metadata (key, value) VALUES (?, ?)', [key,
+          value,]));
     }
 
     const standOff = childElements(root.documentElement).find(
@@ -280,15 +277,11 @@ export function importEntitiesXml(
         }
         importedEntityIds.add(id);
         const now = timestamp(item);
-        db.prepare(
-          `INSERT INTO entities (id, kind, created_at, updated_at, revision)
-           VALUES (?, ?, ?, ?, 0)`,
-        ).run(id, kind, now, now);
-        insertSubtype(db, kind, id);
+        (await db.run(`INSERT INTO entities (id, kind, created_at, updated_at, revision)
+           VALUES (?, ?, ?, ?, 0)`, [id, kind, now, now]));
+        await insertSubtype(db, kind, id);
         const position = childElements(list).indexOf(item);
-        db.prepare(
-          `INSERT OR REPLACE INTO entity_positions (entity_id, list_kind, position) VALUES (?, ?, ?)`,
-        ).run(id, kind, position);
+        (await db.run(`INSERT OR REPLACE INTO entity_positions (entity_id, list_kind, position) VALUES (?, ?, ?)`, [id, kind, position]));
         if (item.attributes) {
           for (
             let attributeIndex = 0;
@@ -297,14 +290,10 @@ export function importEntitiesXml(
           ) {
             const attribute = item.attributes.item(attributeIndex);
             if (!attribute || attribute.name === 'xml:id' || attribute.name === 'type') continue;
-            db.prepare(
-              `INSERT OR REPLACE INTO entity_attributes (entity_id, namespace, name, value) VALUES (?, ?, ?, ?)`,
-            ).run(
-              id,
+            (await db.run(`INSERT OR REPLACE INTO entity_attributes (entity_id, namespace, name, value) VALUES (?, ?, ?, ?)`, [id,
               attribute.name.includes(':') ? attribute.name.split(':')[0] : null,
               attribute.name,
-              attribute.value,
-            );
+              attribute.value,]));
           }
         }
         report.entitiesImported += 1;
@@ -327,11 +316,9 @@ export function importEntitiesXml(
                   : explicitNameType;
             const lang = attr(child, 'xml:lang');
             if (normalizedType === 'translation' && lang && !/(^|-)Latn($|-)/i.test(lang)) {
-              db.prepare(
-                `INSERT INTO entity_translations
+              (await db.run(`INSERT INTO entity_translations
                   (entity_id, text, language, origin, source, status, created_at, updated_at)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-              ).run(id, childText, lang, p.origin, p.source, p.status, childNow, childNow);
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`, [id, childText, lang, p.origin, p.source, p.status, childNow, childNow]));
               report.namesImported += 1;
               continue;
             }
@@ -344,12 +331,9 @@ export function importEntitiesXml(
                   : inferredPrimary
                     ? 'primary'
                     : normalizedType || 'variant';
-            db.prepare(
-              `INSERT INTO entity_names
+            (await db.run(`INSERT INTO entity_names
                 (entity_id, text, name_type, name_role, language, is_primary, origin, source, status, created_at, updated_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-            ).run(
-              id,
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, [id,
               childText,
               normalizedType,
               nameRole,
@@ -359,15 +343,14 @@ export function importEntitiesXml(
               p.source,
               p.status,
               childNow,
-              childNow,
-            );
+              childNow,]));
             if (
               kind === 'person' &&
               p.status === 'active' &&
               (normalizedType === 'family' || normalizedType === 'given')
             ) {
               const column = normalizedType === 'family' ? 'family_name' : 'given_name';
-              db.prepare(`UPDATE people SET ${column} = ? WHERE entity_id = ?`).run(childText, id);
+              (await db.run(`UPDATE people SET ${column} = ? WHERE entity_id = ?`, [childText, id]));
             }
             report.namesImported += 1;
             importedNameCount += 1;
@@ -376,66 +359,52 @@ export function importEntitiesXml(
           if (childName === 'idno' && child.getAttribute('type') === 'grognard-central') {
             const userId = child.getAttribute('subtype');
             if (userId && childText) {
-              db.prepare(
-                `INSERT OR REPLACE INTO central_mappings
+              (await db.run(`INSERT OR REPLACE INTO central_mappings
                   (project_entity_id, central_entity_id, user_stable_id, created_at, updated_at)
-                 VALUES (?, ?, ?, ?, ?)`,
-              ).run(id, childText, userId, childNow, childNow);
+                 VALUES (?, ?, ?, ?, ?)`, [id, childText, userId, childNow, childNow]));
             }
             continue;
           }
           if (childName === 'idno' && child.getAttribute('type') !== 'grognard-entity-database') {
-            db.prepare(
-              `INSERT INTO entity_authorities
+            (await db.run(`INSERT INTO entity_authorities
                 (entity_id, authority_type, authority_value, origin, source, status, created_at, updated_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-            ).run(
-              id,
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)`, [id,
               child.getAttribute('type') || 'unknown',
               childText,
               p.origin,
               p.source,
               p.status,
               childNow,
-              childNow,
-            );
+              childNow,]));
             report.authoritiesImported += 1;
             continue;
           }
           if (childName === 'note' && child.getAttribute('type') === 'grognard-changed') continue;
           if (childName === 'note' && child.getAttribute('type') === 'authority-cache') {
-            db.prepare(
-              `INSERT OR REPLACE INTO authority_caches
+            (await db.run(`INSERT OR REPLACE INTO authority_caches
                 (entity_id, authority_type, source, payload_json, retrieved_at, status)
-               VALUES (?, ?, ?, ?, ?, ?)`,
-            ).run(
-              id,
+               VALUES (?, ?, ?, ?, ?, ?)`, [id,
               child.getAttribute('source') || 'unknown',
               child.getAttribute('source') || null,
               childText || '{}',
               child.getAttribute('when') || null,
-              p.status,
-            );
+              p.status,]));
             continue;
           }
           if (
             childName === 'note' &&
             ['duplicate-ok', 'concordance-rejected'].includes(child.getAttribute('type'))
           ) {
-            db.prepare(
-              `INSERT INTO entity_decisions
+            (await db.run(`INSERT INTO entity_decisions
                 (entity_id, decision_type, target_entity_id, target_refs, payload_json, origin, source, created_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-            ).run(
-              id,
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)`, [id,
               child.getAttribute('type'),
               child.getAttribute('ref')?.replace(/^#/, '') || null,
               child.getAttribute('target') || null,
               childText || null,
               p.origin,
               p.source,
-              childNow,
-            );
+              childNow,]));
             continue;
           }
           if (
@@ -444,12 +413,9 @@ export function importEntitiesXml(
           ) {
             const noteType = child.getAttribute('type');
             const nameRole = noteType === 'familyName' ? 'family' : 'given';
-            db.prepare(
-              `INSERT INTO entity_names
+            (await db.run(`INSERT INTO entity_names
                 (entity_id, text, name_type, name_role, language, is_primary, origin, source, status, created_at, updated_at)
-               VALUES (?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?)`,
-            ).run(
-              id,
+               VALUES (?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?)`, [id,
               childText,
               nameRole,
               nameRole,
@@ -458,34 +424,28 @@ export function importEntitiesXml(
               p.source,
               p.status,
               childNow,
-              childNow,
-            );
+              childNow,]));
             if (kind === 'person' && childText && p.status === 'active') {
               const column = nameRole === 'family' ? 'family_name' : 'given_name';
-              db.prepare(`UPDATE people SET ${column} = ? WHERE entity_id = ?`).run(childText, id);
+              (await db.run(`UPDATE people SET ${column} = ? WHERE entity_id = ?`, [childText, id]));
             }
             report.namesImported += 1;
             continue;
           }
           if (childName === 'note' && child.getAttribute('type') === 'description') {
-            insertMetadata(db, id, 'description', childText, child, childNow);
-            db.prepare('UPDATE entities SET description = ? WHERE id = ?').run(
-              childText || null,
-              id,
-            );
+            await insertMetadata(db, id, 'description', childText, child, childNow);
+            (await db.run('UPDATE entities SET description = ? WHERE id = ?', [childText || null,
+              id,]));
             continue;
           }
           if (childName === 'note' && child.getAttribute('type') === 'subtype') {
-            insertMetadata(db, id, 'subtype', childText, child, childNow);
+            await insertMetadata(db, id, 'subtype', childText, child, childNow);
             continue;
           }
           if (childName === 'birth' || childName === 'death') {
-            db.prepare(
-              `INSERT INTO entity_dates
+            (await db.run(`INSERT INTO entity_dates
                 (entity_id, date_kind, start_year, end_year, when_value, not_before, not_after, from_value, to_value, from_circa, to_circa, date_system, calendar_payload, raw_text, start_precision, end_precision, origin, source, status, created_at, updated_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-            ).run(
-              id,
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, [id,
               childName,
               year(child.getAttribute('when')),
               null,
@@ -505,20 +465,16 @@ export function importEntitiesXml(
               p.source,
               p.status,
               childNow,
-              childNow,
-            );
+              childNow,]));
             continue;
           }
           if (
             childName === 'note' &&
             ['dates', 'fl.', 'floruit'].includes(child.getAttribute('type'))
           ) {
-            db.prepare(
-              `INSERT INTO entity_dates
+            (await db.run(`INSERT INTO entity_dates
                 (entity_id, date_kind, start_year, end_year, when_value, not_before, not_after, from_value, to_value, from_circa, to_circa, date_system, calendar_payload, raw_text, start_precision, end_precision, origin, source, status, created_at, updated_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-            ).run(
-              id,
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, [id,
               child.getAttribute('type') === 'dates' ? 'dates' : child.getAttribute('type'),
               year(
                 child.getAttribute('when') ||
@@ -542,17 +498,13 @@ export function importEntitiesXml(
               p.source,
               p.status,
               childNow,
-              childNow,
-            );
+              childNow,]));
             continue;
           }
           if (kind === 'person' && childName === 'nationality') {
-            db.prepare(
-              `INSERT INTO person_nationalities
+            (await db.run(`INSERT INTO person_nationalities
                 (person_id, label, reference, source_ids_json, origin, source, status, created_at, updated_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-            ).run(
-              id,
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`, [id,
               childText,
               child.getAttribute('ref') || null,
               child.getAttribute('sourceIds') || null,
@@ -560,17 +512,13 @@ export function importEntitiesXml(
               p.source,
               p.status,
               childNow,
-              childNow,
-            );
+              childNow,]));
             continue;
           }
           if (kind === 'person' && childName === 'placeName') {
-            db.prepare(
-              `INSERT INTO person_origins
+            (await db.run(`INSERT INTO person_origins
                 (person_id, label, reference, name_type, origin, source, status, created_at, updated_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-            ).run(
-              id,
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`, [id,
               childText,
               child.getAttribute('ref') || null,
               child.getAttribute('type') || null,
@@ -578,8 +526,7 @@ export function importEntitiesXml(
               p.source,
               p.status,
               childNow,
-              childNow,
-            );
+              childNow,]));
             continue;
           }
           if (kind === 'person' && childName === 'nobleTitle') {
@@ -588,12 +535,9 @@ export function importEntitiesXml(
               parts.find(
                 (x) => localName(x) === name && (!type || x.getAttribute('type') === type),
               );
-            db.prepare(
-              `INSERT INTO person_titles
+            (await db.run(`INSERT INTO person_titles
                 (person_id, dynasty, place_name, role_name, posthumous_name, reference, place_reference, role_reference, posthumous_reference, when_value, origin, source, status, created_at, updated_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-            ).run(
-              id,
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, [id,
               child.getAttribute('dynasty') || null,
               text(part('placeName')),
               text(part('roleName')),
@@ -607,41 +551,33 @@ export function importEntitiesXml(
               p.source,
               p.status,
               childNow,
-              childNow,
-            );
+              childNow,]));
             continue;
           }
           if (kind === 'work' && childName === 'author') {
             const person = childElements(child).find((x) => localName(x) === 'persName');
-            db.prepare(
-              `INSERT INTO work_authors
+            (await db.run(`INSERT INTO work_authors
                 (work_id, label, reference, origin, source, status, created_at, updated_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-            ).run(
-              id,
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)`, [id,
               text(person || child),
               person?.getAttribute('ref') || child.getAttribute('ref') || null,
               p.origin,
               p.source,
               p.status,
               childNow,
-              childNow,
-            );
+              childNow,]));
             continue;
           }
           if (kind === 'person' && childName === 'affiliation') {
             const officeId = child.getAttribute('ref')?.replace(/^#/, '') || null;
             const officeExists =
               officeId &&
-              db.prepare("SELECT 1 FROM entities WHERE id = ? AND kind = 'office'").get(officeId)
+              (await db.get("SELECT 1 FROM entities WHERE id = ? AND kind = 'office'", [officeId]))
                 ? officeId
                 : null;
-            db.prepare(
-              `INSERT INTO person_offices
+            (await db.run(`INSERT INTO person_offices
                 (person_id, office_id, office_label, reference, origin, source, status, created_at, updated_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-            ).run(
-              id,
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`, [id,
               officeExists,
               childText,
               child.getAttribute('ref') || null,
@@ -649,17 +585,13 @@ export function importEntitiesXml(
               p.source,
               p.status,
               childNow,
-              childNow,
-            );
+              childNow,]));
             continue;
           }
           if (kind === 'office' && childName === 'state') {
-            db.prepare(
-              `INSERT INTO office_classifications
+            (await db.run(`INSERT INTO office_classifications
                 (office_id, classification_id, reference, label, origin, source, status, created_at, updated_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-            ).run(
-              id,
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`, [id,
               child.getAttribute('ref') || childText,
               child.getAttribute('ref') || null,
               childText || null,
@@ -667,13 +599,10 @@ export function importEntitiesXml(
               p.source,
               p.status,
               childNow,
-              childNow,
-            );
+              childNow,]));
             continue;
           }
-          db.prepare(
-            `INSERT INTO entity_extensions (entity_id, ordinal, namespace, element_name, xml) VALUES (?, ?, ?, ?, ?)`,
-          ).run(id, fragmentOrdinal, null, childName, serializeChild(child));
+          (await db.run(`INSERT INTO entity_extensions (entity_id, ordinal, namespace, element_name, xml) VALUES (?, ?, ?, ?, ?)`, [id, fragmentOrdinal, null, childName, serializeChild(child)]));
           fragmentOrdinal += 1;
           report.fragmentsPreserved += 1;
         }
@@ -691,26 +620,23 @@ export function importEntitiesXml(
           report.warnings.push('Skipped office relation without an active subject.');
           continue;
         }
-        const subjectExists = db.prepare('SELECT 1 FROM entities WHERE id = ?').get(active);
+        const subjectExists = (await db.get('SELECT 1 FROM entities WHERE id = ?', [active]));
         if (!subjectExists) {
           report.unresolvedReferences.push(active);
           report.warnings.push(`Skipped relation for missing subject ${active}.`);
           continue;
         }
         const objectExists =
-          passive && db.prepare('SELECT 1 FROM entities WHERE id = ?').get(passive)
+          passive && (await db.get('SELECT 1 FROM entities WHERE id = ?', [passive]))
             ? passive
             : null;
         if (passive && !objectExists) {
           report.unresolvedReferences.push(passive);
         }
         const now = new Date().toISOString();
-        db.prepare(
-          `INSERT INTO entity_relations
+        (await db.run(`INSERT INTO entity_relations
             (relation_type, subject_entity_id, object_entity_id, active, passive, symmetric, reference, origin, source, status, created_at, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        ).run(
-          relation.getAttribute('name') || relation.getAttribute('type') || 'relation',
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, [relation.getAttribute('name') || relation.getAttribute('type') || 'relation',
           active,
           objectExists,
           relation.getAttribute('active') || null,
@@ -724,11 +650,10 @@ export function importEntitiesXml(
           relation.getAttribute('resp') || null,
           'active',
           now,
-          now,
-        );
+          now,]));
       }
     }
-    db.exec(`
+    await db.exec(`
       UPDATE person_offices
       SET office_id = (
         SELECT e.id FROM entities e
@@ -757,12 +682,12 @@ export function importEntitiesXml(
       ['office_classifications', 'office_id'],
       ['entity_metadata', 'entity_id'],
     ] as const) {
-      db.exec(
+      await db.exec(
         `INSERT OR IGNORE INTO entity_tombstones (entity_id, table_name, row_id, reason, created_at)
          SELECT ${entityColumn}, '${table}', id, 'imported-${table}-status', updated_at
          FROM ${table} WHERE status <> 'active'`,
       );
-      db.exec(
+      await db.exec(
         `INSERT OR IGNORE INTO entity_provenance (entity_id, table_name, row_id, origin, source, recorded_at)
          SELECT ${entityColumn}, '${table}', id, origin, source, updated_at
          FROM ${table}`,
@@ -772,20 +697,24 @@ export function importEntitiesXml(
   return report;
 }
 
-function rows(db: DatabaseSync, sql: string, ...params: unknown[]): Record<string, unknown>[] {
-  return db.prepare(sql).all(...(params as never[])) as Record<string, unknown>[];
+async function rows(
+  db: EntityDbBackend,
+  sql: string,
+  ...params: unknown[]
+): Promise<Record<string, unknown>[]> {
+  return (await db.all(sql, params)) as Record<string, unknown>[];
 }
 
-function entityXml(db: DatabaseSync, entity: Record<string, unknown>): string {
+async function entityXml(db: EntityDbBackend, entity: Record<string, unknown>): Promise<string> {
   const id = String(entity.id);
   const kind = entity.kind as SqliteEntityKind;
   const nameTag = tagForKind(kind);
   const parts: string[] = [];
-  const entityAttrs = rows(
+  const entityAttrs = (await rows(
     db,
     `SELECT namespace, name, value FROM entity_attributes WHERE entity_id = ? ORDER BY id`,
     id,
-  )
+  ))
     .map(
       (row) =>
         ` ${row.namespace ? `${String(row.namespace)}:` : ''}${String(row.name)}="${attrEscape(String(row.value))}"`,
@@ -793,11 +722,11 @@ function entityXml(db: DatabaseSync, entity: Record<string, unknown>): string {
     .join('');
   let exportedFamilyNote = false;
   let exportedGivenNote = false;
-  for (const row of rows(
+  for (const row of (await rows(
     db,
     `SELECT * FROM entity_names WHERE entity_id = ? ORDER BY is_primary DESC, id`,
     id,
-  )) {
+  ))) {
     if (row.status !== 'active' && row.status !== 'rejected') continue;
     const nameType = String(row.name_type ?? '');
     const nameRole = String(row.name_role ?? '');
@@ -825,11 +754,11 @@ function entityXml(db: DatabaseSync, entity: Record<string, unknown>): string {
     ].join('');
     parts.push(`<${nameTag}${attrs}>${xmlEscape(String(row.text))}</${nameTag}>`);
   }
-  for (const row of rows(
+  for (const row of (await rows(
     db,
     `SELECT * FROM entity_translations WHERE entity_id = ? ORDER BY id`,
     id,
-  )) {
+  ))) {
     if (row.status !== 'active' && row.status !== 'rejected') continue;
     const attrs = [
       ` xml:lang="${attrEscape(String(row.language))}"`,
@@ -841,9 +770,7 @@ function entityXml(db: DatabaseSync, entity: Record<string, unknown>): string {
     parts.push(`<${nameTag}${attrs}>${xmlEscape(String(row.text))}</${nameTag}>`);
   }
   if (kind === 'person') {
-    const person = db
-      .prepare('SELECT family_name, given_name FROM people WHERE entity_id = ?')
-      .get(id) as { family_name: string | null; given_name: string | null } | undefined;
+    const person = (await db.get('SELECT family_name, given_name FROM people WHERE entity_id = ?', [id])) as { family_name: string | null; given_name: string | null } | undefined;
     if (person?.family_name && !exportedFamilyNote) {
       parts.push(`<note type="familyName">${xmlEscape(person.family_name)}</note>`);
     }
@@ -851,11 +778,11 @@ function entityXml(db: DatabaseSync, entity: Record<string, unknown>): string {
       parts.push(`<note type="givenName">${xmlEscape(person.given_name)}</note>`);
     }
   }
-  for (const row of rows(
+  for (const row of (await rows(
     db,
     `SELECT * FROM entity_authorities WHERE entity_id = ? ORDER BY id`,
     id,
-  )) {
+  ))) {
     const attrs = [
       ` type="${attrEscape(String(row.authority_type))}"`,
       row.origin !== 'authority' ? ` origin="${attrEscape(String(row.origin))}"` : '',
@@ -864,17 +791,17 @@ function entityXml(db: DatabaseSync, entity: Record<string, unknown>): string {
     ].join('');
     parts.push(`<idno${attrs}>${xmlEscape(String(row.authority_value))}</idno>`);
   }
-  for (const row of rows(db, `SELECT * FROM entity_metadata WHERE entity_id = ? ORDER BY id`, id)) {
+  for (const row of (await rows(db, `SELECT * FROM entity_metadata WHERE entity_id = ? ORDER BY id`, id))) {
     const attrs =
       ` type="${attrEscape(String(row.key))}"` +
       (row.status !== 'active' ? ` status="${attrEscape(String(row.status))}"` : '');
     parts.push(`<note${attrs}>${xmlEscape(String(row.value))}</note>`);
   }
-  for (const row of rows(
+  for (const row of (await rows(
     db,
     `SELECT * FROM authority_caches WHERE entity_id = ? ORDER BY id`,
     id,
-  )) {
+  ))) {
     const attrs = [
       ` type="authority-cache"`,
       row.authority_type ? ` source="${attrEscape(String(row.authority_type))}"` : '',
@@ -883,11 +810,11 @@ function entityXml(db: DatabaseSync, entity: Record<string, unknown>): string {
     ].join('');
     parts.push(`<note${attrs}>${xmlEscape(String(row.payload_json))}</note>`);
   }
-  for (const row of rows(
+  for (const row of (await rows(
     db,
     `SELECT * FROM entity_decisions WHERE entity_id = ? ORDER BY id`,
     id,
-  )) {
+  ))) {
     const attrs = [
       ` type="${attrEscape(String(row.decision_type))}"`,
       row.target_entity_id ? ` ref="#${attrEscape(String(row.target_entity_id))}"` : '',
@@ -896,7 +823,7 @@ function entityXml(db: DatabaseSync, entity: Record<string, unknown>): string {
     ].join('');
     parts.push(`<note${attrs}>${xmlEscape(String(row.payload_json ?? ''))}</note>`);
   }
-  for (const row of rows(db, `SELECT * FROM entity_dates WHERE entity_id = ? ORDER BY id`, id)) {
+  for (const row of (await rows(db, `SELECT * FROM entity_dates WHERE entity_id = ? ORDER BY id`, id))) {
     if (row.date_kind === 'birth' || row.date_kind === 'death') {
       const attrs = [
         row.when_value
@@ -953,11 +880,11 @@ function entityXml(db: DatabaseSync, entity: Record<string, unknown>): string {
     }
   }
   if (kind === 'person') {
-    for (const row of rows(
+    for (const row of (await rows(
       db,
       `SELECT * FROM person_nationalities WHERE person_id = ? ORDER BY id`,
       id,
-    )) {
+    ))) {
       const attrs = [
         row.reference ? ` ref="${attrEscape(String(row.reference))}"` : '',
         row.source_ids_json ? ` sourceIds="${attrEscape(String(row.source_ids_json))}"` : '',
@@ -967,11 +894,11 @@ function entityXml(db: DatabaseSync, entity: Record<string, unknown>): string {
       ].join('');
       parts.push(`<nationality${attrs}>${xmlEscape(String(row.label))}</nationality>`);
     }
-    for (const row of rows(
+    for (const row of (await rows(
       db,
       `SELECT * FROM person_origins WHERE person_id = ? ORDER BY id`,
       id,
-    )) {
+    ))) {
       const attrs = [
         row.reference ? ` ref="${attrEscape(String(row.reference))}"` : '',
         row.name_type ? ` type="${attrEscape(String(row.name_type))}"` : '',
@@ -981,7 +908,7 @@ function entityXml(db: DatabaseSync, entity: Record<string, unknown>): string {
       ].join('');
       parts.push(`<placeName${attrs}>${xmlEscape(String(row.label))}</placeName>`);
     }
-    for (const row of rows(db, `SELECT * FROM person_titles WHERE person_id = ? ORDER BY id`, id)) {
+    for (const row of (await rows(db, `SELECT * FROM person_titles WHERE person_id = ? ORDER BY id`, id))) {
       const attrs = [
         row.dynasty ? ` dynasty="${attrEscape(String(row.dynasty))}"` : '',
         row.reference ? ` ref="${attrEscape(String(row.reference))}"` : '',
@@ -999,7 +926,7 @@ function entityXml(db: DatabaseSync, entity: Record<string, unknown>): string {
     }
   }
   if (kind === 'work') {
-    for (const row of rows(db, `SELECT * FROM work_authors WHERE work_id = ? ORDER BY id`, id)) {
+    for (const row of (await rows(db, `SELECT * FROM work_authors WHERE work_id = ? ORDER BY id`, id))) {
       const attrs = [
         row.reference ? ` ref="${attrEscape(String(row.reference))}"` : '',
         row.origin !== 'user' ? ` origin="${attrEscape(String(row.origin))}"` : '',
@@ -1010,11 +937,11 @@ function entityXml(db: DatabaseSync, entity: Record<string, unknown>): string {
     }
   }
   if (kind === 'person') {
-    for (const row of rows(
+    for (const row of (await rows(
       db,
       `SELECT * FROM person_offices WHERE person_id = ? ORDER BY id`,
       id,
-    )) {
+    ))) {
       const attrs = [
         row.reference ? ` ref="${attrEscape(String(row.reference))}"` : '',
         row.origin !== 'xml' ? ` origin="${attrEscape(String(row.origin))}"` : '',
@@ -1025,11 +952,11 @@ function entityXml(db: DatabaseSync, entity: Record<string, unknown>): string {
     }
   }
   if (kind === 'office') {
-    for (const row of rows(
+    for (const row of (await rows(
       db,
       `SELECT * FROM office_classifications WHERE office_id = ? ORDER BY id`,
       id,
-    )) {
+    ))) {
       const attrs = [
         ` type="office-classification"`,
         row.reference ? ` ref="${attrEscape(String(row.reference))}"` : '',
@@ -1040,28 +967,28 @@ function entityXml(db: DatabaseSync, entity: Record<string, unknown>): string {
       parts.push(`<state${attrs}>${xmlEscape(String(row.label ?? ''))}</state>`);
     }
   }
-  for (const row of rows(
+  for (const row of (await rows(
     db,
     `SELECT central_entity_id, user_stable_id FROM central_mappings WHERE project_entity_id = ? ORDER BY user_stable_id`,
     id,
-  )) {
+  ))) {
     parts.push(
       `<idno type="grognard-central" subtype="${attrEscape(String(row.user_stable_id))}">${xmlEscape(String(row.central_entity_id))}</idno>`,
     );
   }
-  for (const row of rows(
+  for (const row of (await rows(
     db,
     `SELECT xml FROM entity_extensions WHERE entity_id = ? ORDER BY ordinal`,
     id,
-  ))
+  )))
     parts.push(String(row.xml));
   // Keep exporting fragments created by schema v2 databases until they have
   // been re-imported into the v3 extension table.
-  for (const row of rows(
+  for (const row of (await rows(
     db,
     `SELECT xml FROM entity_xml_fragments WHERE entity_id = ? ORDER BY ordinal`,
     id,
-  ))
+  )))
     parts.push(String(row.xml));
   const changed = String(entity.updated_at);
   parts.push(`<note type="grognard-changed" when="${attrEscape(changed)}"/>`);
@@ -1130,25 +1057,25 @@ export function normalizeEntityXmlForContentHash(entityElementXml: string): stri
 }
 
 /** Export one entity element (including mapping/changed notes) as TEI XML. */
-export function exportEntityElementXml(
+export async function exportEntityElementXml(
   repository: EntitySqliteRepository,
   entityId: string,
-): string | null {
-  const row = repository.db.prepare('SELECT * FROM entities WHERE id = ?').get(entityId) as
+): Promise<string | null> {
+  const row = (await repository.backend.get('SELECT * FROM entities WHERE id = ?', [entityId])) as
     Record<string, unknown> | undefined;
   if (!row || row.deleted_at) return null;
-  return entityXml(repository.db, row);
+  return entityXml(repository.backend, row);
 }
 
 /**
  * Content hash matching `entityContentHash` in synchronizedMirror.ts for the
  * same SQLite-backed entity export.
  */
-export function computeEntityContentHash(
+export async function computeEntityContentHash(
   repository: EntitySqliteRepository,
   entityId: string,
-): string | null {
-  const xml = exportEntityElementXml(repository, entityId);
+): Promise<string | null> {
+  const xml = await exportEntityElementXml(repository, entityId);
   if (!xml) return null;
   return hashContent(normalizeEntityXmlForContentHash(xml));
 }
@@ -1157,16 +1084,16 @@ export function computeEntityContentHash(
  * Copy one entity's body from source DB into target DB (preserve target id +
  * central mappings). Returns whether the target content hash changed.
  */
-export function replaceEntityContentBetween(
+export async function replaceEntityContentBetween(
   source: EntitySqliteRepository,
   sourceId: string,
   target: EntitySqliteRepository,
   targetId: string,
-): { changed: boolean; beforeHash: string | null; afterHash: string | null } {
-  const beforeHash = computeEntityContentHash(target, targetId);
-  const ok = target.replaceEntityContentFrom(source, sourceId, targetId);
+): Promise<{ changed: boolean; beforeHash: string | null; afterHash: string | null }> {
+  const beforeHash = await computeEntityContentHash(target, targetId);
+  const ok = await target.replaceEntityContentFrom(source, sourceId, targetId);
   if (!ok) return { changed: false, beforeHash, afterHash: beforeHash };
-  const afterHash = computeEntityContentHash(target, targetId);
+  const afterHash = await computeEntityContentHash(target, targetId);
   return {
     changed: beforeHash !== afterHash,
     beforeHash,
@@ -1175,34 +1102,37 @@ export function replaceEntityContentBetween(
 }
 
 /** Export the SQLite database as deterministic TEI entity XML. */
-export function exportEntitiesXml(
+export async function exportEntitiesXml(
   repository: EntitySqliteRepository,
   options: XmlExportOptions = {},
-): string {
-  const db = repository.db;
+): Promise<string> {
+  const db = repository.backend;
   const databaseId =
     options.databaseId ??
     String(
-      db.prepare('SELECT value FROM database_metadata WHERE key = ?').get('database_id')?.value ??
+      (await db.get<{ value?: string }>('SELECT value FROM database_metadata WHERE key = ?', ['database_id']))?.value ??
         '',
     );
   if (!databaseId) throw new Error('SQLite entity database has no database_id metadata.');
-  const lists = (Object.keys(ENTITY_KINDS) as SqliteEntityKind[])
-    .map((kind) => {
-      const config = ENTITY_KINDS[kind];
-      const entities = rows(
-        db,
-        `SELECT e.* FROM entities e
+  const lists = (
+    await Promise.all(
+      (Object.keys(ENTITY_KINDS) as SqliteEntityKind[]).map(async (kind) => {
+        const config = ENTITY_KINDS[kind];
+        const entities = await rows(
+          db,
+          `SELECT e.* FROM entities e
       LEFT JOIN entity_positions p ON p.entity_id = e.id AND p.list_kind = ?
       WHERE e.kind = ? AND e.deleted_at IS NULL
       ORDER BY COALESCE(p.position, 2147483647), e.id`,
-        kind,
-        kind,
-      );
-      return `<${config.list}${config.type ? ` type="${config.type}"` : ''}>${entities.map((entity) => entityXml(db, entity)).join('')}</${config.list}>`;
-    })
-    .join('');
-  const relations = rows(db, `SELECT * FROM entity_relations WHERE status = 'active' ORDER BY id`)
+          kind,
+          kind,
+        );
+        const entityXmls = await Promise.all(entities.map((entity) => entityXml(db, entity)));
+        return `<${config.list}${config.type ? ` type="${config.type}"` : ''}>${entityXmls.join('')}</${config.list}>`;
+      }),
+    )
+  ).join('');
+  const relations = (await rows(db, `SELECT * FROM entity_relations WHERE status = 'active' ORDER BY id`))
     .map((row) => {
       const attrs = [
         ` name="${attrEscape(String(row.relation_type))}"`,
@@ -1218,11 +1148,11 @@ export function exportEntitiesXml(
     ? `<listRelation type="office-hierarchy">${relations}</listRelation>`
     : '';
   const title = String(
-    db.prepare('SELECT value FROM database_metadata WHERE key = ?').get('title')?.value ??
+    (await db.get<{ value?: string }>('SELECT value FROM database_metadata WHERE key = ?', ['title']))?.value ??
       'Entity database',
   );
   const sourceDescription = String(
-    db.prepare('SELECT value FROM database_metadata WHERE key = ?').get('source_description')
+    (await db.get<{ value?: string }>('SELECT value FROM database_metadata WHERE key = ?', ['source_description']))
       ?.value ?? 'Entity authority file.',
   );
   return `<?xml version="1.0" encoding="UTF-8"?><TEI xmlns="${TEI_NS}"><teiHeader><fileDesc><titleStmt><title>${xmlEscape(title)}</title></titleStmt><publicationStmt><p>Generated by Grognard.</p><idno type="grognard-entity-database">${xmlEscape(databaseId)}</idno></publicationStmt><sourceDesc><p>${xmlEscape(sourceDescription)}</p></sourceDesc></fileDesc></teiHeader><standOff>${lists}${relationList}</standOff></TEI>`;
@@ -1270,9 +1200,9 @@ export function extractDecisionTargetEntriesFromXml(xml: string): DecisionTarget
 }
 
 /** Apply sibling-XML decision targets into SQLite. Idempotent. */
-export function backfillDecisionTargetsFromXml(
+export async function backfillDecisionTargetsFromXml(
   repository: EntitySqliteRepository,
   xml: string,
-): DecisionTargetBackfillReport {
+): Promise<DecisionTargetBackfillReport> {
   return repository.backfillDecisionTargets(extractDecisionTargetEntriesFromXml(xml));
 }
