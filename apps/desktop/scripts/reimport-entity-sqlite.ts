@@ -34,7 +34,7 @@ const resolvePaths = (input?: string): { xmlPath: string; sqlitePath: string } =
   };
 };
 
-const main = () => {
+const main = async () => {
   const { xmlPath, sqlitePath } = resolvePaths(process.argv[2]);
   if (!fs.existsSync(xmlPath)) {
     console.error(`Missing entities.xml: ${xmlPath}`);
@@ -49,11 +49,11 @@ const main = () => {
   console.log(`Importing ${xmlPath}`);
   console.log(`     into ${sqlitePath}`);
 
-  const repository = new EntitySqliteRepository(sqlitePath);
+  const repository = await EntitySqliteRepository.open(sqlitePath);
   try {
-    const report = importEntitiesXml(repository, xml, { replace: true });
-    const activeCount = repository.listEntityIds().length;
-    const integrity = repository.integrityCheck();
+    const report = await importEntitiesXml(repository, xml, { replace: true });
+    const activeCount = (await repository.listEntityIds()).length;
+    const integrity = await repository.integrityCheck();
     console.log(
       JSON.stringify(
         {
@@ -75,7 +75,7 @@ const main = () => {
       process.exitCode = 2;
     }
   } finally {
-    repository.close();
+    await repository.close();
   }
 };
 

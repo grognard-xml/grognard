@@ -52,29 +52,30 @@ const authorityKey = (kind: string, type: string, value: string) =>
 
 const yieldToEventLoop = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
 
-function listActiveAuthorities(
+async function listActiveAuthorities(
   repository: EntitySqliteRepository,
   entityId: string,
-): { type: string; value: string }[] {
-  return repository.db
-    .prepare(
-      `SELECT authority_type AS type, authority_value AS value
+): Promise<{ type: string; value: string }[]> {
+  return (await repository.backend.all(
+    `SELECT authority_type AS type, authority_value AS value
        FROM entity_authorities
        WHERE entity_id = ? AND status = 'active'
        ORDER BY id`,
-    )
-    .all(entityId) as { type: string; value: string }[];
+    [entityId],
+  )) as { type: string; value: string }[];
 }
 
-function primaryNameOf(repository: EntitySqliteRepository, entityId: string): string | null {
-  const row = repository.db
-    .prepare(
-      `SELECT text FROM entity_names
+async function primaryNameOf(
+  repository: EntitySqliteRepository,
+  entityId: string,
+): Promise<string | null> {
+  const row = (await repository.backend.get(
+    `SELECT text FROM entity_names
        WHERE entity_id = ? AND status = 'active'
        ORDER BY is_primary DESC, id
        LIMIT 1`,
-    )
-    .get(entityId) as { text?: string } | undefined;
+    [entityId],
+  )) as { text?: string } | undefined;
   return row?.text?.trim() || null;
 }
 
@@ -123,12 +124,17 @@ export async function bulkBridgeImportSqlite(
       ...update,
     });
 
-  const centralIds = central.listEntityIds();
+  const centralIds = await central.listEntityIds();
   for (let offset = 0; offset < centralIds.length; offset += chunkSize) {
     for (const id of centralIds.slice(offset, offset + chunkSize)) {
-      const entity = central.getEntity(id);
+      const entity = await central.getEntity(id);
       if (!entity || entity.deletedAt) continue;
-      addToAuthorityIndex(centralByAuthority, entity.kind, id, listActiveAuthorities(central, id));
+      addToAuthorityIndex(
+        centralByAuthority,
+        entity.kind,
+        id,
+        await listActiveAuthorities(central, id),
+      );
     }
     progress({
       done: Math.min(offset + chunkSize, centralIds.length),
@@ -149,7 +155,7 @@ export async function bulkBridgeImportSqlite(
     }
   }
 
-  const sourceIds = source.listEntityIds();
+  const sourceIds = await source.listEntityIds();
   const proposals: BulkBridgeProposal[] = [];
   let matched = 0;
   let proposed = 0;
@@ -192,12 +198,12 @@ export async function bulkBridgeImportSqlite(
       lastSourceId = sourceId;
       done += 1;
 
-      if (source.getCentralId(sourceId, userStableId)) continue;
+      if (await source.getCentralId(sourceId, userStableId)) continue;
 
-      const entity = source.getEntity(sourceId);
+      const entity = await source.getEntity(sourceId);
       if (!entity || entity.deletedAt) continue;
 
-      const authorities = listActiveAuthorities(source, sourceId);
+      const authorities = await listActiveAuthorities(source, sourceId);
       const candidates = new Set<string>();
       for (const authority of authorities) {
         for (const id of centralByAuthority.get(
@@ -210,7 +216,7 @@ export async function bulkBridgeImportSqlite(
 
       if (candidateIds.length === 1) {
         const centralId = candidateIds[0]!;
-        if (source.setCentralMapping(sourceId, userStableId, centralId)) sourceChanged = true;
+        if (await source.setCentralMapping(sourceId, userStableId, centralId)) sourceChanged = true;
         matched += 1;
         continue;
       }
@@ -219,7 +225,7 @@ export async function bulkBridgeImportSqlite(
         const proposal: BulkBridgeProposal = {
           sourceId,
           kind: entity.kind as EntityKind,
-          name: primaryNameOf(source, sourceId),
+          name: await primaryNameOf(source, sourceId),
           authorities,
           reason: 'ambiguous-authority-match',
           candidateCentralIds: candidateIds,
@@ -234,7 +240,7 @@ export async function bulkBridgeImportSqlite(
         const proposal: BulkBridgeProposal = {
           sourceId,
           kind: entity.kind as EntityKind,
-          name: primaryNameOf(source, sourceId),
+          name: await primaryNameOf(source, sourceId),
           authorities,
           reason: 'no-authority-match',
           candidateCentralIds: [],
@@ -246,21 +252,21 @@ export async function bulkBridgeImportSqlite(
       }
 
       const centralId = mintEntityId(entity.kind as EntityKind);
-      central.createEntity({
+      await central.createEntity({
         id: centralId,
         kind: entity.kind,
         description: entity.description,
       });
-      if (!central.replaceEntityContentFrom(source, sourceId, centralId)) {
+      if (!(await central.replaceEntityContentFrom(source, sourceId, centralId))) {
         throw new Error(`Failed to mint central entity from ${sourceId}`);
       }
-      if (source.setCentralMapping(sourceId, userStableId, centralId)) sourceChanged = true;
+      if (await source.setCentralMapping(sourceId, userStableId, centralId)) sourceChanged = true;
       centralChanged = true;
       addToAuthorityIndex(
         centralByAuthority,
         entity.kind,
         centralId,
-        listActiveAuthorities(central, centralId),
+        await listActiveAuthorities(central, centralId),
       );
       matched += 1;
       merged += 1;

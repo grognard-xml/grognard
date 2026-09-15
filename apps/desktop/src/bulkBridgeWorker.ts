@@ -68,8 +68,8 @@ process.on(
     try {
       const sourceSqlitePath = await requireSqlitePath(request.sourceEntitiesPath, 'Project');
       const centralSqlitePath = await requireSqlitePath(request.centralEntitiesPath, 'Central');
-      sourceRepo = new EntitySqliteRepository(sourceSqlitePath);
-      centralRepo = new EntitySqliteRepository(centralSqlitePath);
+      sourceRepo = await EntitySqliteRepository.open(sourceSqlitePath);
+      centralRepo = await EntitySqliteRepository.open(centralSqlitePath);
 
       const result = await bulkBridgeImportSqlite({
         source: sourceRepo,
@@ -88,9 +88,9 @@ process.on(
       const proposalText = result.proposals.map((proposal) => JSON.stringify(proposal)).join('\n');
       await atomicWrite(proposalPath, proposalText ? `${proposalText}\n` : '', jobId);
 
-      sourceRepo.close();
+      await sourceRepo.close();
       sourceRepo = null;
-      centralRepo.close();
+      await centralRepo.close();
       centralRepo = null;
 
       if (!cancelled.has(jobId)) {
@@ -107,12 +107,12 @@ process.on(
       });
     } finally {
       try {
-        sourceRepo?.close();
+        await sourceRepo?.close();
       } catch {
         // already closed
       }
       try {
-        centralRepo?.close();
+        await centralRepo?.close();
       } catch {
         // already closed
       }

@@ -65,7 +65,7 @@ const parseArgs = (argv: string[]): Args => {
 
 const sqlStr = (value: string): string => `'${value.replace(/'/g, "''")}'`;
 
-const main = (): void => {
+const main = async (): Promise<void> => {
   const args = parseArgs(process.argv.slice(2));
   if (!fs.existsSync(args.db)) {
     console.error(`No entities.sqlite at ${args.db}`);
@@ -73,11 +73,11 @@ const main = (): void => {
   }
   fs.mkdirSync(args.out, { recursive: true });
 
-  const repo = openEntitySqliteRepository(args.db);
+  const repo = await openEntitySqliteRepository(args.db);
   const now = new Date().toISOString();
-  const rows = repo.db
-    .prepare(`SELECT id, kind FROM entities WHERE deleted_at IS NULL ORDER BY id`)
-    .all() as { id: string; kind: string }[];
+  const rows = (await repo.backend.all(
+    `SELECT id, kind FROM entities WHERE deleted_at IS NULL ORDER BY id`,
+  )) as { id: string; kind: string }[];
 
   let seq = 0;
   let fileIndex = 0;
@@ -107,8 +107,8 @@ const main = (): void => {
       closeFile();
       openFile();
     }
-    const xml = exportEntityElementXml(repo, row.id);
-    const hash = computeEntityContentHash(repo, row.id);
+    const xml = await exportEntityElementXml(repo, row.id);
+    const hash = await computeEntityContentHash(repo, row.id);
     if (!xml || !hash) {
       skipped += 1;
       continue;
@@ -131,7 +131,7 @@ const main = (): void => {
       `ON CONFLICT(owner_id) DO UPDATE SET last_seq = ${seq};\n`,
   );
   closeFile();
-  repo.close();
+  await repo.close();
 
   console.log(
     `\n${seq} entities → ${fileIndex} file(s) in ${args.out}` +

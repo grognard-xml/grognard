@@ -6,10 +6,10 @@ import type {
 } from '../../commons/src/desktop/entityIndexTypes';
 import { EntitySqliteRepository } from './entityDbSqlite/repository';
 
-const summariesFromSqlite = (repository: EntitySqliteRepository): EntitySummary[] =>
-  repository
-    .listEntityIds()
-    .map((id) => repository.getPanelSummary(id))
+const summariesFromSqlite = async (repository: EntitySqliteRepository): Promise<EntitySummary[]> => {
+  const ids = await repository.listEntityIds();
+  const rawSummaries = await Promise.all(ids.map((id) => repository.getPanelSummary(id)));
+  return rawSummaries
     .filter((summary): summary is NonNullable<typeof summary> => summary !== null)
     .map((summary) => {
       const activeNames = summary.names.filter((name) => name.status === 'active');
@@ -54,6 +54,7 @@ const summariesFromSqlite = (repository: EntitySqliteRepository): EntitySummary[
         ),
       };
     });
+};
 
 const cancelled = new Set<string>();
 const send = (event: EntityIndexJobEvent): void => {
@@ -107,9 +108,9 @@ process.on(
       let sqliteSummaries: EntitySummary[] | null = null;
       try {
         sourceStat = await fs.stat(sqlitePath);
-        const repository = new EntitySqliteRepository(sqlitePath);
-        sqliteSummaries = summariesFromSqlite(repository);
-        repository.close();
+        const repository = await EntitySqliteRepository.open(sqlitePath);
+        sqliteSummaries = await summariesFromSqlite(repository);
+        await repository.close();
       } catch (error) {
         throw new Error(
           `Entity indexing requires entities.sqlite beside ${request.entitiesPath}: ${error instanceof Error ? error.message : String(error)}`,
