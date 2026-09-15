@@ -147,6 +147,16 @@ const normalizePlugins = (raw: unknown): string[] | undefined => {
   return plugins.length ? plugins : undefined;
 };
 
+const normalizePedb = (raw: unknown): ProjectFileConfig['pedb'] => {
+  if (!raw || typeof raw !== 'object') return undefined;
+  const value = raw as { backend?: unknown; url?: unknown };
+  if (value.backend === 'turso' && typeof value.url === 'string' && value.url.trim()) {
+    return { backend: 'turso', url: value.url.trim() };
+  }
+  if (value.backend === 'local') return { backend: 'local' };
+  return undefined;
+};
+
 const normalizeConfig = (raw: Partial<ProjectFileConfig>, rootPath: string): ProjectFileConfig => ({
   version: 1,
   name: typeof raw.name === 'string' && raw.name.trim() ? raw.name : path.basename(rootPath),
@@ -169,6 +179,7 @@ const normalizeConfig = (raw: Partial<ProjectFileConfig>, rootPath: string): Pro
   autoTaggingValidation: normalizeAutoTaggingValidation(raw.autoTaggingValidation),
   disambiguation: normalizeDisambiguationSettings(raw.disambiguation),
   plugins: normalizePlugins(raw.plugins),
+  pedb: normalizePedb(raw.pedb),
 });
 
 const writeConfigFile = async (
@@ -253,7 +264,10 @@ const detectSchema = async (rootPath: string): Promise<ProjectSchemaConfig | und
  * touched them. Idempotent (checks entities.xml first) so it is also safe to
  * call for existing projects that predate this fix.
  */
-const ensureProjectEntityDatabase = async (rootPath: string): Promise<void> => {
+const ensureProjectEntityDatabase = async (
+  rootPath: string,
+  config: ProjectFileConfig,
+): Promise<void> => {
   const entitiesXmlPath = path.join(rootPath, 'entities.xml');
   try {
     await fs.access(entitiesXmlPath);
@@ -269,10 +283,17 @@ const ensureProjectEntityDatabase = async (rootPath: string): Promise<void> => {
   try {
     const scaffold = createEntitiesScaffold();
     await writeFileAtomic(entitiesXmlPath, scaffold);
-    await importEntitySqliteXml({
-      databasePath: path.join(rootPath, 'entities.sqlite'),
-      xml: scaffold,
-    });
+    // A Turso-backed project's live database is remote, not this local
+    // file — scaffolding a local entities.sqlite here would just be a
+    // stray, never-used file. Its schema is created lazily on first real
+    // open instead (EntitySqliteRepository.open() always runs migrations).
+    // entities.xml is still minted either way, as interchange/export scaffold.
+    if (config.pedb?.backend !== 'turso') {
+      await importEntitySqliteXml({
+        databasePath: path.join(rootPath, 'entities.sqlite'),
+        xml: scaffold,
+      });
+    }
   } catch (error) {
     console.error(`[project] Failed to scaffold entity database in ${rootPath}:`, error);
   }
@@ -294,7 +315,7 @@ export const loadOrCreateProject = async (rootPath: string): Promise<ProjectBund
       metadata: DEFAULT_METADATA_PATH,
     };
     await writeConfigFile(projectFilePath, config);
-    await ensureProjectEntityDatabase(rootPath);
+    await ensureProjectEntityDatabase(rootPath, config);
     return { rootPath, projectFilePath, config };
   }
 
@@ -310,7 +331,7 @@ export const loadOrCreateProject = async (rootPath: string): Promise<ProjectBund
     dirty = true;
   }
   if (dirty) await writeConfigFile(projectFilePath, config);
-  await ensureProjectEntityDatabase(rootPath);
+  await ensureProjectEntityDatabase(rootPath, config);
   return { rootPath, projectFilePath, config };
 };
 
@@ -343,7 +364,7 @@ export const loadProjectFile = async (projectFilePath: string): Promise<ProjectB
     }
 
     if (dirty) await writeConfigFile(projectFilePath, config);
-    await ensureProjectEntityDatabase(rootPath);
+    await ensureProjectEntityDatabase(rootPath, config);
 
     return { rootPath, projectFilePath, config };
   } catch {

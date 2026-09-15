@@ -961,6 +961,16 @@ export interface ElectronAPI {
   entityDbBackupListSnapshots: () => Promise<CloudSnapshot[]>;
   entityDbBackupRestore: (key: string) => Promise<RestoreResult>;
 
+  /**
+   * Turso-backed shared PEDB: the database url itself is ordinary project
+   * config (config.pedb, via updateProjectFileConfig) — these three cover
+   * only the per-collaborator auth token, which is encrypted, per-machine,
+   * and keyed by url rather than by project.
+   */
+  entityDbTursoHasToken: (url: string) => Promise<boolean>;
+  entityDbTursoSetToken: (url: string, token: string | null) => Promise<void>;
+  entityDbTursoTestConnection: (url: string, token: string) => Promise<{ ok: boolean; error?: string }>;
+
   /** Ensure the configured central entity database folder contains entities.sqlite. */
   entityDatabaseEnsure: () => Promise<{ folder: string; dbPath: string; created: boolean } | null>;
   onEntityDatabaseChanged: (callback: () => void) => () => void;
@@ -1493,6 +1503,11 @@ const electronAPI: ElectronAPI = {
   entityDbBackupRunNow: () => ipcRenderer.invoke('entityDbBackup:runNow'),
   entityDbBackupListSnapshots: () => ipcRenderer.invoke('entityDbBackup:listSnapshots'),
   entityDbBackupRestore: (key: string) => ipcRenderer.invoke('entityDbBackup:restore', key),
+  entityDbTursoHasToken: (url: string) => ipcRenderer.invoke('entityDbTurso:hasToken', url),
+  entityDbTursoSetToken: (url: string, token: string | null) =>
+    ipcRenderer.invoke('entityDbTurso:setToken', url, token),
+  entityDbTursoTestConnection: (url: string, token: string) =>
+    ipcRenderer.invoke('entityDbTurso:testConnection', url, token),
   entityDatabaseEnsure: () => ipcRenderer.invoke('entityDatabase:ensure'),
   onEntityDatabaseChanged: (callback: () => void) => {
     const listener = () => callback();

@@ -22,6 +22,11 @@ import path from 'path';
 import { pathToFileURL } from 'url';
 import { parseConnectionRef } from './entityDbConnectionRef';
 import {
+  hasTursoAuthToken,
+  writeTursoAuthToken,
+} from './entityDbTursoTokenStore';
+import { TursoBackend } from './entityDbSqlite/tursoBackend';
+import {
   resolvePluginApiStateFilePath,
   writePluginApiState,
 } from '../../commons/src/desktop/pluginApiState';
@@ -3863,6 +3868,33 @@ const registerIpcHandlers = () => {
   });
 
   ipcMain.handle('entityDatabase:ensure', async () => ensureDefaultEntityDatabase());
+
+  // Turso PEDB: the database url itself lives in the (shared, git-synced)
+  // project file via the existing generic 'updateProjectFileConfig' channel
+  // (config.pedb); only the per-collaborator auth token needs its own
+  // channel, since it's encrypted, per-machine, and keyed by url rather
+  // than by project.
+  ipcMain.handle('entityDbTurso:hasToken', async (_event, url: string) => hasTursoAuthToken(url));
+
+  ipcMain.handle(
+    'entityDbTurso:setToken',
+    async (_event, url: string, token: string | null) => writeTursoAuthToken(url, token),
+  );
+
+  ipcMain.handle(
+    'entityDbTurso:testConnection',
+    async (_event, url: string, token: string): Promise<{ ok: boolean; error?: string }> => {
+      const backend = new TursoBackend({ url, authToken: token });
+      try {
+        await backend.get('SELECT 1');
+        return { ok: true };
+      } catch (error) {
+        return { ok: false, error: error instanceof Error ? error.message : String(error) };
+      } finally {
+        await backend.close();
+      }
+    },
+  );
 
   ipcMain.handle('entitySync:getStatus', async () => getEntitySyncStatus());
 
