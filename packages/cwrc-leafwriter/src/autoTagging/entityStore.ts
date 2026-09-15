@@ -38,6 +38,7 @@ import {
   resolveEntityStorePaths,
   type EntityStoreMode,
   type EntityStorePaths,
+  type EntityStorePedb,
   type EntityStoreResolveInput,
 } from './entityStoreResolve';
 import { joinPath } from './pathJoin';
@@ -514,7 +515,22 @@ export const WRAPPER_FACTS_FILE = 'wrapper-facts.jsonl';
 /** @deprecated Use GROGNARD_DIR */
 export const INFRA_DIR = GROGNARD_DIR;
 
-export { resolveEntityStorePaths, type EntityStoreMode, type EntityStorePaths };
+export {
+  resolveEntityStorePaths,
+  type EntityStoreMode,
+  type EntityStorePaths,
+  type EntityStorePedb,
+};
+
+/**
+ * Must match TURSO_REF_PREFIX in apps/desktop/src/entityDbConnectionRef.ts
+ * exactly — this package can't import that file (packages don't depend on
+ * apps), so the sentinel format is duplicated here rather than shared.
+ * Carries no secret; the auth token is resolved main-process-side only.
+ */
+function tursoConnectionRef(url: string): string {
+  return `grognard-turso:${url}`;
+}
 
 export class EntityStore {
   readonly mode: EntityStoreMode;
@@ -538,7 +554,10 @@ export class EntityStore {
   ) {
     this.mode = paths.mode;
     this.entitiesPath = paths.entitiesPath;
-    this.sqlitePath = this.entitiesPath.replace(/entities\.xml$/i, 'entities.sqlite');
+    this.sqlitePath =
+      paths.pedb?.backend === 'turso'
+        ? tursoConnectionRef(paths.pedb.url)
+        : this.entitiesPath.replace(/entities\.xml$/i, 'entities.sqlite');
     this.projectGrognardDir = paths.projectGrognardDir;
     this.projectRoot = paths.projectRoot;
     this.centralFolder = paths.centralFolder;
@@ -605,7 +624,7 @@ export class EntityStore {
    */
   async loadEntities(): Promise<Document> {
     this.assertEntitiesPathForMode();
-    if (this.api.entitySqliteExportXml && (await this.api.pathExists(this.sqlitePath))) {
+    if (this.api.entitySqliteExportXml && (await this.hasSqliteDatabase())) {
       const xml = await this.api.entitySqliteExportXml({ databasePath: this.sqlitePath });
       if (xml) {
         const doc = parseEntities(xml);
@@ -655,7 +674,7 @@ export class EntityStore {
     if (!isEntityDatabase(doc)) {
       throw new Error('Refusing to save: document is not a valid entity database.');
     }
-    if (this.api.entitySqliteImportXml && (await this.api.pathExists(this.sqlitePath))) {
+    if (this.api.entitySqliteImportXml && (await this.hasSqliteDatabase())) {
       if (!options?.allowSqliteFullReimport) {
         throw new Error(SQLITE_SAVE_REQUIRES_IMPORT_FLAG_MESSAGE);
       }
@@ -673,7 +692,7 @@ export class EntityStore {
   }
 
   async sqliteCandidateRecords(kind: EntityKind): Promise<unknown[] | null> {
-    if (!this.api.entitySqliteCandidates || !(await this.api.pathExists(this.sqlitePath)))
+    if (!this.api.entitySqliteCandidates || !(await this.hasSqliteDatabase()))
       return null;
     return this.api.entitySqliteCandidates({ databasePath: this.sqlitePath, kind });
   }
@@ -689,7 +708,15 @@ export class EntityStore {
     return this.api.entitySqliteDatabaseId(this.sqlitePath);
   }
 
+  /**
+   * A Turso-backed project has no local file to check for — its existence
+   * is "does the connection work", which happens naturally when it's
+   * actually used, not eagerly here. `pathExists` (a raw filesystem check)
+   * would otherwise always say false for a `grognard-turso:` sqlitePath and
+   * silently disable every entity operation this gates.
+   */
   async hasSqliteDatabase(): Promise<boolean> {
+    if (this.sqlitePath.startsWith('grognard-turso:')) return true;
     return this.api.pathExists(this.sqlitePath);
   }
 
@@ -1588,6 +1615,8 @@ export interface DesktopEntityStoreGlobals {
     entityDbFolder?: string | null;
     /** When true, this project's PEDB is auto-synced with the CEDB. */
     syncToCentral?: boolean;
+    /** Where this project's PEDB lives — mirrors ProjectFileConfig.pedb. */
+    pedb?: EntityStorePedb;
   };
 }
 
@@ -1830,6 +1859,7 @@ export function entityStoreFromDesktop(overrides?: {
     const paths = resolveEntityStorePaths({
       projectRoot: root,
       centralFolder: overrides?.entityDbFolder ?? project?.entityDbFolder ?? null,
+      pedb: project?.pedb,
     });
     return EntityStore.fromPaths(api, paths);
   } catch {

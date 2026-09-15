@@ -33,10 +33,16 @@ export const useEntityDatabaseLifecycle = () => {
     }
   }, [rootPath]);
 
-  /** SQLite is the live authority; entities.xml is interchange only. */
+  /**
+   * SQLite is the live authority; entities.xml is interchange only. A
+   * Turso-backed project has no local file to watch for external changes —
+   * changes arrive over the network from other collaborators, not via a
+   * file a watcher could see — so there's nothing to return here for one.
+   */
   const resolveWatchedEntityDbPath = useCallback(async (): Promise<string | null> => {
     const store = entityStoreFromDesktop();
-    if (!store || !(await store.hasSqliteDatabase())) return null;
+    if (!store || store.sqlitePath.startsWith('grognard-turso:')) return null;
+    if (!(await store.hasSqliteDatabase())) return null;
     return store.sqlitePath;
   }, []);
 

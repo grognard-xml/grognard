@@ -146,16 +146,16 @@ const openSqliteRoot = async (root: string): Promise<SqliteRoot | null> => {
   const sqlitePath = path.join(root, 'entities.sqlite');
   if (!(await fileExists(sqlitePath))) return null;
   try {
-    return { root, repository: new EntitySqliteRepository(sqlitePath) };
+    return { root, repository: await EntitySqliteRepository.open(sqlitePath) };
   } catch {
     return null;
   }
 };
 
-const closeRoots = (sources: SqliteRoot[]): void => {
+const closeRoots = async (sources: SqliteRoot[]): Promise<void> => {
   for (const source of sources) {
     try {
-      source.repository.close();
+      await source.repository.close();
     } catch {
       // Best-effort close after the request finishes.
     }
@@ -188,9 +188,9 @@ export const readCombinedStatus = async (roots: string[]): Promise<ProjectStatus
   try {
     const [found] = sources;
     if (!found) return { entitiesFound: false, databaseId: null };
-    return { entitiesFound: true, databaseId: found.repository.getDatabaseId() };
+    return { entitiesFound: true, databaseId: await found.repository.getDatabaseId() };
   } finally {
-    closeRoots(sources);
+    await closeRoots(sources);
   }
 };
 
@@ -217,7 +217,7 @@ export const searchEntities = async (
 
     for (const source of sources) {
       for (const kind of kinds) {
-        for (const panel of source.repository.listPanelSummaries(kind)) {
+        for (const panel of await source.repository.listPanelSummaries(kind)) {
           if (seenIds.has(panel.id)) continue;
           const summary = summaryFromSqlitePanel(panel, kind);
           if (!entityMatchesNeedle(summary, needle)) continue;
@@ -229,7 +229,7 @@ export const searchEntities = async (
     }
     return out;
   } finally {
-    closeRoots(sources);
+    await closeRoots(sources);
   }
 };
 
@@ -238,12 +238,12 @@ export const getEntityById = async (roots: string[], id: string): Promise<Entity
   const sources = await readAvailableSqliteRoots(roots);
   try {
     for (const source of sources) {
-      const panel = source.repository.getPanelSummary(id);
+      const panel = await source.repository.getPanelSummary(id);
       if (!panel) continue;
       return summaryFromSqlitePanel(panel, panel.kind as EntityKind);
     }
     return null;
   } finally {
-    closeRoots(sources);
+    await closeRoots(sources);
   }
 };

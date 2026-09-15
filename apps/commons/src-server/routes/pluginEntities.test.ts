@@ -63,12 +63,12 @@ const CENTRAL_FIXTURE_XML = `<?xml version="1.0" encoding="UTF-8"?><TEI xmlns="h
   </standOff>
 </TEI>`;
 
-const seedSqliteRoot = (root: string, xml: string): void => {
-  const repository = new EntitySqliteRepository(path.join(root, 'entities.sqlite'));
+const seedSqliteRoot = async (root: string, xml: string): Promise<void> => {
+  const repository = await EntitySqliteRepository.open(path.join(root, 'entities.sqlite'));
   try {
-    importEntitiesXml(repository, xml);
+    await importEntitiesXml(repository, xml);
   } finally {
-    repository.close();
+    await repository.close();
   }
 };
 
@@ -77,7 +77,7 @@ describe('pluginEntities', () => {
 
   beforeEach(async () => {
     projectRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'grognard-plugin-entities-'));
-    seedSqliteRoot(projectRoot, FIXTURE_XML);
+    await seedSqliteRoot(projectRoot, FIXTURE_XML);
   });
 
   afterEach(async () => {
@@ -212,7 +212,7 @@ describe('pluginEntities', () => {
 
     beforeEach(async () => {
       centralRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'grognard-plugin-central-'));
-      seedSqliteRoot(centralRoot, CENTRAL_FIXTURE_XML);
+      await seedSqliteRoot(centralRoot, CENTRAL_FIXTURE_XML);
     });
 
     afterEach(async () => {

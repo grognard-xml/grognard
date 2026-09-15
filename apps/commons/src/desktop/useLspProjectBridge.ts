@@ -39,12 +39,13 @@ export const useLspProjectBridge = () => {
       projectRoot: rootPath ?? undefined,
       entityDbFolder,
       syncToCentral: config?.syncToCentral === true,
+      pedb: config?.pedb,
     };
 
     return () => {
       delete window.__ljbLspProject;
     };
-  }, [config?.schema?.rng, config?.syncToCentral, entityDbFolder, rootPath]);
+  }, [config?.schema?.rng, config?.syncToCentral, config?.pedb, entityDbFolder, rootPath]);
 };
 
 declare global {
@@ -55,6 +56,8 @@ declare global {
       entityDbFolder?: string | null;
       /** When true, this project's PEDB is auto-synced with the CEDB (see syncToCentral in projectTypes.ts). */
       syncToCentral?: boolean;
+      /** Where this project's PEDB lives — mirrors ProjectFileConfig.pedb in projectTypes.ts. Omitted/local means today's default local entities.sqlite. */
+      pedb?: { backend: 'local' } | { backend: 'turso'; url: string };
     };
   }
 }

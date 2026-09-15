@@ -34,6 +34,12 @@ export interface ProjectFileConfig {
   entityDatabaseId?: string;
   /** When true, this project's PEDB is kept auto-synced with the CEDB (Promote on create, no manual Bridge). */
   syncToCentral?: boolean;
+  /**
+   * Where this project's PEDB lives — mirrors ProjectFileConfig.pedb in
+   * apps/desktop/src/projectTypes.ts. Omitted/local means today's default
+   * local entities.sqlite.
+   */
+  pedb?: { backend: 'local' } | { backend: 'turso'; url: string };
   /** Saved authority tag-bomb pack/year settings for this project. */
   autoTaggingAuthority?: AutoTaggingAuthoritySettings;
   /** AI validation preferences for auto-tagging review (pre-select / warnings). */
