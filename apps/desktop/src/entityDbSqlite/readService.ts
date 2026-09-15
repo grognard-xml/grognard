@@ -299,7 +299,9 @@ export const repositoryFor = async (
 
 const validDatabasePath = (ref: EntityDbConnectionRef): boolean => {
   const parsed = parseConnectionRef(ref);
-  return parsed.backend === 'turso' || path.basename(parsed.path).toLowerCase() === 'entities.sqlite';
+  return (
+    parsed.backend === 'turso' || path.basename(parsed.path).toLowerCase() === 'entities.sqlite'
+  );
 };
 
 /** Drop-in for `fs.access`, aware of the Turso sentinel: no local file to check there. */
@@ -408,7 +410,9 @@ export async function applyEntitySqliteConcordance(
 ): Promise<SqliteConcordanceImportResult> {
   if (!validDatabasePath(request.databasePath))
     throw new Error('Invalid entity SQLite database path.');
-  return (await repositoryFor(request.databasePath)).applyConcordanceAssociations(request.associations);
+  return (await repositoryFor(request.databasePath)).applyConcordanceAssociations(
+    request.associations,
+  );
 }
 
 export async function rejectEntitySqliteConcordance(
@@ -503,7 +507,10 @@ export async function updateEntitySqliteDescription(
 ): Promise<void> {
   if (!validDatabasePath(request.databasePath))
     throw new Error('Invalid entity SQLite database path.');
-  (await repositoryFor(request.databasePath)).updateDescription(request.entityId, request.description);
+  (await repositoryFor(request.databasePath)).updateDescription(
+    request.entityId,
+    request.description,
+  );
 }
 
 export async function updateEntitySqliteSubtype(
@@ -529,7 +536,10 @@ export async function removeEntitySqliteName(
 ): Promise<boolean> {
   if (!validDatabasePath(request.databasePath))
     throw new Error('Invalid entity SQLite database path.');
-  return (await repositoryFor(request.databasePath)).removeNameByText(request.entityId, request.text);
+  return (await repositoryFor(request.databasePath)).removeNameByText(
+    request.entityId,
+    request.text,
+  );
 }
 
 export async function addEntitySqliteName(
@@ -637,7 +647,10 @@ export async function restoreEntitySqliteAssertion(
 ): Promise<boolean> {
   if (!validDatabasePath(request.databasePath))
     throw new Error('Invalid entity SQLite database path.');
-  return (await repositoryFor(request.databasePath)).restoreAssertion(request.entityId, request.key);
+  return (await repositoryFor(request.databasePath)).restoreAssertion(
+    request.entityId,
+    request.key,
+  );
 }
 
 export async function removeEntitySqliteAssertion(
@@ -653,7 +666,10 @@ export async function validateEntitySqliteAssertion(
 ): Promise<boolean> {
   if (!validDatabasePath(request.databasePath))
     throw new Error('Invalid entity SQLite database path.');
-  return (await repositoryFor(request.databasePath)).validateAssertion(request.entityId, request.key);
+  return (await repositoryFor(request.databasePath)).validateAssertion(
+    request.entityId,
+    request.key,
+  );
 }
 
 export async function acceptEntitySqliteDateAssertion(
@@ -661,7 +677,10 @@ export async function acceptEntitySqliteDateAssertion(
 ): Promise<boolean> {
   if (!validDatabasePath(request.databasePath))
     throw new Error('Invalid entity SQLite database path.');
-  return (await repositoryFor(request.databasePath)).acceptDateAssertion(request.entityId, request.key);
+  return (await repositoryFor(request.databasePath)).acceptDateAssertion(
+    request.entityId,
+    request.key,
+  );
 }
 
 export async function acceptEntitySqliteDescriptionAssertion(
@@ -680,7 +699,10 @@ export async function renameEntitySqlitePrimaryName(
 ): Promise<boolean> {
   if (!validDatabasePath(request.databasePath))
     throw new Error('Invalid entity SQLite database path.');
-  return (await repositoryFor(request.databasePath)).renamePrimaryName(request.entityId, request.text);
+  return (await repositoryFor(request.databasePath)).renamePrimaryName(
+    request.entityId,
+    request.text,
+  );
 }
 
 export async function setEntitySqliteRomanizedName(
@@ -826,7 +848,10 @@ export async function getEntitySqliteCentralId(
   } catch {
     return null;
   }
-  return (await repositoryFor(request.databasePath)).getCentralId(request.entityId, request.userStableId);
+  return (await repositoryFor(request.databasePath)).getCentralId(
+    request.entityId,
+    request.userStableId,
+  );
 }
 
 export async function setEntitySqliteCentralMapping(
@@ -881,7 +906,9 @@ export async function listEntitySqliteAllCentralMappings(request: {
   } catch {
     return [];
   }
-  return (await repositoryFor(request.databasePath)).listAllCentralMappingsForUser(request.userStableId);
+  return (await repositoryFor(request.databasePath)).listAllCentralMappingsForUser(
+    request.userStableId,
+  );
 }
 
 export async function listEntitySqliteLinkedCentralIds(request: {
@@ -965,7 +992,10 @@ export async function forceRejectEntitySqliteAssertion(
 ): Promise<boolean> {
   if (!validDatabasePath(request.databasePath))
     throw new Error('Invalid entity SQLite database path.');
-  return (await repositoryFor(request.databasePath)).forceRejectAssertion(request.entityId, request.key);
+  return (await repositoryFor(request.databasePath)).forceRejectAssertion(
+    request.entityId,
+    request.key,
+  );
 }
 
 export async function exportEntitySqliteXml(
@@ -986,7 +1016,9 @@ export async function importEntitySqliteXml(
 ): Promise<XmlImportReport> {
   if (!validDatabasePath(request.databasePath))
     throw new Error('Invalid entity SQLite database path.');
-  return importEntitiesXml(await repositoryFor(request.databasePath), request.xml, { replace: true });
+  return importEntitiesXml(await repositoryFor(request.databasePath), request.xml, {
+    replace: true,
+  });
 }
 
 export async function closeEntitySqliteReadRepositories(): Promise<void> {

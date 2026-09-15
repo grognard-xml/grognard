@@ -251,7 +251,10 @@ export const countOpenConflicts = async (repo: EntitySqliteRepository): Promise<
   return row.n;
 };
 
-export const resolveConflict = async (repo: EntitySqliteRepository, id: number): Promise<boolean> => {
+export const resolveConflict = async (
+  repo: EntitySqliteRepository,
+  id: number,
+): Promise<boolean> => {
   const result = await repo.backend.run(
     `UPDATE sync_conflicts SET status = 'resolved', resolved_at = ?
         WHERE id = ? AND status = 'open'`,
@@ -309,7 +312,9 @@ export const applyRemoteEntity = async (
       await repo.createEntity({ id: change.centralId, kind: change.kind });
     } else if (existing.deletedAt) {
       // Central un-deleted it; clear the tombstone before copying content back.
-      await repo.backend.run(`UPDATE entities SET deleted_at = NULL WHERE id = ?`, [change.centralId]);
+      await repo.backend.run(`UPDATE entities SET deleted_at = NULL WHERE id = ?`, [
+        change.centralId,
+      ]);
     }
     await repo.replaceEntityContentFrom(staging, change.centralId, change.centralId);
   } finally {

@@ -68,7 +68,8 @@ export class NodeSqliteBackend implements EntityDbBackend {
   }
 
   async getSchemaVersion(): Promise<number> {
-    const row = this.db.prepare('PRAGMA user_version').get() as { user_version?: number } | undefined;
+    const row = this.db.prepare('PRAGMA user_version').get() as
+      { user_version?: number } | undefined;
     return Number(row?.user_version ?? 0);
   }
 

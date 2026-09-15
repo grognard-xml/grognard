@@ -1,4 +1,10 @@
-import { createClient, type Client, type InArgs, type InStatement, type ResultSet } from '@libsql/client';
+import {
+  createClient,
+  type Client,
+  type InArgs,
+  type InStatement,
+  type ResultSet,
+} from '@libsql/client';
 import type { EntityDbBackend, EntityDbRunResult } from './backend';
 
 export interface TursoConnectionConfig {

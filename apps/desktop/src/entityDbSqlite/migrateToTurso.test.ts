@@ -14,7 +14,10 @@ describe('topologicalTableOrder', () => {
     // sorts first (an underscore sorts before a letter), which would violate
     // the foreign key if used as insertion order.
     const tables = [
-      { name: 'work_authors', sql: 'CREATE TABLE work_authors (work_id TEXT REFERENCES works(entity_id))' },
+      {
+        name: 'work_authors',
+        sql: 'CREATE TABLE work_authors (work_id TEXT REFERENCES works(entity_id))',
+      },
       { name: 'works', sql: 'CREATE TABLE works (entity_id TEXT PRIMARY KEY)' },
     ];
     const order = topologicalTableOrder(tables);

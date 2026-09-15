@@ -19,8 +19,7 @@ const TURSO_REF_PREFIX = 'grognard-turso:';
 export type EntityDbConnectionRef = string;
 
 export type ParsedConnectionRef =
-  | { backend: 'local'; path: string }
-  | { backend: 'turso'; url: string };
+  { backend: 'local'; path: string } | { backend: 'turso'; url: string };
 
 export function tursoConnectionRef(url: string): EntityDbConnectionRef {
   return `${TURSO_REF_PREFIX}${url}`;

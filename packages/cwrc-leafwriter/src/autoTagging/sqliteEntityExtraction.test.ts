@@ -14,8 +14,8 @@ describe('sqlite entity extraction reconciliation', () => {
 
   it('does not remove validated (user) values when the XML assertion vanishes', async () => {
     const repository = await EntitySqliteRepository.open();
-    (await repository.createEntity({ id: 'person-1', kind: 'person' }));
-    (await repository.addName({ entityId: 'person-1', text: '張衡', isPrimary: true }));
+    await repository.createEntity({ id: 'person-1', kind: 'person' });
+    await repository.addName({ entityId: 'person-1', text: '張衡', isPrimary: true });
     const source = 'xml:chapter-1#personWrapper:1';
     const store = storeFrom(repository);
 
@@ -28,17 +28,17 @@ describe('sqlite entity extraction reconciliation', () => {
     const key = (await repository.getPanelSummary('person-1'))!.assertions.find(
       (row) => row.element === 'nationality',
     )!.key;
-    expect((await repository.validateAssertion('person-1', key))).toBe(true);
+    expect(await repository.validateAssertion('person-1', key)).toBe(true);
 
     await ingestExtractedEntityDataSqlite(store, 'chapter-1', 'person-1', source, []);
     expect((await repository.getPanelSummary('person-1'))?.nationalities).toEqual(['漢']);
-    (await repository.close());
+    await repository.close();
   });
 
   it('cleans up assertions when a keyed person wrapper is unwrapped', async () => {
     const repository = await EntitySqliteRepository.open();
-    (await repository.createEntity({ id: 'person-fan', kind: 'person' }));
-    (await repository.addName({ entityId: 'person-fan', text: '範', isPrimary: true }));
+    await repository.createEntity({ id: 'person-fan', kind: 'person' });
+    await repository.addName({ entityId: 'person-fan', text: '範', isPrimary: true });
     const store = storeFrom(repository);
     const corpus = parseEntities(
       `<TEI><text><name type="personWrapper" key="person-fan"><nationality>漢</nationality><persName key="person-fan">範</persName></name></text></TEI>`,
@@ -63,12 +63,12 @@ describe('sqlite entity extraction reconciliation', () => {
         .removed,
     ).toBe(1);
     expect((await repository.getPanelSummary('person-fan'))?.nationalities).toEqual([]);
-    (await repository.close());
+    await repository.close();
   });
 
   it('maps placeName, state, and nobleTitle into typed person tables', async () => {
     const repository = await EntitySqliteRepository.open();
-    (await repository.createEntity({ id: 'person-2', kind: 'person' }));
+    await repository.createEntity({ id: 'person-2', kind: 'person' });
     const store = storeFrom(repository);
     const source = 'xml:doc#personWrapper:1';
     await ingestExtractedEntityDataSqlite(store, 'doc', 'person-2', source, [
@@ -108,6 +108,6 @@ describe('sqlite entity extraction reconciliation', () => {
         }),
       ]),
     );
-    (await repository.close());
+    await repository.close();
   });
 });

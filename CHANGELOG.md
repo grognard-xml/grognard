@@ -538,3 +538,14 @@ CBETA and similar texts often split a running string across milestones, e.g. `ã€
   leaves the repo in place). The Flatpak, macOS, and Windows builds are
   unaffected.
 - **Updated privacy policy page**
+
+### Fixed
+
+- **A fresh, unconfigured install no longer touches the OS keychain at
+  startup.** The cloud-backup status check (`entityDbBackup:getStatus`) runs
+  on every app launch regardless of whether backup has ever been set up, and
+  it called Electron `safeStorage.isEncryptionAvailable()` unconditionally
+  before even checking whether a backup config had been saved. `safeStorage`
+  now stays untouched until a backup config file actually exists on disk â€”
+  cross-device sync and the Turso PEDB token store were already gated this
+  way, only the backup status read was not.

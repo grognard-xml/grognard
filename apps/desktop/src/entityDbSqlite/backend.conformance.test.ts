@@ -27,7 +27,9 @@ describe.each(backends)('$name conformance', ({ open }) => {
 
   beforeEach(async () => {
     backend = await open();
-    await backend.exec('CREATE TABLE widgets (id INTEGER PRIMARY KEY, name TEXT NOT NULL, qty INTEGER)');
+    await backend.exec(
+      'CREATE TABLE widgets (id INTEGER PRIMARY KEY, name TEXT NOT NULL, qty INTEGER)',
+    );
   });
 
   afterEach(async () => {
@@ -47,7 +49,9 @@ describe.each(backends)('$name conformance', ({ open }) => {
       ['bolt'],
     );
     expect(row).toEqual({ name: 'bolt', qty: 10 });
-    expect(await backend.get('SELECT name FROM widgets WHERE name = ?', ['missing'])).toBeUndefined();
+    expect(
+      await backend.get('SELECT name FROM widgets WHERE name = ?', ['missing']),
+    ).toBeUndefined();
   });
 
   it('all() returns every matching row', async () => {

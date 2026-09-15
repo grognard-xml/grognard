@@ -692,8 +692,7 @@ export class EntityStore {
   }
 
   async sqliteCandidateRecords(kind: EntityKind): Promise<unknown[] | null> {
-    if (!this.api.entitySqliteCandidates || !(await this.hasSqliteDatabase()))
-      return null;
+    if (!this.api.entitySqliteCandidates || !(await this.hasSqliteDatabase())) return null;
     return this.api.entitySqliteCandidates({ databasePath: this.sqlitePath, kind });
   }
 

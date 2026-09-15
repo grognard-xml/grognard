@@ -21,10 +21,7 @@ import fs from 'fs/promises';
 import path from 'path';
 import { pathToFileURL } from 'url';
 import { parseConnectionRef } from './entityDbConnectionRef';
-import {
-  hasTursoAuthToken,
-  writeTursoAuthToken,
-} from './entityDbTursoTokenStore';
+import { hasTursoAuthToken, writeTursoAuthToken } from './entityDbTursoTokenStore';
 import { TursoBackend } from './entityDbSqlite/tursoBackend';
 import {
   resolvePluginApiStateFilePath,
@@ -3879,9 +3876,8 @@ const registerIpcHandlers = () => {
   // than by project.
   ipcMain.handle('entityDbTurso:hasToken', async (_event, url: string) => hasTursoAuthToken(url));
 
-  ipcMain.handle(
-    'entityDbTurso:setToken',
-    async (_event, url: string, token: string | null) => writeTursoAuthToken(url, token),
+  ipcMain.handle('entityDbTurso:setToken', async (_event, url: string, token: string | null) =>
+    writeTursoAuthToken(url, token),
   );
 
   ipcMain.handle(

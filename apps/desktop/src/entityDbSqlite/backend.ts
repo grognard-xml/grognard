@@ -46,5 +46,4 @@ export interface EntityDbBackend {
 
 /** Which storage a repository should open, and how. */
 export type EntityDbConnection =
-  | { backend: 'local'; path: string }
-  | { backend: 'turso'; url: string; authToken?: string };
+  { backend: 'local'; path: string } | { backend: 'turso'; url: string; authToken?: string };

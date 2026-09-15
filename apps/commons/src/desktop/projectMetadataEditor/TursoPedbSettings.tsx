@@ -230,10 +230,7 @@ export const TursoPedbSettings = ({ active = true }: { active?: boolean }) => {
                 : t('LWC.desktop.project.shared_database_test')}
             </Button>
             {testResult && (
-              <Typography
-                color={testResult.ok ? 'success.main' : 'error'}
-                variant="caption"
-              >
+              <Typography color={testResult.ok ? 'success.main' : 'error'} variant="caption">
                 {testResult.ok
                   ? t('LWC.desktop.project.shared_database_test_ok')
                   : t('LWC.desktop.project.shared_database_test_failed', {
@@ -246,7 +243,12 @@ export const TursoPedbSettings = ({ active = true }: { active?: boolean }) => {
       )}
 
       <Box sx={{ pt: 1 }}>
-        <Button disabled={saving} onClick={() => void handleSave()} size="small" variant="contained">
+        <Button
+          disabled={saving}
+          onClick={() => void handleSave()}
+          size="small"
+          variant="contained"
+        >
           {t('LWC.desktop.project.shared_database_save')}
         </Button>
       </Box>

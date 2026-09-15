@@ -79,6 +79,18 @@ export const isBackupEncryptionAvailable = (): boolean => {
   }
 };
 
+/** True once a backup config has ever been saved. A plain file check —
+ * doesn't touch `safeStorage`, so it's safe to call before the keychain
+ * should be involved at all (e.g. an unconfigured, freshly installed app). */
+const hasStoredBackupConfig = async (): Promise<boolean> => {
+  try {
+    await fs.access(getConfigPath());
+    return true;
+  } catch {
+    return false;
+  }
+};
+
 /** Full config including the secret. Main-process only — never hand this to a renderer. */
 export const readBackupConfig = async (): Promise<EntityDbBackupConfig | null> => {
   let ciphertext: Buffer;
@@ -108,7 +120,12 @@ export const readBackupConfig = async (): Promise<EntityDbBackupConfig | null> =
 };
 
 export const readBackupConfigView = async (): Promise<EntityDbBackupConfigView> => {
-  const encryptionAvailable = isBackupEncryptionAvailable();
+  // Nothing has ever been saved: don't probe safeStorage just to report
+  // status on an unconfigured, freshly installed app — that's the one call
+  // site this status check reaches on every launch, configured or not.
+  const encryptionAvailable = (await hasStoredBackupConfig())
+    ? isBackupEncryptionAvailable()
+    : true;
   let config: EntityDbBackupConfig | null = null;
   let credentialsLocked = false;
   try {

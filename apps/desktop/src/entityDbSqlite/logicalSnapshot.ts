@@ -50,7 +50,9 @@ export const createLogicalSnapshot = async (backend: EntityDbBackend): Promise<L
   ];
   let rowCount = 0;
   for (const table of tables) {
-    const rows = await backend.all<Record<string, unknown>>(`SELECT * FROM "${table}" ORDER BY rowid`);
+    const rows = await backend.all<Record<string, unknown>>(
+      `SELECT * FROM "${table}" ORDER BY rowid`,
+    );
     for (const row of rows) {
       const columns = Object.keys(row);
       const values = columns.map((column) => sqlLiteral(row[column]));

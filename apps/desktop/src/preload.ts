@@ -969,7 +969,10 @@ export interface ElectronAPI {
    */
   entityDbTursoHasToken: (url: string) => Promise<boolean>;
   entityDbTursoSetToken: (url: string, token: string | null) => Promise<void>;
-  entityDbTursoTestConnection: (url: string, token: string) => Promise<{ ok: boolean; error?: string }>;
+  entityDbTursoTestConnection: (
+    url: string,
+    token: string,
+  ) => Promise<{ ok: boolean; error?: string }>;
   /**
    * One-time copy of an existing local `entities.sqlite`'s rows into the
    * Turso database this project's config now points at — the switch itself

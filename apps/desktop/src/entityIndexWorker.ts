@@ -6,7 +6,9 @@ import type {
 } from '../../commons/src/desktop/entityIndexTypes';
 import { EntitySqliteRepository } from './entityDbSqlite/repository';
 
-const summariesFromSqlite = async (repository: EntitySqliteRepository): Promise<EntitySummary[]> => {
+const summariesFromSqlite = async (
+  repository: EntitySqliteRepository,
+): Promise<EntitySummary[]> => {
   const ids = await repository.listEntityIds();
   const rawSummaries = await Promise.all(ids.map((id) => repository.getPanelSummary(id)));
   return rawSummaries

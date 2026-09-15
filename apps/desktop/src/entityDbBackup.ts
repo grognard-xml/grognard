@@ -294,10 +294,7 @@ const uploadAchievementsSidecar = async (
 };
 
 /** Deletes every stale snapshot (and its achievements sidecar) under `segmentPrefix`. */
-const pruneSnapshotSegment = async (
-  client: R2Client,
-  segmentPrefix: string,
-): Promise<string[]> => {
+const pruneSnapshotSegment = async (client: R2Client, segmentPrefix: string): Promise<string[]> => {
   try {
     const existing = await client.listObjects(segmentPrefix);
     const prunedKeys = selectSnapshotsToPrune(existing.map((o) => o.key));
@@ -368,7 +365,10 @@ const runTursoBackup = async (
     });
 
     const achievementsKey = await uploadAchievementsSidecar(client, key, reason);
-    const prunedKeys = await pruneSnapshotSegment(client, `${config.prefix}${LOGICAL_SNAPSHOTS_SEGMENT}`);
+    const prunedKeys = await pruneSnapshotSegment(
+      client,
+      `${config.prefix}${LOGICAL_SNAPSHOTS_SEGMENT}`,
+    );
 
     const marker: LastBackupMarker = {
       at: new Date().toISOString(),

@@ -264,7 +264,9 @@ export const resolveEntitySyncConflict = async (
   if (!dbPath) return { ok: false };
   const repo = await repositoryFor(dbPath);
   const ok =
-    keep === 'local' ? await resolveConflictKeepLocal(repo, id) : await resolveConflictKeepRemote(repo, id);
+    keep === 'local'
+      ? await resolveConflictKeepLocal(repo, id)
+      : await resolveConflictKeepRemote(repo, id);
   return { ok };
 };
 
