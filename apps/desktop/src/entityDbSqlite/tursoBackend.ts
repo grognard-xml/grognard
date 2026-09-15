@@ -14,7 +14,6 @@ export interface TursoConnectionConfig {
 /** The subset of libSQL's `Client`/`Transaction` shape this backend needs — both implement it. */
 interface Executor {
   execute(stmt: InStatement): Promise<ResultSet>;
-  executeMultiple(sql: string): Promise<void>;
 }
 
 type TursoSource = TursoConnectionConfig | { client: Client; executor: Executor };
@@ -30,6 +29,44 @@ function rowsToObjects(result: ResultSet): Record<string, unknown>[] {
 }
 
 /**
+ * Splits a semicolon-separated SQL script into individual statements, for
+ * `exec()`. Respects quoted strings/identifiers so a `;` inside one doesn't
+ * split mid-statement. This is only ever fed our own migration SQL (never
+ * user-supplied text), so a straightforward quote-aware split is sufficient.
+ */
+function splitStatements(sql: string): string[] {
+  const statements: string[] = [];
+  let current = '';
+  let quote: "'" | '"' | null = null;
+  for (let i = 0; i < sql.length; i += 1) {
+    const ch = sql[i]!;
+    current += ch;
+    if (quote) {
+      if (ch === quote) {
+        if (sql[i + 1] === quote) {
+          current += sql[++i];
+        } else {
+          quote = null;
+        }
+      }
+      continue;
+    }
+    if (ch === "'" || ch === '"') {
+      quote = ch;
+      continue;
+    }
+    if (ch === ';') {
+      const trimmed = current.slice(0, -1).trim();
+      if (trimmed) statements.push(trimmed);
+      current = '';
+    }
+  }
+  const tail = current.trim();
+  if (tail) statements.push(tail);
+  return statements;
+}
+
+/**
  * EntityDbBackend implementation over a Turso/libSQL database — the shared,
  * network-accessible Project Entity Database for real-time multi-collaborator
  * projects. The repository layer talks to this exactly as it talks to
@@ -40,6 +77,18 @@ function rowsToObjects(result: ResultSet): Record<string, unknown>[] {
  * Turso backend plan. A `file:` URL (used by tests) runs real SQLite
  * underneath and behaves correctly; a genuine remote Turso connection may
  * not honor every PRAGMA the same way. Not solved here — flagged, not silent.
+ *
+ * `exec()` deliberately does not use libSQL's `executeMultiple` — that
+ * method isn't reliably supported over the remote HTTP/Hrana transport
+ * (observed: `SERVER_ERROR: Server returned HTTP status 400` on a real
+ * Turso database, even for a single PRAGMA statement). It also doesn't use
+ * `batch()` — that always wraps the statements in their own transaction,
+ * and SQLite forbids `PRAGMA journal_mode` changes inside a transaction
+ * (observed: `cannot change into wal mode from within a transaction`).
+ * Instead, `exec()` splits the script and runs each statement individually
+ * via `execute()`, matching `NodeSqliteBackend`'s actual semantics: neither
+ * gives per-statement atomicity on its own — the caller (`applyEntityDbMigrations`)
+ * supplies that by wrapping each migration in `db.transaction()`.
  */
 export class TursoBackend implements EntityDbBackend {
   private readonly client: Client;
@@ -91,7 +140,9 @@ export class TursoBackend implements EntityDbBackend {
   }
 
   async exec(sql: string): Promise<void> {
-    await this.executor.executeMultiple(sql);
+    for (const statement of splitStatements(sql)) {
+      await this.executor.execute(statement);
+    }
   }
 
   async close(): Promise<void> {
