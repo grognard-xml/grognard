@@ -3,10 +3,20 @@
  * NodeSqliteBackend (today's local-file store) and TursoBackend pointed at
  * a local libSQL file (`file:` URL — real SQLite underneath, no network or
  * Turso account needed) so the two backends are held to the same contract.
+ *
+ * `TursoBackend` itself is built on `@libsql/client/web`, which cannot open
+ * a `file:` URL at all (see tursoBackend.ts's doc comment — that build has
+ * no native SQLite engine, deliberately, so it runs on platforms with no
+ * `libsql` binary). To still exercise it against a plain local file here,
+ * this test builds the `file:` client from the regular Node `@libsql/client`
+ * (the one with the native engine) and hands it to `TursoBackend` via its
+ * `{ client, executor }` form — both builds share the same `Client` type, so
+ * this is just as sound and never touches a real Turso account.
  */
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { createClient } from '@libsql/client';
 import type { EntityDbBackend } from './backend';
 import { NodeSqliteBackend } from './nodeSqliteBackend';
 import { TursoBackend } from './tursoBackend';
@@ -20,7 +30,8 @@ const backends: { name: string; open: () => EntityDbBackend | Promise<EntityDbBa
     open: () => {
       const directory = mkdtempSync(path.join(tmpdir(), 'grognard-turso-conformance-'));
       lastTursoDir = directory;
-      return new TursoBackend({ url: `file:${path.join(directory, 'entities.sqlite')}` });
+      const client = createClient({ url: `file:${path.join(directory, 'entities.sqlite')}` });
+      return new TursoBackend({ client, executor: client });
     },
   },
 ];

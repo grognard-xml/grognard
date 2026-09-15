@@ -44,7 +44,6 @@ import {
 import { getEntityDbFolder } from './projectPrefs';
 import { resolveLiveEntityDbPath } from './ensureDefaultEntityDatabase';
 import { R2Client, type R2Object } from './r2Client';
-import { TursoBackend } from './entityDbSqlite/tursoBackend';
 import { createLogicalSnapshot } from './entityDbSqlite/logicalSnapshot';
 import { readTursoAuthToken } from './entityDbTursoTokenStore';
 
@@ -339,6 +338,7 @@ const runTursoBackup = async (
       };
     }
 
+    const { TursoBackend } = await import('./entityDbSqlite/tursoBackend');
     const backend = new TursoBackend({ url: pedb.url, authToken });
     let sql: string;
     try {

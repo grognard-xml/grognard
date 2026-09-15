@@ -4,16 +4,15 @@ import {
   type InArgs,
   type InStatement,
   type ResultSet,
-} from '@libsql/client';
+} from '@libsql/client/web';
 import type { EntityDbBackend, EntityDbRunResult } from './backend';
 
 export interface TursoConnectionConfig {
   /**
-   * `libsql://…` (Turso), `http(s)://…`, or `file:…` for a local libSQL file
-   * (used by tests — no network or account needed).
+   * `libsql://…` (Turso), or `http(s)://…`/`ws(s)://…` directly. Always a
+   * remote database — see the module doc comment for why.
    */
   url: string;
-  /** Not needed for a local `file:` URL. */
   authToken?: string;
 }
 
@@ -91,6 +90,18 @@ const REMOTE_UNSUPPORTED_PRAGMAS = /^PRAGMA\s+(journal_mode|synchronous)\s*=/i;
  * network-accessible Project Entity Database for real-time multi-collaborator
  * projects. The repository layer talks to this exactly as it talks to
  * NodeSqliteBackend; it doesn't know or care which one it has.
+ *
+ * Built on `@libsql/client/web`, not the default `@libsql/client` — the
+ * default build's Node entry point statically pulls in `libsql`, a native
+ * addon shipped as a separate prebuilt binary per OS/arch, purely so it can
+ * also support local `file:` databases. There is no `win32-arm64` build of
+ * that binary at all, and this backend only ever talks to a remote database
+ * in production anyway (see `TursoConnectionConfig`). The `/web` build talks
+ * WebSocket/HTTPS only, through `ws` (pure JS), so it runs identically on
+ * every platform Electron does. A local `file:` client for testing is built
+ * directly against `@libsql/client`'s Node build and passed in via the
+ * `{ client, executor }` constructor form instead (see the conformance
+ * suite) — dev/test-only, never part of the packaged app.
  *
  * `exec()` deliberately does not use libSQL's `executeMultiple` — that
  * method isn't reliably supported over the remote HTTP/Hrana transport

@@ -979,7 +979,7 @@ export class EntitySqliteRepository {
   static async open(
     connection: EntityDbConnectionInput = ':memory:',
   ): Promise<EntitySqliteRepository> {
-    const backend = openBackendForConnection(connection);
+    const backend = await openBackendForConnection(connection);
     await applyEntityDbMigrations(backend);
     return new EntitySqliteRepository(backend);
   }

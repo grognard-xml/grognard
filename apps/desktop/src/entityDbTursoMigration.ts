@@ -55,8 +55,8 @@ export const migrateProjectLocalEntitiesToTurso = async (
     };
   }
 
-  const source = openBackendForConnection({ backend: 'local', path: localDbPath });
-  const target = openBackendForConnection({ backend: 'turso', url: pedb.url, authToken });
+  const source = await openBackendForConnection({ backend: 'local', path: localDbPath });
+  const target = await openBackendForConnection({ backend: 'turso', url: pedb.url, authToken });
   try {
     // Both sides run the same idempotent migrations first, so the copy only
     // ever has to reckon with one, current schema shape — matches how every

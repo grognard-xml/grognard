@@ -22,7 +22,6 @@ import path from 'path';
 import { pathToFileURL } from 'url';
 import { parseConnectionRef } from './entityDbConnectionRef';
 import { hasTursoAuthToken, writeTursoAuthToken } from './entityDbTursoTokenStore';
-import { TursoBackend } from './entityDbSqlite/tursoBackend';
 import {
   resolvePluginApiStateFilePath,
   writePluginApiState,
@@ -3883,6 +3882,7 @@ const registerIpcHandlers = () => {
   ipcMain.handle(
     'entityDbTurso:testConnection',
     async (_event, url: string, token: string): Promise<{ ok: boolean; error?: string }> => {
+      const { TursoBackend } = await import('./entityDbSqlite/tursoBackend');
       const backend = new TursoBackend({ url, authToken: token });
       try {
         await backend.get('SELECT 1');

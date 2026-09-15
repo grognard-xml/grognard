@@ -90,6 +90,8 @@ export const TursoPedbSettings = ({ active = true }: { active?: boolean }) => {
     setTestResult(null);
     try {
       setTestResult(await window.electronAPI.entityDbTursoTestConnection(url.trim(), token.trim()));
+    } catch (error) {
+      setTestResult({ ok: false, error: error instanceof Error ? error.message : String(error) });
     } finally {
       setTesting(false);
     }
