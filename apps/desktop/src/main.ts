@@ -20,6 +20,7 @@ import { existsSync, statSync } from 'fs';
 import fs from 'fs/promises';
 import path from 'path';
 import { pathToFileURL } from 'url';
+import { parseConnectionRef } from './entityDbConnectionRef';
 import {
   resolvePluginApiStateFilePath,
   writePluginApiState,
@@ -943,6 +944,15 @@ let activeProjectRoot: string | null = null;
 const sessionProjectRoots = new Set<string>();
 const approvedRendererReadRoots = new Set<string>();
 const approvedRendererWriteRoots = new Set<string>();
+/**
+ * Every Turso PEDB url declared by a project opened this session — read
+ * from that project's own config file by this process, never supplied by
+ * the renderer. A `grognard-turso:` reference the renderer sends is only
+ * honored if its url is in this set (mirrors sessionProjectRoots for local
+ * filesystem paths); an arbitrary url a compromised renderer might invent
+ * is not.
+ */
+const sessionTursoUrls = new Set<string>();
 
 // Read-only pairing token for the external Word add-in's local API (see
 // apps/commons/src-server/routes/plugins.ts). Regenerated each launch — the
@@ -974,6 +984,7 @@ const setActiveProjectRoot = (rootPath: string | null): void => {
 const activateProjectBundle = (bundle: ProjectBundle | null): void => {
   setActiveProjectRoot(bundle?.rootPath ?? null);
   setPluginProject(bundle?.projectFilePath ?? null, bundle?.config.plugins ?? []);
+  if (bundle?.config.pedb?.backend === 'turso') sessionTursoUrls.add(bundle.config.pedb.url);
   buildApplicationMenu();
 };
 
@@ -990,7 +1001,25 @@ const collectRendererPathRoots = async (): Promise<string[]> => {
   return roots;
 };
 
+/**
+ * A `grognard-turso:<url>` reference isn't a filesystem path at all, so it
+ * can't be checked with isPathWithin — instead it's approved only if its url
+ * belongs to a project this process itself opened this session
+ * (sessionTursoUrls, populated from that project's own config file, never
+ * from the renderer). Returns null for an ordinary local path, meaning "not
+ * a Turso reference, fall through to the existing filesystem check".
+ */
+const isApprovedTursoRef = (candidate: string): boolean | null => {
+  const parsed = parseConnectionRef(candidate);
+  return parsed.backend === 'turso' ? sessionTursoUrls.has(parsed.url) : null;
+};
+
 const assertRendererWritePath = async (candidate: string): Promise<void> => {
+  const tursoApproval = isApprovedTursoRef(candidate);
+  if (tursoApproval !== null) {
+    if (tursoApproval) return;
+    throw new Error('This Turso database is not part of any project opened this session.');
+  }
   const roots = await collectRendererPathRoots();
   if (roots.some((root) => isPathWithin(root, candidate))) return;
   if ([...approvedRendererWriteRoots].some((root) => isPathWithin(root, candidate))) return;
@@ -1014,6 +1043,11 @@ const approveRendererWriteRoot = (root: string): void => {
 };
 
 const assertRendererReadPath = async (candidate: string): Promise<void> => {
+  const tursoApproval = isApprovedTursoRef(candidate);
+  if (tursoApproval !== null) {
+    if (tursoApproval) return;
+    throw new Error('This Turso database is not part of any project opened this session.');
+  }
   const roots = await collectRendererPathRoots();
   if (roots.some((root) => isPathWithin(root, candidate))) return;
   if ([...approvedRendererReadRoots].some((root) => isPathWithin(root, candidate))) return;
