@@ -1130,6 +1130,13 @@
   "type": "",
   "types": "",
   "LW": {
+    "settings": {
+      "authorities": {
+        "match_across_line_breaks": "行・ページ区切りをまたいでマッチ",
+        "match_across_line_breaks_description": "空の <lb>、<pb> などのマイルストーンをまたいでタグ爆弾のマッチを探します。適用したタグ内にマーカーを保持します。既定ではオフ。",
+        "match_across_line_breaks_enable": "このプロジェクトで有効にする"
+      }
+    },
     "dateAuthority": {
       "loading_calendar_tables": "暦テーブルを読み込み中…",
       "calendar_lookup_unavailable": "Calendar lookup is unavailable. Install sanmiao and restart the app.",

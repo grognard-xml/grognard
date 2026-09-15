@@ -43,6 +43,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { ProjectMetadataSavePayload, ProjectMetadataSaveResult } from '../projectMetadataSave';
 import { TursoPedbSettings } from './TursoPedbSettings';
+import type { PedbIO } from './io';
 
 export interface ProjectMetadataEditorIO {
   loadState: () => Promise<ProjectMetadataDialogState | null>;
@@ -51,6 +52,7 @@ export interface ProjectMetadataEditorIO {
   ) => Promise<ProjectMetadataSaveResult>;
   nameTypePolicy: NameTypePolicyIO;
   thingTypePolicy: ThingTypePolicyIO;
+  pedb: PedbIO;
   onCancel?: () => void;
   onSaved?: () => void;
 }
@@ -401,7 +403,7 @@ export const ProjectMetadataForm = ({
             label={t('LWC.desktop.project.sync_to_central')}
           />
 
-          <TursoPedbSettings active={active} />
+          <TursoPedbSettings active={active} io={io.pedb} />
 
           <Typography sx={{ pt: 1 }} variant="subtitle2">
             {t('LWC.desktop.project.translation')}

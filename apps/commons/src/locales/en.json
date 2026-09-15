@@ -1193,6 +1193,13 @@
   "type": "",
   "types": "",
   "LW": {
+    "settings": {
+      "authorities": {
+        "match_across_line_breaks": "Match across line and page breaks",
+        "match_across_line_breaks_description": "Find authority tag-bomb matches across empty <lb>, <pb>, and similar milestones. Keeps markers inside applied tags. Off by default.",
+        "match_across_line_breaks_enable": "Enable for this project"
+      }
+    },
     "dateAuthority": {
       "loading_calendar_tables": "Loading calendar tables…",
       "calendar_lookup_unavailable": "Calendar lookup is unavailable. Install sanmiao and restart the app.",

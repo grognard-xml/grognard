@@ -588,6 +588,37 @@ export const useNativeDialogBridge = () => {
             session.onCancel();
             return { ok: true };
           }
+          case 'getPedbState': {
+            const dialogId = getStringArg(args, 'dialogId');
+            const session = dialogId ? getProjectMetadataSession(dialogId) : undefined;
+            if (!session) return null;
+            const bundle = await resolveProjectBundle(session.projectFilePath);
+            return bundle?.config.pedb ?? null;
+          }
+          case 'savePedb': {
+            const dialogId = getStringArg(args, 'dialogId');
+            const session = dialogId ? getProjectMetadataSession(dialogId) : undefined;
+            if (!session) return { ok: false, error: 'Invalid metadata session.' };
+            const { pedb } = (args ?? {}) as {
+              pedb?: { backend: 'local' } | { backend: 'turso'; url: string };
+            };
+            if (!pedb || !electronAPI.updateProjectFileConfig) {
+              return { ok: false, error: 'Not available.' };
+            }
+            await electronAPI.updateProjectFileConfig(session.projectFilePath, { pedb });
+            return { ok: true };
+          }
+          case 'migratePedbLocalData': {
+            const dialogId = getStringArg(args, 'dialogId');
+            const session = dialogId ? getProjectMetadataSession(dialogId) : undefined;
+            if (!session) return { ok: false, error: 'Invalid metadata session.' };
+            return (
+              (await electronAPI.entityDbTursoMigrateLocalData?.(session.projectFilePath)) ?? {
+                ok: false,
+                error: 'Not available.',
+              }
+            );
+          }
           case 'getNameTypeTaggingPolicyState': {
             const dialogId = getStringArg(args, 'dialogId');
             const session = dialogId ? getProjectMetadataSession(dialogId) : undefined;

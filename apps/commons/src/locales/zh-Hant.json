@@ -1133,6 +1133,13 @@
   "type": "",
   "types": "",
   "LW": {
+    "settings": {
+      "authorities": {
+        "match_across_line_breaks": "跨行與跨頁比對",
+        "match_across_line_breaks_description": "在空的 <lb>、<pb> 等里程碑兩側尋找標記炸彈比對；套用標籤時保留這些標記。預設關閉。",
+        "match_across_line_breaks_enable": "為此專案啟用"
+      }
+    },
     "dateAuthority": {
       "loading_calendar_tables": "正在載入曆法表…",
       "calendar_lookup_unavailable": "曆法查詢無法使用。請安裝 sanmiao 並重新啟動應用程式。",

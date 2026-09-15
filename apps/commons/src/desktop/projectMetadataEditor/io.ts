@@ -3,6 +3,40 @@ import type { ThingTypePolicyIO } from '../../../../../packages/cwrc-leafwriter/
 import type { ProjectMetadataDialogMode } from '../projectMetadataSession';
 import type { ProjectMetadataEditorIO } from './ProjectMetadataForm';
 
+export type PedbBackendConfig = { backend: 'local' } | { backend: 'turso'; url: string };
+
+export interface PedbIO {
+  load: () => Promise<PedbBackendConfig | undefined>;
+  save: (pedb: PedbBackendConfig) => Promise<void>;
+  hasToken: (url: string) => Promise<boolean>;
+  setToken: (url: string, token: string | null) => Promise<void>;
+  testConnection: (url: string, token: string) => Promise<{ ok: boolean; error?: string }>;
+  migrateLocalData: () => Promise<{
+    ok: boolean;
+    tables?: number;
+    rows?: number;
+    error?: string;
+  }>;
+}
+
+/**
+ * The Turso auth-token operations never depend on which project or dialog
+ * mode is active (they're keyed only by database url), so both `pedb` IO
+ * implementations below share this instead of each re-wrapping the same
+ * three `window.electronAPI` calls.
+ */
+const sharedTursoTokenIO = {
+  hasToken: async (url: string) => (await window.electronAPI?.entityDbTursoHasToken?.(url)) ?? false,
+  setToken: async (url: string, token: string | null) => {
+    await window.electronAPI?.entityDbTursoSetToken?.(url, token);
+  },
+  testConnection: async (url: string, token: string) =>
+    (await window.electronAPI?.entityDbTursoTestConnection?.(url, token)) ?? {
+      ok: false,
+      error: 'Not available.',
+    },
+};
+
 export const createNativeProjectMetadataIO = (
   dialogId: string,
   options: {
@@ -66,6 +100,26 @@ export const createNativeProjectMetadataIO = (
     },
   };
 
+  const pedb: PedbIO = {
+    ...sharedTursoTokenIO,
+    load: async () => {
+      const state = (await invoke('getPedbState', { dialogId })) as PedbBackendConfig | null;
+      return state ?? undefined;
+    },
+    save: async (next) => {
+      await invoke('savePedb', { dialogId, pedb: next });
+    },
+    migrateLocalData: async () => {
+      const result = (await invoke('migratePedbLocalData', { dialogId })) as {
+        ok: boolean;
+        tables?: number;
+        rows?: number;
+        error?: string;
+      } | null;
+      return result ?? { ok: false, error: 'Could not migrate local data.' };
+    },
+  };
+
   return {
     loadState: async () => {
       const dialogState = (await invoke('getProjectMetadataState', { dialogId })) as Awaited<
@@ -87,6 +141,7 @@ export const createNativeProjectMetadataIO = (
     },
     nameTypePolicy,
     thingTypePolicy,
+    pedb,
     onCancel: options.onCancel,
     onSaved: options.onSaved,
   };
@@ -99,6 +154,19 @@ export const createEmbeddedProjectMetadataIO = (
   const projectApi = window.__leafWriterProject;
   if (!projectApi?.loadProjectMetadataState || !projectApi.saveProjectMetadata) return null;
 
+  const pedb: PedbIO = {
+    ...sharedTursoTokenIO,
+    load: async () => (await window.electronAPI?.reloadProjectBundle?.(projectFilePath))?.config.pedb,
+    save: async (next) => {
+      await window.electronAPI?.updateProjectFileConfig?.(projectFilePath, { pedb: next });
+    },
+    migrateLocalData: async () =>
+      (await window.electronAPI?.entityDbTursoMigrateLocalData?.(projectFilePath)) ?? {
+        ok: false,
+        error: 'Not available.',
+      },
+  };
+
   return {
     loadState: () => projectApi.loadProjectMetadataState!(mode),
     saveMetadata: (payload) =>
@@ -107,6 +175,7 @@ export const createEmbeddedProjectMetadataIO = (
         mode,
         ...payload,
       }),
+    pedb,
     nameTypePolicy: {
       load: async () => {
         const state = await projectApi.getNameTypeTaggingPolicyState?.();

@@ -1129,6 +1129,13 @@
   "type": "",
   "types": "",
   "LW": {
+    "settings": {
+      "authorities": {
+        "match_across_line_breaks": "Correspondre à travers les sauts de ligne et de page",
+        "match_across_line_breaks_description": "Trouve des correspondances dans Tag Bomb à travers les balises vides <lb>, <pb>, etc. Conserve les repères dans les balises appliquées. Désactivé par défaut.",
+        "match_across_line_breaks_enable": "Activer pour ce projet"
+      }
+    },
     "dateAuthority": {
       "loading_calendar_tables": "Chargement des tables calendaires…",
       "calendar_lookup_unavailable": "La recherche calendaire est indisponible. Installez sanmiao et redémarrez l’application.",

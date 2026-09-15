@@ -1126,6 +1126,13 @@
   "type": "",
   "types": "",
   "LW": {
+    "settings": {
+      "authorities": {
+        "match_across_line_breaks": "Über Zeilen- und Seitenumbrüche hinweg suchen",
+        "match_across_line_breaks_description": "Findet Tag-Bomben-Treffer über leere <lb>-, <pb>- und ähnliche Markierungen hinweg. Behält Markierungen in angewendeten Tags. Standardmäßig aus.",
+        "match_across_line_breaks_enable": "Für dieses Projekt aktivieren"
+      }
+    },
     "dateAuthority": {
       "loading_calendar_tables": "Kalendertabellen werden geladen…",
       "calendar_lookup_unavailable": "Kalenderabfrage ist nicht verfügbar. Installieren Sie sanmiao und starten Sie die App neu.",

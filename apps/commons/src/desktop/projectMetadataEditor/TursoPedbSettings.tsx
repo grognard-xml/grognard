@@ -10,6 +10,7 @@ import {
 } from '@mui/material';
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import type { PedbIO } from './io';
 
 type PedbBackend = 'local' | 'turso';
 
@@ -21,14 +22,20 @@ type PedbBackend = 'local' | 'turso';
  * the project file directly rather than folding into `ProjectMetadataForm`'s
  * TEI-header save/dirty-tracking flow, which is a different concern.
  *
+ * Driven entirely through `io` (mirroring `nameTypePolicy`/`thingTypePolicy`
+ * on `ProjectMetadataEditorIO`) rather than reaching for
+ * `window.__leafWriterProject` directly — this form also renders inside the
+ * standalone native "first setup" dialog window (a brand-new project has no
+ * embedded editor bridge to reach into), so both rendering contexts need to
+ * go through the same mode-agnostic interface.
+ *
  * The backend a project uses is resolved once, when the project is opened
  * (`entityStoreResolve.ts`) — a change made here only takes effect the next
  * time this project is opened, which the saved-state message says plainly
  * rather than pretending to hot-swap the live connection.
  */
-export const TursoPedbSettings = ({ active = true }: { active?: boolean }) => {
+export const TursoPedbSettings = ({ active = true, io }: { active?: boolean; io: PedbIO }) => {
   const { t } = useTranslation();
-  const [projectFilePath, setProjectFilePath] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [backend, setBackend] = useState<PedbBackend>('local');
   const [url, setUrl] = useState('');
@@ -49,20 +56,13 @@ export const TursoPedbSettings = ({ active = true }: { active?: boolean }) => {
 
   useEffect(() => {
     if (!active) return;
-    const path = window.__leafWriterProject?.getProjectFilePath?.() ?? null;
-    setProjectFilePath(path);
-    if (!path || !window.electronAPI?.reloadProjectBundle) {
-      setLoading(false);
-      return;
-    }
     setLoading(true);
     void (async () => {
-      const bundle = await window.electronAPI!.reloadProjectBundle(path);
-      const pedb = bundle?.config.pedb;
+      const pedb = await io.load();
       if (pedb?.backend === 'turso') {
         setBackend('turso');
         setUrl(pedb.url);
-        setHasStoredToken((await window.electronAPI?.entityDbTursoHasToken?.(pedb.url)) ?? false);
+        setHasStoredToken(await io.hasToken(pedb.url));
       } else {
         setBackend('local');
         setUrl('');
@@ -72,9 +72,10 @@ export const TursoPedbSettings = ({ active = true }: { active?: boolean }) => {
       setTestResult(null);
       setSaveError(null);
       setSaveSuccess(false);
+      setMigrateResult(null);
       setLoading(false);
     })();
-  }, [active]);
+  }, [active, io]);
 
   const handleBackendChange = (next: PedbBackend) => {
     setBackend(next);
@@ -85,29 +86,24 @@ export const TursoPedbSettings = ({ active = true }: { active?: boolean }) => {
   };
 
   const handleTest = async () => {
-    if (!url.trim() || !token.trim() || !window.electronAPI?.entityDbTursoTestConnection) return;
+    if (!url.trim() || !token.trim()) return;
     setTesting(true);
     setTestResult(null);
     try {
-      setTestResult(await window.electronAPI.entityDbTursoTestConnection(url.trim(), token.trim()));
-    } catch (error) {
-      setTestResult({ ok: false, error: error instanceof Error ? error.message : String(error) });
+      setTestResult(await io.testConnection(url.trim(), token.trim()));
     } finally {
       setTesting(false);
     }
   };
 
   const handleSave = async () => {
-    if (!projectFilePath || !window.electronAPI?.updateProjectFileConfig) return;
     setSaveError(null);
     setSaveSuccess(false);
 
     if (backend === 'local') {
       setSaving(true);
       try {
-        await window.electronAPI.updateProjectFileConfig(projectFilePath, {
-          pedb: { backend: 'local' },
-        });
+        await io.save({ backend: 'local' });
         setSaveSuccess(true);
       } catch (error) {
         setSaveError(error instanceof Error ? error.message : String(error));
@@ -131,12 +127,10 @@ export const TursoPedbSettings = ({ active = true }: { active?: boolean }) => {
     setSaving(true);
     try {
       if (trimmedToken) {
-        await window.electronAPI.entityDbTursoSetToken?.(trimmedUrl, trimmedToken);
+        await io.setToken(trimmedUrl, trimmedToken);
       }
-      await window.electronAPI.updateProjectFileConfig(projectFilePath, {
-        pedb: { backend: 'turso', url: trimmedUrl },
-      });
-      setHasStoredToken((await window.electronAPI.entityDbTursoHasToken?.(trimmedUrl)) ?? false);
+      await io.save({ backend: 'turso', url: trimmedUrl });
+      setHasStoredToken(await io.hasToken(trimmedUrl));
       setToken('');
       setSaveSuccess(true);
       setMigrateResult(null);
@@ -148,17 +142,16 @@ export const TursoPedbSettings = ({ active = true }: { active?: boolean }) => {
   };
 
   const handleMigrate = async () => {
-    if (!projectFilePath || !window.electronAPI?.entityDbTursoMigrateLocalData) return;
     setMigrating(true);
     setMigrateResult(null);
     try {
-      setMigrateResult(await window.electronAPI.entityDbTursoMigrateLocalData(projectFilePath));
+      setMigrateResult(await io.migrateLocalData());
     } finally {
       setMigrating(false);
     }
   };
 
-  if (loading || !projectFilePath) return null;
+  if (loading) return null;
 
   return (
     <Box sx={{ pt: 1 }}>
@@ -245,12 +238,7 @@ export const TursoPedbSettings = ({ active = true }: { active?: boolean }) => {
       )}
 
       <Box sx={{ pt: 1 }}>
-        <Button
-          disabled={saving}
-          onClick={() => void handleSave()}
-          size="small"
-          variant="contained"
-        >
+        <Button disabled={saving} onClick={() => void handleSave()} size="small" variant="contained">
           {t('LWC.desktop.project.shared_database_save')}
         </Button>
       </Box>
