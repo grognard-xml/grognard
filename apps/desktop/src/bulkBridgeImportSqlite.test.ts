@@ -3,21 +3,21 @@ import { EntitySqliteRepository } from './entityDbSqlite/repository';
 
 const USER = 'test-user';
 
-function seedPerson(
+async function seedPerson(
   repository: EntitySqliteRepository,
   id: string,
   name: string,
   authorities: { type: string; value: string }[] = [],
-): void {
-  repository.createEntity({ id, kind: 'person' });
-  repository.addName({
+): Promise<void> {
+  await repository.createEntity({ id, kind: 'person' });
+  await repository.addName({
     entityId: id,
     text: name,
     isPrimary: true,
     origin: 'user',
   });
   for (const authority of authorities) {
-    repository.attachAuthority({
+    await repository.attachAuthority({
       entityId: id,
       type: authority.type,
       value: authority.value,
@@ -27,12 +27,12 @@ function seedPerson(
 
 describe('bulkBridgeImportSqlite', () => {
   it('links a unique authority match', async () => {
-    const source = new EntitySqliteRepository();
-    const central = new EntitySqliteRepository();
-    seedPerson(central, 'person-central-1', '張衡', [
+    const source = await EntitySqliteRepository.open();
+    const central = await EntitySqliteRepository.open();
+    await seedPerson(central, 'person-central-1', '張衡', [
       { type: 'Wikidata', value: 'http://www.wikidata.org/entity/Q42' },
     ]);
-    seedPerson(source, 'person-source-1', '张衡', [{ type: 'wikidata', value: 'Q42' }]);
+    await seedPerson(source, 'person-source-1', '张衡', [{ type: 'wikidata', value: 'Q42' }]);
 
     const result = await bulkBridgeImportSqlite({
       source,
@@ -45,19 +45,19 @@ describe('bulkBridgeImportSqlite', () => {
     expect(result.proposed).toBe(0);
     expect(result.ambiguous).toBe(0);
     expect(result.merged).toBe(0);
-    expect(source.getCentralId('person-source-1', USER)).toBe('person-central-1');
-    expect(central.listEntityIds()).toEqual(['person-central-1']);
+    expect(await source.getCentralId('person-source-1', USER)).toBe('person-central-1');
+    expect(await central.listEntityIds()).toEqual(['person-central-1']);
 
-    source.close();
-    central.close();
+    await source.close();
+    await central.close();
   });
 
   it('proposes when two CEDB entities share the same authority', async () => {
-    const source = new EntitySqliteRepository();
-    const central = new EntitySqliteRepository();
-    seedPerson(central, 'person-central-a', '甲', [{ type: 'NORBERT', value: '7' }]);
-    seedPerson(central, 'person-central-b', '乙', [{ type: 'NORBERT', value: '7' }]);
-    seedPerson(source, 'person-source-1', '丙', [{ type: 'NORBERT', value: '7' }]);
+    const source = await EntitySqliteRepository.open();
+    const central = await EntitySqliteRepository.open();
+    await seedPerson(central, 'person-central-a', '甲', [{ type: 'NORBERT', value: '7' }]);
+    await seedPerson(central, 'person-central-b', '乙', [{ type: 'NORBERT', value: '7' }]);
+    await seedPerson(source, 'person-source-1', '丙', [{ type: 'NORBERT', value: '7' }]);
 
     const result = await bulkBridgeImportSqlite({
       source,
@@ -76,16 +76,16 @@ describe('bulkBridgeImportSqlite', () => {
       'person-central-a',
       'person-central-b',
     ]);
-    expect(source.getCentralId('person-source-1', USER)).toBeNull();
+    expect(await source.getCentralId('person-source-1', USER)).toBeNull();
 
-    source.close();
-    central.close();
+    await source.close();
+    await central.close();
   });
 
   it('mints and links unmatched entities when mintUnmatched is true', async () => {
-    const source = new EntitySqliteRepository();
-    const central = new EntitySqliteRepository();
-    seedPerson(source, 'person-source-1', '未匹配', [
+    const source = await EntitySqliteRepository.open();
+    const central = await EntitySqliteRepository.open();
+    await seedPerson(source, 'person-source-1', '未匹配', [
       { type: 'VIAF', value: 'http://viaf.org/viaf/42920649' },
     ]);
 
@@ -100,21 +100,21 @@ describe('bulkBridgeImportSqlite', () => {
     expect(result.merged).toBe(1);
     expect(result.proposed).toBe(0);
     expect(result.proposals).toHaveLength(0);
-    const centralId = source.getCentralId('person-source-1', USER);
+    const centralId = await source.getCentralId('person-source-1', USER);
     expect(centralId).toMatch(/^person-/);
-    expect(central.getEntity(centralId!)).not.toBeNull();
-    expect(central.getPanelSummary(centralId!)?.authorities).toEqual([
+    expect(await central.getEntity(centralId!)).not.toBeNull();
+    expect((await central.getPanelSummary(centralId!))?.authorities).toEqual([
       { type: 'VIAF', value: '42920649' },
     ]);
 
-    source.close();
-    central.close();
+    await source.close();
+    await central.close();
   });
 
   it('proposes no-authority-match when mintUnmatched is false', async () => {
-    const source = new EntitySqliteRepository();
-    const central = new EntitySqliteRepository();
-    seedPerson(source, 'person-source-1', '未匹配');
+    const source = await EntitySqliteRepository.open();
+    const central = await EntitySqliteRepository.open();
+    await seedPerson(source, 'person-source-1', '未匹配');
 
     const result = await bulkBridgeImportSqlite({
       source,
@@ -131,19 +131,19 @@ describe('bulkBridgeImportSqlite', () => {
       reason: 'no-authority-match',
       candidateCentralIds: [],
     });
-    expect(source.getCentralId('person-source-1', USER)).toBeNull();
-    expect(central.listEntityIds()).toEqual([]);
+    expect(await source.getCentralId('person-source-1', USER)).toBeNull();
+    expect(await central.listEntityIds()).toEqual([]);
 
-    source.close();
-    central.close();
+    await source.close();
+    await central.close();
   });
 
   it('skips already-linked PEDB entities', async () => {
-    const source = new EntitySqliteRepository();
-    const central = new EntitySqliteRepository();
-    seedPerson(central, 'person-central-1', '已鏈', [{ type: 'CBDB', value: '1' }]);
-    seedPerson(source, 'person-source-1', '已鏈', [{ type: 'CBDB', value: '1' }]);
-    source.setCentralMapping('person-source-1', USER, 'person-central-1');
+    const source = await EntitySqliteRepository.open();
+    const central = await EntitySqliteRepository.open();
+    await seedPerson(central, 'person-central-1', '已鏈', [{ type: 'CBDB', value: '1' }]);
+    await seedPerson(source, 'person-source-1', '已鏈', [{ type: 'CBDB', value: '1' }]);
+    await source.setCentralMapping('person-source-1', USER, 'person-central-1');
 
     const result = await bulkBridgeImportSqlite({
       source,
@@ -154,9 +154,9 @@ describe('bulkBridgeImportSqlite', () => {
     expect(result.matched).toBe(0);
     expect(result.proposed).toBe(0);
     expect(result.ambiguous).toBe(0);
-    expect(source.getCentralId('person-source-1', USER)).toBe('person-central-1');
+    expect(await source.getCentralId('person-source-1', USER)).toBe('person-central-1');
 
-    source.close();
-    central.close();
+    await source.close();
+    await central.close();
   });
 });

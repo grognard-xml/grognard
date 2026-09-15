@@ -1,6 +1,7 @@
 import { createRequire } from 'node:module';
 import type { DatabaseSync as DatabaseSyncType } from 'node:sqlite';
 import { applyEntityDbMigrations, migrations, ENTITY_DB_SCHEMA_VERSION } from './schema';
+import { NodeSqliteBackend } from './nodeSqliteBackend';
 
 const nodeRequire = createRequire(__filename);
 const { DatabaseSync } = nodeRequire('node:sqlite') as {
@@ -19,7 +20,7 @@ function seedAtVersion(db: InstanceType<typeof DatabaseSync>, version: number): 
 }
 
 describe('migration 11 (widen entities.kind to include "thing")', () => {
-  it('preserves every existing row across every FK-referencing table', () => {
+  it('preserves every existing row across every FK-referencing table', async () => {
     const db = new DatabaseSync(':memory:');
     seedAtVersion(db, 10);
 
@@ -47,7 +48,7 @@ describe('migration 11 (widen entities.kind to include "thing")', () => {
 
     expect(db.prepare('PRAGMA user_version').get()?.user_version).toBe(10);
 
-    applyEntityDbMigrations(db);
+    await applyEntityDbMigrations(new NodeSqliteBackend(db));
 
     expect(db.prepare('PRAGMA user_version').get()?.user_version).toBe(ENTITY_DB_SCHEMA_VERSION);
     expect(db.prepare('PRAGMA foreign_key_check').all()).toEqual([]);
@@ -76,9 +77,9 @@ describe('migration 11 (widen entities.kind to include "thing")', () => {
     db.close();
   });
 
-  it('accepts kind = "thing" and creates the things table', () => {
+  it('accepts kind = "thing" and creates the things table', async () => {
     const db = new DatabaseSync(':memory:');
-    applyEntityDbMigrations(db);
+    await applyEntityDbMigrations(new NodeSqliteBackend(db));
 
     const now = '2026-01-01T00:00:00Z';
     expect(() =>

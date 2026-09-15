@@ -8,10 +8,10 @@ describe('entity SQLite read service', () => {
   it('opens a SQLite database once and serves typed search/detail reads', async () => {
     const directory = mkdtempSync(path.join(tmpdir(), 'grognard-entity-read-'));
     const databasePath = path.join(directory, 'entities.sqlite');
-    const repository = new EntitySqliteRepository(databasePath);
-    repository.createEntity({ id: 'person-read-1', kind: 'person', description: 'Description' });
-    repository.addName({ entityId: 'person-read-1', text: '讀者', isPrimary: true });
-    repository.close();
+    const repository = await EntitySqliteRepository.open(databasePath);
+    await repository.createEntity({ id: 'person-read-1', kind: 'person', description: 'Description' });
+    await repository.addName({ entityId: 'person-read-1', text: '讀者', isPrimary: true });
+    await repository.close();
 
     await expect(
       searchEntitySqlite({ databasePath, kind: 'person', query: '讀者' }),

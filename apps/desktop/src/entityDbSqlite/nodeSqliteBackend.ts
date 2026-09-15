@@ -19,8 +19,12 @@ export class NodeSqliteBackend implements EntityDbBackend {
   /** Nesting depth so bulk callers can wrap helpers that also use `transaction`. */
   private txDepth = 0;
 
-  constructor(databasePath = ':memory:') {
-    this.db = new DatabaseSync(databasePath);
+  /** Pass a path to open a new connection, or an already-open `DatabaseSync` to wrap it. */
+  constructor(databasePathOrConnection: string | DatabaseSyncType = ':memory:') {
+    this.db =
+      typeof databasePathOrConnection === 'string'
+        ? new DatabaseSync(databasePathOrConnection)
+        : databasePathOrConnection;
   }
 
   async get<T = unknown>(sql: string, params: unknown[] = []): Promise<T | undefined> {
