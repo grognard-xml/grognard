@@ -3822,7 +3822,7 @@ const registerIpcHandlers = () => {
 
   ipcMain.handle('entityDbBackup:restore', async (_event, key: string) => {
     // Drop cached read handles so the file swap isn't fighting open fds.
-    closeEntitySqliteReadRepositories();
+    await closeEntitySqliteReadRepositories();
     const result = await restoreSnapshot(key);
     if (result.ok) notifyEntityDatabaseChanged();
     return result;
@@ -4271,7 +4271,7 @@ app.on('before-quit', (event) => {
     event.preventDefault();
     isQuitting = true;
     quitPreparationInProgress = true;
-    closeEntitySqliteReadRepositories();
+    void closeEntitySqliteReadRepositories();
     closeAllNativeDialogs();
 
     // A best-effort snapshot on the way out, in parallel with renderer
@@ -4291,7 +4291,7 @@ app.on('before-quit', (event) => {
     return;
   }
 
-  closeEntitySqliteReadRepositories();
+  void closeEntitySqliteReadRepositories();
   closeAllNativeDialogs();
 });
 
