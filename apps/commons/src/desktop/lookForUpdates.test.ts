@@ -41,7 +41,10 @@ describe('everythingIsUpToDate', () => {
     expect(
       everythingIsUpToDate({
         ...base(),
-        pluginsApplied: { updated: [{ id: 'daozang-import', from: '0.1.0', to: '0.1.1' }], failed: [] },
+        pluginsApplied: {
+          updated: [{ id: 'daozang-import', from: '0.1.0', to: '0.1.1' }],
+          failed: [],
+        },
       }),
     ).toBe(false);
     expect(

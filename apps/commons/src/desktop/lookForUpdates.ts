@@ -7,7 +7,10 @@
  * updates" is not just a check, it's the update.
  */
 import type { AppUpdateCheckResult } from './appUpdateTypes';
-import type { AuthorityLifecycleRunResult, AuthorityLifecycleStatus } from './authorityLifecycleTypes';
+import type {
+  AuthorityLifecycleRunResult,
+  AuthorityLifecycleStatus,
+} from './authorityLifecycleTypes';
 import type { SchemaUpdateCheckResult } from './schemaUpdateTypes';
 
 export interface PluginUpdateReport {
@@ -63,12 +66,12 @@ export const gatherUpdateReport = async (
 
   let authorityApplied: AuthorityLifecycleRunResult | null = null;
   if (authority?.enabled && authority.updateAvailable && api.authorityLifecycleUpdate) {
-    authorityApplied = await api.authorityLifecycleUpdate().catch(
-      (error): AuthorityLifecycleRunResult => ({
+    authorityApplied = await api
+      .authorityLifecycleUpdate()
+      .catch((error): AuthorityLifecycleRunResult => ({
         ok: false,
         error: error instanceof Error ? error.message : String(error),
-      }),
-    );
+      }));
   }
 
   return { app, authority, authorityApplied, pluginsApplied, schema };

@@ -238,7 +238,12 @@ export const TursoPedbSettings = ({ active = true, io }: { active?: boolean; io:
       )}
 
       <Box sx={{ pt: 1 }}>
-        <Button disabled={saving} onClick={() => void handleSave()} size="small" variant="contained">
+        <Button
+          disabled={saving}
+          onClick={() => void handleSave()}
+          size="small"
+          variant="contained"
+        >
           {t('LWC.desktop.project.shared_database_save')}
         </Button>
       </Box>

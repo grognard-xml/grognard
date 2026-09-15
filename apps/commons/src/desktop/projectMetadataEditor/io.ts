@@ -26,7 +26,8 @@ export interface PedbIO {
  * three `window.electronAPI` calls.
  */
 const sharedTursoTokenIO = {
-  hasToken: async (url: string) => (await window.electronAPI?.entityDbTursoHasToken?.(url)) ?? false,
+  hasToken: async (url: string) =>
+    (await window.electronAPI?.entityDbTursoHasToken?.(url)) ?? false,
   setToken: async (url: string, token: string | null) => {
     await window.electronAPI?.entityDbTursoSetToken?.(url, token);
   },
@@ -156,7 +157,8 @@ export const createEmbeddedProjectMetadataIO = (
 
   const pedb: PedbIO = {
     ...sharedTursoTokenIO,
-    load: async () => (await window.electronAPI?.reloadProjectBundle?.(projectFilePath))?.config.pedb,
+    load: async () =>
+      (await window.electronAPI?.reloadProjectBundle?.(projectFilePath))?.config.pedb,
     save: async (next) => {
       await window.electronAPI?.updateProjectFileConfig?.(projectFilePath, { pedb: next });
     },
