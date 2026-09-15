@@ -960,15 +960,6 @@
         "save": "Enregistrer",
         "next": "Suivant"
       },
-      "database_setup_prompt": {
-        "title": "Base d’entités",
-        "message": "Vous avez déjà un dossier de base fonctionnel, enfoui dans les fichiers système. Vous pouvez aussi créer ou choisir un dossier synchronisé dans le cloud (Dropbox, iCloud, OneDrive…), ce qui permet à vos entités de voyager d’une machine à l’autre — mais synchroniser la base en direct peut la corrompre lorsque le client de synchronisation entre en conflit avec les fichiers journaux de SQLite.",
-        "folder_label": "Dossier de la base",
-        "folder_placeholder": "Dossier par défaut en cours d’utilisation…",
-        "choose": "Choisir un dossier synchronisé…",
-        "note": "Facultatif. Un dossier vide convient — Grognard y créera la base. Vous avez déjà une base sur une autre machine ? Choisissez son dossier pour l’utiliser.",
-        "done": "Terminé"
-      },
       "tagging": {
         "add_attribute": "Ajouter un attribut",
         "highlight": "Surligner",

@@ -717,15 +717,6 @@
         "save": "Save",
         "next": "Next"
       },
-      "database_setup_prompt": {
-        "title": "Entity database",
-        "message": "You already have a working database folder deep in your system files. You may instead create or choose a folder synced to the cloud (Dropbox, iCloud, OneDrive, …) so your entities can travel between machines — but syncing the live database can corrupt it when file-sync clients race with SQLite's journal files.",
-        "folder_label": "Database folder",
-        "folder_placeholder": "Using the built-in default…",
-        "choose": "Choose a cloud-synced folder…",
-        "note": "Optional. A blank folder is fine — Grognard will set the database up. Already have a database from another machine? Choose that folder to use it.",
-        "done": "Done"
-      },
       "explorer": {
         "delete": "Delete",
         "delete_confirm_file": "Delete “{{name}}”? This cannot be undone.",

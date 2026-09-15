@@ -678,15 +678,6 @@
         "save": "儲存",
         "next": "下一步"
       },
-      "database_setup_prompt": {
-        "title": "實體資料庫",
-        "message": "您已在系統檔案深處擁有一個可正常運作的資料庫資料夾。您也可以改為建立或選擇雲端同步資料夾（Dropbox、iCloud、OneDrive 等），讓實體能在不同機器間移動 — 但若同步用戶端與 SQLite 的日誌檔發生衝突，即時同步中的資料庫可能會損壞。",
-        "folder_label": "資料庫資料夾",
-        "folder_placeholder": "Using the built-in default…",
-        "choose": "Choose a cloud-synced folder…",
-        "note": "選填。空白資料夾即可——Grognard 會設定資料庫。如果您已有來自其他機器的資料庫，請選取該資料夾以使用它。",
-        "done": "完成"
-      },
       "explorer": {
         "delete": "刪除",
         "delete_confirm_file": "Delete “{{name}}”? This cannot be undone.",

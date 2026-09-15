@@ -675,15 +675,6 @@
         "save": "保存",
         "next": "次へ"
       },
-      "database_setup_prompt": {
-        "title": "エンティティデータベース",
-        "message": "システムファイルの奥に、すでに動作するデータベースフォルダーがあります。代わりにクラウド同期フォルダー（Dropbox、iCloud、OneDrive など）を作成または選択すると、エンティティをマシン間で持ち運べます — ただし、同期クライアントが SQLite のジャーナルファイルと競合すると、稼働中のデータベースが破損するおそれがあります。",
-        "folder_label": "データベースフォルダー",
-        "folder_placeholder": "Using the built-in default…",
-        "choose": "Choose a cloud-synced folder…",
-        "note": "Optional. A blank folder is fine — Grognard will set the database up. Already have a database from another machine? Choose that folder to use it.",
-        "done": "完了"
-      },
       "explorer": {
         "delete": "削除",
         "delete_confirm_file": "Delete “{{name}}”? This cannot be undone.",

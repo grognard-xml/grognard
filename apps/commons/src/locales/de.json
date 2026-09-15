@@ -885,15 +885,6 @@
         "save": "Speichern",
         "next": "Weiter"
       },
-      "database_setup_prompt": {
-        "title": "Entitätsdatenbank",
-        "message": "Sie haben bereits einen funktionierenden Datenbankordner tief in Ihren Systemdateien. Alternativ können Sie einen in der Cloud synchronisierten Ordner erstellen oder auswählen (Dropbox, iCloud, OneDrive …), damit Ihre Entitäten zwischen Rechnern mitwandern — aber die Synchronisation der laufenden Datenbank kann sie beschädigen, wenn Sync-Dienste mit den SQLite-Journaldateien kollidieren.",
-        "folder_label": "Datenbankordner",
-        "folder_placeholder": "Integrierten Standard verwenden…",
-        "choose": "Cloud-synchronisierten Ordner auswählen…",
-        "note": "Optional. Ein leerer Ordner ist ausreichend — Grognard richtet die Datenbank ein. Haben Sie bereits eine Datenbank von einem anderen Rechner? Wählen Sie diesen Ordner aus, um sie zu verwenden.",
-        "done": "Fertig"
-      },
       "tagging": {
         "add_attribute": "Attribut hinzufügen",
         "highlight": "Hervorheben",
