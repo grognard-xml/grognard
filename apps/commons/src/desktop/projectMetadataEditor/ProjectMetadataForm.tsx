@@ -42,6 +42,7 @@ import { METADATA_FIELDS_TEMPLATE_PATH } from '@src/desktop/metadataFieldsTempla
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { ProjectMetadataSavePayload, ProjectMetadataSaveResult } from '../projectMetadataSave';
+import { TursoPedbSettings } from './TursoPedbSettings';
 
 export interface ProjectMetadataEditorIO {
   loadState: () => Promise<ProjectMetadataDialogState | null>;
@@ -399,6 +400,8 @@ export const ProjectMetadataForm = ({
             }
             label={t('LWC.desktop.project.sync_to_central')}
           />
+
+          <TursoPedbSettings active={active} />
 
           <Typography sx={{ pt: 1 }} variant="subtitle2">
             {t('LWC.desktop.project.translation')}

@@ -813,6 +813,13 @@ export interface ElectronAPI {
   entityDbBackupRunNow?: () => Promise<EntityDbBackupResult>;
   entityDbBackupListSnapshots?: () => Promise<EntityDbCloudSnapshot[]>;
   entityDbBackupRestore?: (key: string) => Promise<EntityDbRestoreResult>;
+  /** Per-project Turso PEDB auth token, stored encrypted, keyed by database url. */
+  entityDbTursoHasToken?: (url: string) => Promise<boolean>;
+  entityDbTursoSetToken?: (url: string, token: string | null) => Promise<void>;
+  entityDbTursoTestConnection?: (
+    url: string,
+    token: string,
+  ) => Promise<{ ok: boolean; error?: string }>;
   entityDatabaseEnsure?: () => Promise<{ folder: string; dbPath: string; created: boolean } | null>;
   onEntityDatabaseChanged?: (callback: () => void) => () => void;
   entitySyncGetStatus?: () => Promise<EntitySyncStatus>;
