@@ -575,8 +575,7 @@ export async function applyEntityDbMigrations(db: EntityDbBackend): Promise<void
   await db.exec('PRAGMA foreign_keys = ON;');
   await db.exec('PRAGMA journal_mode = WAL;');
   await db.exec('PRAGMA synchronous = NORMAL;');
-  const versionRow = (await db.get<{ user_version?: number }>('PRAGMA user_version'));
-  const current = Number(versionRow?.user_version ?? 0);
+  const current = await db.getSchemaVersion();
   if (current > ENTITY_DB_SCHEMA_VERSION) {
     throw new Error(
       `Entity database schema ${current} is newer than this application supports (${ENTITY_DB_SCHEMA_VERSION}).`,
@@ -604,7 +603,7 @@ export async function applyEntityDbMigrations(db: EntityDbBackend): Promise<void
             );
           }
         }
-        await tx.exec(`PRAGMA user_version = ${version};`);
+        await tx.setSchemaVersion(version);
       });
     } finally {
       if (isRebuild) await db.exec('PRAGMA foreign_keys = ON;');

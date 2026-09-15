@@ -28,6 +28,19 @@ export interface EntityDbBackend {
    * support a subset (see `TursoBackend`, added separately).
    */
   exec(sql: string): Promise<void>;
+  /**
+   * The schema/migration version this database is currently at (0 for a
+   * fresh database). NodeSqliteBackend uses SQLite's built-in
+   * `PRAGMA user_version` (unchanged from before the backend abstraction —
+   * every existing local `entities.sqlite` already carries a version there,
+   * so this must never be reassigned to a different mechanism for local
+   * databases). A network backend may not be able to write PRAGMAs at all
+   * (confirmed on a real Turso database: `PRAGMA user_version = N` is
+   * rejected outright) and must track this some other way — see
+   * `TursoBackend`, which uses an ordinary table.
+   */
+  getSchemaVersion(): Promise<number>;
+  setSchemaVersion(version: number): Promise<void>;
   close(): Promise<void>;
 }
 

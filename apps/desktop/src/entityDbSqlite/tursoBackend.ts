@@ -67,16 +67,24 @@ function splitStatements(sql: string): string[] {
 }
 
 /**
+ * Storage-tuning PRAGMAs a hosted, multi-tenant Turso database manages
+ * itself and rejects outright from a client — confirmed against a real
+ * Turso database: `SQL_PARSE_ERROR: SQL not allowed statement: PRAGMA
+ * journal_mode = WAL`. Silently skipped by `exec()`, remote only; a local
+ * `file:` connection (real SQLite underneath) still honors them, and
+ * NodeSqliteBackend always did. `PRAGMA foreign_keys` and `PRAGMA
+ * user_version` are not in this set — they affect query/constraint
+ * semantics and our own schema-version bookkeeping, not storage engine
+ * internals, and are expected to work remotely (unconfirmed further than
+ * that; revisit if a future run says otherwise).
+ */
+const REMOTE_UNSUPPORTED_PRAGMAS = /^PRAGMA\s+(journal_mode|synchronous)\s*=/i;
+
+/**
  * EntityDbBackend implementation over a Turso/libSQL database — the shared,
  * network-accessible Project Entity Database for real-time multi-collaborator
  * projects. The repository layer talks to this exactly as it talks to
  * NodeSqliteBackend; it doesn't know or care which one it has.
- *
- * PRAGMA-based migration steps (WAL mode, foreign key toggling) are a known
- * local-file-specific soft spot — see docs/entity-sync-planning.md and the
- * Turso backend plan. A `file:` URL (used by tests) runs real SQLite
- * underneath and behaves correctly; a genuine remote Turso connection may
- * not honor every PRAGMA the same way. Not solved here — flagged, not silent.
  *
  * `exec()` deliberately does not use libSQL's `executeMultiple` — that
  * method isn't reliably supported over the remote HTTP/Hrana transport
@@ -140,9 +148,36 @@ export class TursoBackend implements EntityDbBackend {
   }
 
   async exec(sql: string): Promise<void> {
+    const isRemote = this.client.protocol !== 'file';
     for (const statement of splitStatements(sql)) {
+      if (isRemote && REMOTE_UNSUPPORTED_PRAGMAS.test(statement)) continue;
       await this.executor.execute(statement);
     }
+  }
+
+  /**
+   * `PRAGMA user_version = N` is rejected outright by a real Turso database
+   * (`SQL_PARSE_ERROR: SQL not allowed statement`), so schema version is
+   * tracked in an ordinary single-row table instead. Safe because Turso
+   * support is new — there's no existing remote database whose version
+   * bookkeeping this would need to stay compatible with.
+   */
+  async getSchemaVersion(): Promise<number> {
+    await this.executor.execute(
+      'CREATE TABLE IF NOT EXISTS schema_version (id INTEGER PRIMARY KEY CHECK (id = 1), version INTEGER NOT NULL)',
+    );
+    const result = await this.executor.execute('SELECT version FROM schema_version WHERE id = 1');
+    return result.rows.length > 0 ? Number(result.rows[0]![0]) : 0;
+  }
+
+  async setSchemaVersion(version: number): Promise<void> {
+    await this.executor.execute(
+      'CREATE TABLE IF NOT EXISTS schema_version (id INTEGER PRIMARY KEY CHECK (id = 1), version INTEGER NOT NULL)',
+    );
+    await this.executor.execute({
+      sql: 'INSERT INTO schema_version (id, version) VALUES (1, ?) ON CONFLICT(id) DO UPDATE SET version = excluded.version',
+      args: [version],
+    });
   }
 
   async close(): Promise<void> {
