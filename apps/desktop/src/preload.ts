@@ -832,6 +832,7 @@ export interface ElectronAPI {
   ) => Promise<
     import('../../../packages/cwrc-leafwriter/src/plugins/types').PluginHostSnapshotView
   >;
+  pluginsUpdateInstalled?: () => Promise<import('./plugins/pluginRegistry').PluginUpdateResult>;
   authorityLifecycleGet?: () => Promise<
     import('../../commons/src/desktop/authorityLifecycleTypes').AuthorityLifecycleStatus
   >;
@@ -1320,6 +1321,7 @@ const electronAPI: ElectronAPI = {
   pluginsGetModuleUrl: (pluginId: string) => ipcRenderer.invoke('plugins:getModuleUrl', pluginId),
   pluginsGetRemoteIndex: () => ipcRenderer.invoke('plugins:getRemoteIndex'),
   pluginsInstallRemote: (entry) => ipcRenderer.invoke('plugins:installRemote', entry),
+  pluginsUpdateInstalled: () => ipcRenderer.invoke('plugins:updateInstalled'),
   authorityLifecycleGet: () => ipcRenderer.invoke('authorityLifecycle:get'),
   authorityLifecycleSetEnabled: (options) =>
     ipcRenderer.invoke('authorityLifecycle:setEnabled', options),

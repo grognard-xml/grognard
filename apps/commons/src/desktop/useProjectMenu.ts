@@ -1,15 +1,13 @@
 import { clearFindHighlights } from '@src/desktop/find/findEditorHighlights';
 import { openFindPanel } from '@src/desktop/desktopLeftPanelBridge';
 import { openApplicationSettings } from '@src/desktop/openApplicationSettings';
-import { openPluginsDialog } from '@src/desktop/usePluginBootstrap';
 import { promptAndApplySchemaUpdate } from '@src/desktop/schemaUpdateCheck';
 import { everythingIsUpToDate, gatherUpdateReport } from '@src/desktop/lookForUpdates';
 import { leafwriterAtom } from '@src/jotai';
 import { useActions, useAppState } from '@src/overmind';
 import { isDesktop } from '@src/types/desktop';
-import Button from '@mui/material/Button';
 import { useAtom } from 'jotai';
-import { createElement, useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { mergeEditorBodyWithStoredHeader, stripTeiHeaderForVisualEditor } from './teiHeaderXml';
 
@@ -310,53 +308,27 @@ export const useProjectMenu = () => {
           }
 
           if (report.authority?.enabled && report.authority.updateAvailable) {
-            notifyViaSnackbar({
-              message: t('LWC.desktop.project.authority_updates_available'),
-              options: {
-                action: () =>
-                  createElement(
-                    Button,
-                    {
-                      color: 'inherit',
-                      size: 'small',
-                      onClick: () => {
-                        void (async () => {
-                          notifyViaSnackbar(t('LWC.desktop.project.authority_updating'));
-                          const result = await api.authorityLifecycleUpdate?.();
-                          if (result?.ok) {
-                            notifyViaSnackbar(t('LWC.desktop.project.authority_updated'));
-                          } else {
-                            notifyViaSnackbar(
-                              result?.error ?? t('LWC.desktop.project.authority_update_failed'),
-                            );
-                          }
-                        })();
-                      },
-                    },
-                    t('LWC.desktop.project.update_now_button'),
-                  ),
-              },
-            });
+            notifyViaSnackbar(
+              report.authorityApplied?.ok
+                ? t('LWC.desktop.project.authority_updated')
+                : (report.authorityApplied?.error ??
+                    t('LWC.desktop.project.authority_update_failed')),
+            );
           }
 
-          if (report.pluginUpdates > 0) {
-            notifyViaSnackbar({
-              message: t('LWC.desktop.project.plugin_updates_available', {
-                count: report.pluginUpdates,
+          if (report.pluginsApplied?.updated.length) {
+            notifyViaSnackbar(
+              t('LWC.desktop.project.plugin_updates_applied', {
+                count: report.pluginsApplied.updated.length,
               }),
-              options: {
-                action: () =>
-                  createElement(
-                    Button,
-                    {
-                      color: 'inherit',
-                      size: 'small',
-                      onClick: () => openPluginsDialog(),
-                    },
-                    t('LWC.desktop.project.open_plugins_button'),
-                  ),
-              },
-            });
+            );
+          }
+          if (report.pluginsApplied?.failed.length) {
+            notifyViaSnackbar(
+              t('LWC.desktop.project.plugin_updates_failed', {
+                count: report.pluginsApplied.failed.length,
+              }),
+            );
           }
 
           if (report.schema?.status === 'updateAvailable' && isProjectReady && projectFilePath) {

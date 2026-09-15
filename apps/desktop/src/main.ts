@@ -178,7 +178,11 @@ import {
   setPluginProject,
   syncEnabledPluginContributions,
 } from './plugins';
-import { fetchRemotePluginIndex, installRemotePlugin } from './plugins/pluginRegistry';
+import {
+  fetchRemotePluginIndex,
+  installRemotePlugin,
+  updateInstalledPlugins,
+} from './plugins/pluginRegistry';
 import {
   loadOrCreateProject,
   loadProjectFile,
@@ -3444,6 +3448,12 @@ const registerIpcHandlers = () => {
       })),
       state: snapshot.state,
     };
+  });
+
+  ipcMain.handle('plugins:updateInstalled', async () => {
+    const result = await updateInstalledPlugins();
+    if (result.updated.length > 0) buildApplicationMenu();
+    return result;
   });
 
   ipcMain.handle('plugins:pickInstallFolder', async () => {

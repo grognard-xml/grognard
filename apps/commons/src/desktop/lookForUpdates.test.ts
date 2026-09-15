@@ -3,7 +3,8 @@ import { everythingIsUpToDate, type LookForUpdatesReport } from './lookForUpdate
 const base = (): LookForUpdatesReport => ({
   app: { status: 'current' },
   authority: null,
-  pluginUpdates: 0,
+  authorityApplied: null,
+  pluginsApplied: null,
   schema: null,
 });
 
@@ -18,6 +19,7 @@ describe('everythingIsUpToDate', () => {
           enabled: true,
           updateAvailable: false,
         } as LookForUpdatesReport['authority'],
+        pluginsApplied: { updated: [], failed: [] },
         schema: { status: 'skipped', reason: 'Not a catalog-installed schema' },
       }),
     ).toBe(true);
@@ -35,8 +37,19 @@ describe('everythingIsUpToDate', () => {
     ).toBe(false);
   });
 
-  it('is false when plugins or the app need attention', () => {
-    expect(everythingIsUpToDate({ ...base(), pluginUpdates: 2 })).toBe(false);
+  it('is false when plugins updated, failed to update, or the app needs attention', () => {
+    expect(
+      everythingIsUpToDate({
+        ...base(),
+        pluginsApplied: { updated: [{ id: 'daozang-import', from: '0.1.0', to: '0.1.1' }], failed: [] },
+      }),
+    ).toBe(false);
+    expect(
+      everythingIsUpToDate({
+        ...base(),
+        pluginsApplied: { updated: [], failed: [{ id: 'daozang-import', error: 'boom' }] },
+      }),
+    ).toBe(false);
     expect(
       everythingIsUpToDate({
         ...base(),

@@ -655,6 +655,10 @@ export interface ElectronAPI {
   ) => Promise<
     import('../../../../packages/cwrc-leafwriter/src/plugins/types').PluginHostSnapshotView
   >;
+  pluginsUpdateInstalled?: () => Promise<{
+    updated: { id: string; from: string; to: string }[];
+    failed: { id: string; error: string }[];
+  }>;
   authorityLifecycleGet?: () => Promise<AuthorityLifecycleStatus>;
   authorityLifecycleSetEnabled?: (
     options: AuthorityLifecycleSetEnabledOptions,
