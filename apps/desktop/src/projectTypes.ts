@@ -30,6 +30,16 @@ export interface ProjectFileConfig {
   projectId?: string;
   /** UUID fingerprint of the linked entities.xml database file. */
   entityDatabaseId?: string;
+  /**
+   * Where this project's live entity database (PEDB) lives. Omitted, or
+   * `{ backend: 'local' }`, means the default local `entities.sqlite` file
+   * beside the corpus — unchanged from before this field existed. `url` is
+   * not secret (it's the Turso database's connection URL, safe to live in
+   * this shared, git-synced file — matches how the entity-sync Worker
+   * endpoint is stored today); each collaborator's own auth token is never
+   * stored here — see entityDbTursoTokenStore.ts.
+   */
+  pedb?: { backend: 'local' } | { backend: 'turso'; url: string };
   /** When true, this project's PEDB is kept auto-synced with the CEDB (Promote on create, no manual Bridge). */
   syncToCentral?: boolean;
   /** Saved authority tag-bomb pack/year settings for this project. */

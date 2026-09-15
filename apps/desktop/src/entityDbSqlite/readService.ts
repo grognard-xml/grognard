@@ -1,5 +1,10 @@
 import fs from 'fs/promises';
 import path from 'path';
+import {
+  parseConnectionRef,
+  resolveConnectionRef,
+  type EntityDbConnectionRef,
+} from '../entityDbConnectionRef';
 import { entityDbConnectionKey, type EntityDbConnectionInput } from './openBackend';
 import {
   exportEntitiesXml,
@@ -272,14 +277,18 @@ const DECISION_TARGET_BACKFILL_META = 'decision_targets_backfill_v1';
 const repositories = new Map<string, EntitySqliteRepository>();
 
 /**
- * Shared, process-wide open repository per connection. Keyed by a stable
- * string derived from the connection (a bare string — today's local-file
- * `entities.sqlite` path — is shorthand for `{ backend: 'local', path }`;
- * see entityDbConnectionKey).
+ * Shared, process-wide open repository per connection. Accepts either an
+ * already-resolved connection/path, or a renderer-safe `EntityDbConnectionRef`
+ * (a plain local path, or the `grognard-turso:` sentinel) — the latter is
+ * resolved here, filling in the auth token from encrypted storage, so every
+ * one of this file's exported functions can keep passing `request.databasePath`
+ * straight through unchanged. Keyed by a stable string derived from the
+ * resolved connection (see entityDbConnectionKey).
  */
 export const repositoryFor = async (
-  connection: EntityDbConnectionInput,
+  ref: EntityDbConnectionRef | EntityDbConnectionInput,
 ): Promise<EntitySqliteRepository> => {
+  const connection = typeof ref === 'string' ? await resolveConnectionRef(ref) : ref;
   const key = entityDbConnectionKey(connection);
   const existing = repositories.get(key);
   if (existing) return existing;
@@ -288,8 +297,17 @@ export const repositoryFor = async (
   return repository;
 };
 
-const validDatabasePath = (databasePath: string): boolean =>
-  path.basename(databasePath).toLowerCase() === 'entities.sqlite';
+const validDatabasePath = (ref: EntityDbConnectionRef): boolean => {
+  const parsed = parseConnectionRef(ref);
+  return parsed.backend === 'turso' || path.basename(parsed.path).toLowerCase() === 'entities.sqlite';
+};
+
+/** Drop-in for `fs.access`, aware of the Turso sentinel: no local file to check there. */
+const assertConnectionExists = async (ref: EntityDbConnectionRef): Promise<void> => {
+  const parsed = parseConnectionRef(ref);
+  if (parsed.backend === 'turso') return;
+  await fs.access(parsed.path);
+};
 
 export async function searchEntitySqlite(
   request: EntitySqliteReadRequest & { limit?: number },
@@ -297,7 +315,7 @@ export async function searchEntitySqlite(
   if (!validDatabasePath(request.databasePath))
     throw new Error('Invalid entity SQLite database path.');
   try {
-    await fs.access(request.databasePath);
+    await assertConnectionExists(request.databasePath);
   } catch {
     return null;
   }
@@ -314,7 +332,7 @@ export async function getEntitySqlite(
   if (!validDatabasePath(request.databasePath))
     throw new Error('Invalid entity SQLite database path.');
   try {
-    await fs.access(request.databasePath);
+    await assertConnectionExists(request.databasePath);
   } catch {
     return null;
   }
@@ -327,7 +345,7 @@ export async function getEntitySqlitePanelSummary(
   if (!validDatabasePath(request.databasePath))
     throw new Error('Invalid entity SQLite database path.');
   try {
-    await fs.access(request.databasePath);
+    await assertConnectionExists(request.databasePath);
   } catch {
     return null;
   }
@@ -337,7 +355,7 @@ export async function getEntitySqlitePanelSummary(
 export async function getEntitySqliteDatabaseId(databasePath: string): Promise<string | null> {
   if (!validDatabasePath(databasePath)) throw new Error('Invalid entity SQLite database path.');
   try {
-    await fs.access(databasePath);
+    await assertConnectionExists(databasePath);
   } catch {
     return null;
   }
@@ -350,7 +368,7 @@ export async function listEntitySqliteIds(
   if (!validDatabasePath(request.databasePath))
     throw new Error('Invalid entity SQLite database path.');
   try {
-    await fs.access(request.databasePath);
+    await assertConnectionExists(request.databasePath);
   } catch {
     return null;
   }
@@ -363,7 +381,7 @@ export async function listEntitySqlitePanelSummaries(
   if (!validDatabasePath(request.databasePath))
     throw new Error('Invalid entity SQLite database path.');
   try {
-    await fs.access(request.databasePath);
+    await assertConnectionExists(request.databasePath);
   } catch {
     return null;
   }
@@ -377,7 +395,7 @@ export async function listEntitySqliteAuthorityDuplicates(
   if (path.basename(databasePath).toLowerCase() !== 'entities.sqlite')
     throw new Error('Invalid entity SQLite database path.');
   try {
-    await fs.access(databasePath);
+    await assertConnectionExists(databasePath);
   } catch {
     return null;
   }
@@ -423,7 +441,7 @@ export async function backfillEntitySqliteDecisionTargets(
   if (!validDatabasePath(request.databasePath))
     throw new Error('Invalid entity SQLite database path.');
   try {
-    await fs.access(request.databasePath);
+    await assertConnectionExists(request.databasePath);
   } catch {
     return null;
   }
@@ -453,7 +471,7 @@ export async function listEntitySqliteCandidates(
   if (!validDatabasePath(request.databasePath))
     throw new Error('Invalid entity SQLite database path.');
   try {
-    await fs.access(request.databasePath);
+    await assertConnectionExists(request.databasePath);
   } catch {
     return null;
   }
@@ -768,7 +786,7 @@ export async function getEntitySqliteContentHash(request: {
   if (!validDatabasePath(request.databasePath))
     throw new Error('Invalid entity SQLite database path.');
   try {
-    await fs.access(request.databasePath);
+    await assertConnectionExists(request.databasePath);
   } catch {
     return null;
   }
@@ -804,7 +822,7 @@ export async function getEntitySqliteCentralId(
   if (!validDatabasePath(request.databasePath))
     throw new Error('Invalid entity SQLite database path.');
   try {
-    await fs.access(request.databasePath);
+    await assertConnectionExists(request.databasePath);
   } catch {
     return null;
   }
@@ -842,7 +860,7 @@ export async function listEntitySqliteMappingsByCentralIds(request: {
   if (!validDatabasePath(request.databasePath))
     throw new Error('Invalid entity SQLite database path.');
   try {
-    await fs.access(request.databasePath);
+    await assertConnectionExists(request.databasePath);
   } catch {
     return [];
   }
@@ -859,7 +877,7 @@ export async function listEntitySqliteAllCentralMappings(request: {
   if (!validDatabasePath(request.databasePath))
     throw new Error('Invalid entity SQLite database path.');
   try {
-    await fs.access(request.databasePath);
+    await assertConnectionExists(request.databasePath);
   } catch {
     return [];
   }
@@ -873,7 +891,7 @@ export async function listEntitySqliteLinkedCentralIds(request: {
   if (!validDatabasePath(request.databasePath))
     throw new Error('Invalid entity SQLite database path.');
   try {
-    await fs.access(request.databasePath);
+    await assertConnectionExists(request.databasePath);
   } catch {
     return null;
   }
@@ -887,7 +905,7 @@ export async function countEntitySqliteUnlinked(request: {
   if (!validDatabasePath(request.databasePath))
     throw new Error('Invalid entity SQLite database path.');
   try {
-    await fs.access(request.databasePath);
+    await assertConnectionExists(request.databasePath);
   } catch {
     return null;
   }
@@ -900,7 +918,7 @@ export async function countEntitySqliteEntities(request: {
   if (!validDatabasePath(request.databasePath))
     throw new Error('Invalid entity SQLite database path.');
   try {
-    await fs.access(request.databasePath);
+    await assertConnectionExists(request.databasePath);
   } catch {
     return null;
   }
@@ -913,7 +931,7 @@ export async function findEntitySqliteByAuthority(
   if (!validDatabasePath(request.databasePath))
     throw new Error('Invalid entity SQLite database path.');
   try {
-    await fs.access(request.databasePath);
+    await assertConnectionExists(request.databasePath);
   } catch {
     return [];
   }
@@ -930,7 +948,7 @@ export async function findEntitySqliteByNameDates(
   if (!validDatabasePath(request.databasePath))
     throw new Error('Invalid entity SQLite database path.');
   try {
-    await fs.access(request.databasePath);
+    await assertConnectionExists(request.databasePath);
   } catch {
     return null;
   }
@@ -956,7 +974,7 @@ export async function exportEntitySqliteXml(
   if (!validDatabasePath(request.databasePath))
     throw new Error('Invalid entity SQLite database path.');
   try {
-    await fs.access(request.databasePath);
+    await assertConnectionExists(request.databasePath);
   } catch {
     return null;
   }
