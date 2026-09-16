@@ -378,7 +378,29 @@ calls, plus restore and troubleshooting:
   clear message when neither is available (a Turso logical export still needs
   the manual replay flow).
 
+### Done (continued)
+
+- **Packaged-build `safeStorage` check** — the `.deb` already declared
+  `libsecret-1-0` as a runtime dependency, but the Flatpak build had no
+  `finishArgs` override, so electron-builder's `FlatpakTarget` fell back to its
+  stock sandbox permissions — which don't include D-Bus access to the Secret
+  Service. `safeStorage.isEncryptionAvailable()` would have read `false` inside
+  the Flatpak build even with a healthy desktop keyring, since libsecret
+  couldn't reach it through the sandbox. Added `--talk-name=org.freedesktop.secrets`
+  (alongside the rest of the target's own defaults, since setting `finishArgs`
+  at all replaces them rather than extending them) in
+  `electron-builder.flatpak.json`.
+
 ### Still open for Phase 0
 
-- **Packaged-build check** that `safeStorage` encryption is available on the
-  target OSes (Linux needs an unlocked keyring).
+- **KWallet inside the Flatpak sandbox** — the fix above covers the
+  freedesktop Secret Service (GNOME/libsecret) path; a KDE session whose
+  libsecret backend talks to kwalletd directly rather than through that alias
+  may still need `--talk-name=org.kde.kwalletd5` / `org.kde.kwalletd6`. Needs
+  a real KDE Flatpak install to confirm either way.
+- Confirming an unlocked keyring is actually present at first run on target
+  Linux distros (login keyring auto-unlock is desktop-environment-dependent),
+  vs. only handling the "no keyring" case gracefully once hit (already done —
+  `writeBackupConfig`/`entitySyncAuthSecret`/`entityDbTursoTokenStore` all
+  check `isEncryptionAvailable()` and fail with a clear message, and Settings
+  surfaces `encryptionAvailable`/`credentialsLocked`).

@@ -613,7 +613,8 @@ Continued hardening of the Cloudflare D1 entity-sync Worker/client (Phase 5 of [
 
 ### Cloud backup hardening
 
-Closes the last open item under Phase 0 of the same plan:
+Phase 0 of the same plan:
 
 - Added an on-launch prompt for a corrupted entity database: if `checkEntityDbIntegrity` fails at startup, a dialog now offers to restore on the spot (closing cached handles, restoring, and relaunching) instead of only showing a red alert if the user happens to open Settings first.
 - That prompt offers whichever backup this device actually has, not just R2: a local Time Machine snapshot of the central database now works too — most users never configure cloud backup and rely on Time Machine instead. Restoring from it preserves merge/delete orders recorded since the snapshot, same as the interactive Time Machine dialog's central tab.
+- Fixed the Flatpak build's sandbox permissions silently blocking `safeStorage` (the encryption backing cloud-backup credentials, sync bearer tokens, and Turso auth tokens): electron-builder's own default Flatpak sandbox permissions never include Secret Service (D-Bus keyring) access, so a Flatpak install of Grognard could report no keychain available even with a perfectly good one on the desktop. Added `--talk-name=org.freedesktop.secrets` (alongside the rest of those defaults, explicitly, since setting `finishArgs` at all replaces the defaults rather than extending them).
