@@ -808,6 +808,58 @@ describe('disambiguationCandidates', () => {
     }
   });
 
+  it('skips VIAF for Tibetan-script surface text — VIAF has no Tibetan coverage and fails open with unrelated catalog rows instead of no results', async () => {
+    mockReconcile.mockImplementation(async ({ options }) => {
+      const authorityId = (options as { authorityId?: string })?.authorityId;
+      if (authorityId === 'wikidata') {
+        return [
+          {
+            // filterReconcileByExactSurface (applied to Wikidata only) keeps a row
+            // only when its label/aliases exactly match the surface, so the label
+            // here must be the Tibetan-script form, not the English exonym.
+            uri: 'https://www.wikidata.org/wiki/Q5869',
+            label: 'ལྷ་ས',
+            description: 'prefecture-level city and capital of Tibet',
+          },
+        ];
+      }
+      // A VIAF-Geographic query for Tibetan script does not fail closed — it
+      // returns an arbitrary slice of unrelated geographic headings (observed
+      // live: Australia, Slovenia, Belarus, Lisbon… for "ལྷ་ས"). If the gate in
+      // fetchLiveCandidates ever regresses, this mock reproduces that shape so
+      // the test fails loudly instead of the bug only showing up live.
+      return [
+        { uri: 'http://viaf.org/viaf/128919823', label: 'Austrália.', description: 'Australien' },
+        { uri: 'http://viaf.org/viaf/141826349', label: 'Slóvenía', description: 'Slovenija' },
+      ];
+    });
+    const cache = new AuthorityCache(null, null);
+    const originalFetch = global.fetch;
+    global.fetch = jest.fn().mockImplementation(async (url: string) => {
+      // filterWikidataByKind's SPARQL "is this QID a place" check — say yes,
+      // it's beside the point of this test (VIAF gating).
+      if (typeof url === 'string' && url.includes('query.wikidata.org/sparql')) {
+        return {
+          ok: true,
+          json: async () => ({
+            results: { bindings: [{ item: { value: 'http://www.wikidata.org/entity/Q5869' } }] },
+          }),
+        } as Response;
+      }
+      return { ok: false, json: async () => ({}) } as Response;
+    });
+
+    try {
+      const rows = await fetchLiveCandidates('placeName', 'ལྷ་ས', cache, ['Wikidata', 'VIAF']);
+      expect(rows.every((row) => !row.sources.includes('VIAF'))).toBe(true);
+      expect(
+        rows.some((row) => row.sources.includes('Wikidata') && row.label === 'ལྷ་ས'),
+      ).toBe(true);
+    } finally {
+      global.fetch = originalFetch;
+    }
+  });
+
   it('surfaces CBDB/DILA candidates from installed packs without hitting the network', async () => {
     mockReconcile.mockResolvedValue([]);
     const cbdbPack = [

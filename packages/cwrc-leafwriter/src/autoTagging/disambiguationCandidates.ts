@@ -63,6 +63,7 @@ import { fetchDilaPlaceDetail, type DilaFetchFn } from './dilaPlaceDetail';
 import { DilaPlaceDetailCache } from './dilaPlaceDetailCache';
 import { wikidataQidsExcludingKnownKinds, wikidataQidsMatchingKind } from './wikidataKindFilter';
 import { packIdsForEntityType, searchPackRows } from '../services/authority-pack-lookup';
+import { hasTibetan } from './normalize';
 import { viafIdsOnCandidate, viafNativeHeadingForId, type ViafFetchFn } from './viafNativeHeadings';
 import { BDRC_SHOW_URL, extractBdrcId, normalizeBdrcId } from './bdrcIds';
 
@@ -1192,9 +1193,20 @@ export async function fetchLiveCandidates(
   const chgisYears =
     tag === 'placeName' && readPackFile ? await chgisYearsForSurface(surface, readPackFile) : null;
 
+  // VIAF/Getty/GND/DBpedia are Latin-heading library catalogs with no real
+  // Tibetan coverage; their search fails open on a Tibetan-script query
+  // (returns an arbitrary slice of the catalog — e.g. Prague and Belarus for
+  // "Lhasa" — rather than no results), and those rows carry no exact-surface
+  // filter the way Wikidata's do (see filterReconcileByExactSurface below).
+  // Only Wikidata's reconcile results reliably echo back the queried script,
+  // so it's the only authority worth querying for Tibetan-script surface text.
+  const authoritiesForSurface = hasTibetan(surface)
+    ? enabledAuthorities.filter((name) => name === 'Wikidata')
+    : enabledAuthorities;
+
   // Fire Wikidata + VIAF (etc.) together, like the legacy lookup popup.
   const perAuthority = await Promise.all(
-    enabledAuthorities.map(async (name): Promise<DisambiguationCandidate[]> => {
+    authoritiesForSurface.map(async (name): Promise<DisambiguationCandidate[]> => {
       const authorityId = AUTHORITY_MAP[name];
       if (!authorityId) return [];
 
