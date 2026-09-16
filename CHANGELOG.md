@@ -603,3 +603,10 @@ CBETA and similar texts often split a running string across milestones, e.g. `�
 ## Upstream
 
 Grognard is a desktop fork of [LEAF-Writer](https://leaf-writer.leaf-vre.org/), part of [The Linked Editing Academic Framework](https://www.leaf-vre.org/) (LEAF) tool suite; LEAF-Writer is itself an enhancement of CWRC-Writer, developed by the [Canadian Writing Research Collaboratory (CWRC)](https://cwrc.ca). Grognard wraps that web app in Electron for offline, single-user desktop use and adds workflow changes aimed at local editing and East Asian documents — the entity-sync/backup, authority-pack, translation-pane, rewards, and import (Kanripo/Daozang/CBETA/BDRC/Wikisource) work logged above is all downstream of that shared core. Upstream-inherited functionality (tag editing, schema validation, XML tree navigation, table of contents, entity tools, and the VIAF/Wikidata/Getty/DBpedia/GeoNames authority connections) is not re-logged here except where Grognard changes it. See [readme.md](readme.md) for the full upstream lineage and licensing (`AGPL-3.0-only`, inherited from LEAF-Writer).
+
+### Cross-device sync hardening
+
+Continued hardening of the Cloudflare D1 entity-sync Worker/client (Phase 5 of [entity-sync-planning.md](docs/entity-sync-planning.md), [issue #29](https://github.com/grognard-xml/grognard/issues/29)):
+
+- Fixed an entity edited again while its previous version was still mid-push getting silently marked "synced" without the interim edit ever having been sent — the sync engine recorded the entity's live revision instead of the one it actually pushed, so the newer content was lost from sync until the entity happened to be edited again. Now the pushed revision is recorded, keeping the entity dirty for the next run when this happens.
+- Added a version tag to the entity content hash (`CONTENT_HASH_VERSION`) with automatic re-baselining: a future change to the hashing/normalization algorithm no longer risks spurious conflicts or false "nothing changed" reads against hashes cached before the change — cached hashes are cleared (not the underlying revisions) and recomputed cleanly on the next sync.
