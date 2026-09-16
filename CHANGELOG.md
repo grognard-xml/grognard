@@ -1,24 +1,5 @@
 # Grognard changelog
 
-## Upstream
-
-### Data
-
-- Added a Turso (libSQL) network backend as an alternative to the local `entities.sqlite` file, so a project's entity database can be shared with genuine, simultaneous concurrent edits from multiple collaborators instead of one file everyone takes turns editing. Opt-in per project; local single-user projects are unaffected.
-- Added a one-time migration to copy an existing local project's entities into a fresh Turso database, so switching an in-progress project over doesn't lose what's already tagged.
-- Renamed the project file from `jean-baptiste.project.json` to `grognard.project.json` (a rebrand leftover — the app was called "Le Jean-Baptiste" before Grognard). Existing projects keep working under their old filename indefinitely; only newly created projects get the new name.
-
-### UI
-
-- Settings → Project now has a "Shared project database" section: switch a project between local and Turso, paste a database URL and your own scoped auth token, test the connection, and migrate existing local data over.
-
-### Bug fixes
-
-- Fixed the database viewer's authority-duplicates panel throwing "Invalid entity SQLite database path" for Turso-backed projects (found via live two-machine testing).
-- Fixed the Turso settings section silently not appearing at all when creating a brand-new project — that dialog runs in a separate window with no access to the bridge the section was reading from.
-- Fixed a few raw, untranslated i18n keys showing in that same new-project dialog's authority-matching section.
-- Fixed the R2 entity-database cloud backup silently redirecting to whichever project's Turso PEDB happened to be open, instead of always backing up the central entity database (CEDB). It could overwrite the CEDB's backup history with a near-empty per-project logical export the moment a Turso-backed project was opened, and separately suppressed the CEDB's own startup integrity check while such a project was active.
-
 ## 0.0.1–0.0.4-rc.7
 
 - Production and testing of alpha version, distribution chanels, automatic updates, and sibling repos until infrastructure stabilised.
@@ -599,3 +580,22 @@ CBETA and similar texts often split a running string across milestones, e.g. `�
   the same work shares the same work and author entities. It now collects
   the entities linked across all files and makes one batched sync call after
   the loop instead.
+
+## v0.1.1-beta.2
+
+### Data
+
+- Added a Turso (libSQL) network backend as an alternative to the local `entities.sqlite` file, so a project's entity database can be shared with genuine, simultaneous concurrent edits from multiple collaborators instead of one file everyone takes turns editing. Opt-in per project; local single-user projects are unaffected.
+- Added a one-time migration to copy an existing local project's entities into a fresh Turso database, so switching an in-progress project over doesn't lose what's already tagged.
+- Renamed the project file from `jean-baptiste.project.json` to `grognard.project.json` (a rebrand leftover — the app was called "Le Jean-Baptiste" before Grognard). Existing projects keep working under their old filename indefinitely; only newly created projects get the new name.
+
+### UI
+
+- Settings → Project now has a "Shared project database" section: switch a project between local and Turso, paste a database URL and your own scoped auth token, test the connection, and migrate existing local data over.
+
+### Bug fixes
+
+- Fixed the database viewer's authority-duplicates panel throwing "Invalid entity SQLite database path" for Turso-backed projects (found via live two-machine testing).
+- Fixed the Turso settings section silently not appearing at all when creating a brand-new project — that dialog runs in a separate window with no access to the bridge the section was reading from.
+- Fixed a few raw, untranslated i18n keys showing in that same new-project dialog's authority-matching section.
+- Fixed the R2 entity-database cloud backup silently redirecting to whichever project's Turso PEDB happened to be open, instead of always backing up the central entity database (CEDB). It could overwrite the CEDB's backup history with a near-empty per-project logical export the moment a Turso-backed project was opened, and separately suppressed the CEDB's own startup integrity check while such a project was active.
