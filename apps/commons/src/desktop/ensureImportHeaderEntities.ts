@@ -1,5 +1,5 @@
 import type { AuthorityId } from '../../../../packages/cwrc-leafwriter/src/autoTagging/entities';
-import { autoSyncEntityToCentral } from '../../../../packages/cwrc-leafwriter/src/autoTagging/autoSync';
+import { autoSyncEntitiesToCentral } from '../../../../packages/cwrc-leafwriter/src/autoTagging/autoSync';
 import { entityStoreFromDesktop } from '../../../../packages/cwrc-leafwriter/src/autoTagging/entityStore';
 import { parseAuthorityUri } from '../../../../packages/cwrc-leafwriter/src/autoTagging/lookupResolve';
 import { mintOrLinkEntitySqlite } from '../../../../packages/cwrc-leafwriter/src/autoTagging/sqliteLookupMint';
@@ -106,6 +106,7 @@ const linkAuthor = async (
   store: NonNullable<ReturnType<typeof entityStoreFromDesktop>>,
   author: SourceAuthor,
   projectLang: string | null,
+  syncIds: string[],
 ): Promise<SourceAuthor> => {
   const name = author.name.trim();
   if (!name) return author;
@@ -123,7 +124,7 @@ const linkAuthor = async (
     authorityIds,
     localEntityId: existingByName,
   });
-  await autoSyncEntityToCentral(null, id);
+  syncIds.push(id);
   return { ...author, key: id };
 };
 
@@ -137,9 +138,15 @@ const headerAlreadyLinked = (source: SourceDescription): boolean => {
 /**
  * Ensure the imported file's TEI header work + authors exist in the project
  * entity database, then write ``@key`` attributes back into the XML string.
+ *
+ * Does not sync to the central store itself -- appends any minted/linked
+ * entity id to ``syncIds`` instead, so a caller processing many files (e.g.
+ * ``ensureImportHeaderEntitiesForPaths``) can batch them into one central
+ * round trip via ``autoSyncEntitiesToCentral`` rather than one per file.
  */
 export const linkImportedWorkHeaderToPedb = async (
   xml: string,
+  syncIds: string[],
 ): Promise<{ xml: string; updated: boolean }> => {
   const store = entityStoreFromDesktop();
   if (!store || !(await store.hasSqliteDatabase())) {
@@ -158,7 +165,7 @@ export const linkImportedWorkHeaderToPedb = async (
 
   const linkedAuthors: SourceAuthor[] = [];
   for (const author of source.authors) {
-    linkedAuthors.push(await linkAuthor(store, author, projectLang));
+    linkedAuthors.push(await linkAuthor(store, author, projectLang, syncIds));
   }
 
   const workName = normalizeImportedWorkTitle(source.title);
@@ -192,7 +199,7 @@ export const linkImportedWorkHeaderToPedb = async (
       localEntityId: existingByName,
     });
     workKey = id;
-    await autoSyncEntityToCentral(null, id);
+    syncIds.push(id);
   }
 
   if (workKey && linkedAuthors.some((author) => author.name.trim())) {
@@ -228,16 +235,25 @@ export const ensureImportHeaderEntitiesForPaths = async (
   }
 
   const updatedPaths: string[] = [];
+  const syncIds: string[] = [];
   for (const filePath of filePaths) {
     try {
       const xml = await api.readFile(filePath);
-      const { xml: nextXml, updated } = await linkImportedWorkHeaderToPedb(xml);
+      const { xml: nextXml, updated } = await linkImportedWorkHeaderToPedb(xml, syncIds);
       if (!updated) continue;
       await api.writeFile(filePath, nextXml);
       updatedPaths.push(filePath);
     } catch (error) {
       console.warn('[ensureImportHeaderEntities] skipped file:', filePath, error);
     }
+  }
+  // One central-store round trip for every file's minted/linked entities,
+  // instead of one round trip per file (which is what calling the
+  // single-entity sync form inside this loop would do -- a real bottleneck
+  // for a whole-work import of 100+ files sharing the same work/author).
+  const uniqueSyncIds = [...new Set(syncIds)];
+  if (uniqueSyncIds.length > 0) {
+    await autoSyncEntitiesToCentral(null, uniqueSyncIds);
   }
   return { updatedPaths };
 };

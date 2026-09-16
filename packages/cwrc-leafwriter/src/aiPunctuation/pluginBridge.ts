@@ -4,6 +4,7 @@ export interface AiPunctSegment {
   id: number;
   kind: 'text' | 'comm';
   han: string;
+  text: string;
   han_start: number;
   han_end: number;
   has_punct: boolean;

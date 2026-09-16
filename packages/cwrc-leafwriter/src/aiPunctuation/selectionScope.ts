@@ -19,18 +19,28 @@ export function hanTextHasPunct(han: string): boolean {
   return [...han].some((ch) => PUNCT_SET.has(ch as AiPunctMark));
 }
 
-export function punctPer100Han(han: string): number {
+/**
+ * `han` is Han-only (used as the density denominator); `text` is the same
+ * span with punctuation kept, and is what the numerator must be counted
+ * from -- `han` can never contain a punctuation mark by construction (see
+ * Python's `_atoms_han`), so counting from it always yields zero density
+ * regardless of how well the segment is actually punctuated. Defaults to
+ * `han` for callers that don't have the punctuated text, which reproduces
+ * the previous (broken) behavior rather than throwing.
+ */
+export function punctPer100Han(han: string, text?: string): number {
   const hanChars = selectionHanOnly(han).length;
   if (hanChars === 0) return 0;
-  const punctCount = [...han].filter((ch) => PUNCT_SET.has(ch as AiPunctMark)).length;
+  const punctSource = text ?? han;
+  const punctCount = [...punctSource].filter((ch) => PUNCT_SET.has(ch as AiPunctMark)).length;
   return (punctCount / hanChars) * 100;
 }
 
 /** True when a segment still needs AI after parallel transfer (unpunctuated or sparse marks). */
-export function segmentNeedsAiGap(seg: { han: string; has_punct: boolean }): boolean {
+export function segmentNeedsAiGap(seg: { han: string; has_punct: boolean; text?: string }): boolean {
   if (seg.han.length < MIN_SEGMENT_HAN) return false;
   if (!seg.has_punct) return true;
-  return punctPer100Han(seg.han) < MIN_PUNCT_PER_100_HAN;
+  return punctPer100Han(seg.han, seg.text) < MIN_PUNCT_PER_100_HAN;
 }
 
 export interface HanChunk {

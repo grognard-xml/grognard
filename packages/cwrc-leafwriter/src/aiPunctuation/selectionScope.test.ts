@@ -58,6 +58,19 @@ describe('filterSegmentsForAiGaps', () => {
     expect(punctPer100Han(segments[2].han)).toBeGreaterThan(0.75);
     expect(segmentNeedsAiGap(segments[2])).toBe(false);
   });
+
+  it('counts density from `text`, not just `han` (han never carries punctuation for real segments)', () => {
+    // Regression test: in production, `han` is Han-only by construction
+    // (Python's _atoms_han strips everything else), so a real segment's
+    // `han` alone can never show density -- the punctuated `text` field
+    // must be what's counted, or every long segment always reads as
+    // needing more punctuation regardless of how well it's actually done.
+    const han = '丙'.repeat(200);
+    const text = `${'丙、'.repeat(200)}。`;
+    expect(punctPer100Han(han)).toBe(0);
+    expect(punctPer100Han(han, text)).toBeGreaterThan(0.75);
+    expect(segmentNeedsAiGap({ han, has_punct: true, text })).toBe(false);
+  });
 });
 
 describe('findSelectionHanRange', () => {

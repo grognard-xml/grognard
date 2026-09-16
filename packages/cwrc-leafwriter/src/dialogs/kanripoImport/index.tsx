@@ -122,9 +122,19 @@ interface ParallelSource {
   id: string;
   label: string;
   text: string;
-  kind?: 'file' | 'paste' | 'ctext' | 'wikisource' | 'url' | 'daozang';
+  kind?: 'file' | 'paste' | 'ctext' | 'wikisource' | 'url' | 'daozang' | 'folder-reference';
   url?: string;
   chapters?: { id: string; title: string; text: string }[];
+}
+
+interface AlignedParagraphMatch {
+  ref_juan_id: string;
+  ref_para_idx: number;
+  source_file: string | null;
+  source_para_idx: number | null;
+  source_para_end_idx: number | null;
+  score: number;
+  match_type: string;
 }
 
 interface ParallelPunctPayload {
@@ -493,21 +503,48 @@ export const KanripoImportDialog = ({
   const invokeParallel = async (
     bodyXml: string,
     chapterIdsUsed?: string[],
+    overrideSources?: ParallelSource[],
   ): Promise<ParallelPunctPayload> => {
     const api = window.electronAPI;
     if (!api?.pluginsInvokePython) throw new Error('Python bridge unavailable.');
+    const sourceList = overrideSources ?? sources;
     return (await api.pluginsInvokePython(PLUGIN_ID, {
       op: 'parallel_punct',
       mode: alignMode,
       body_xml: bodyXml,
       used_chapter_ids: chapterIdsUsed ?? usedChapterIds,
-      sources: sources.map((source) => ({
+      sources: sourceList.map((source) => ({
         id: source.id,
         label: source.label,
         text: source.text,
         kind: source.kind ?? '',
         chapters: source.chapters,
       })),
+    })) as ParallelPunctPayload;
+  };
+
+  /**
+   * Applies punctuation match-by-match, each scoped to its own paragraph's
+   * known Han position -- used instead of `invokeParallel` for folder-reference
+   * aligned sources. `invokeParallel`'s `parallel_punct` op reassembles matches
+   * into per-file excerpts and searches for them globally (`apply_parallel_sources`),
+   * which is both slow and prone to silently under-punctuating large excerpts
+   * with internal gaps (see `apply_paragraph_scoped_sources`'s docstring).
+   */
+  const invokeParagraphScoped = async (
+    bodyXml: string,
+    juanId: string,
+    matches: AlignedParagraphMatch[],
+    sourcesPayload: { id: string; label: string; text: string }[],
+  ): Promise<ParallelPunctPayload> => {
+    const api = window.electronAPI;
+    if (!api?.pluginsInvokePython) throw new Error('Python bridge unavailable.');
+    return (await api.pluginsInvokePython(PLUGIN_ID, {
+      op: 'apply_paragraph_scoped',
+      body_xml: bodyXml,
+      juan_id: juanId,
+      matches,
+      sources: sourcesPayload,
     })) as ParallelPunctPayload;
   };
 
@@ -696,6 +733,46 @@ export const KanripoImportDialog = ({
     }
   };
 
+  const addReferenceFolder = async () => {
+    const api = window.electronAPI;
+    if (!api?.pickDocumentImportSources) {
+      setError('File picking is only available in the desktop app.');
+      return;
+    }
+    setError(null);
+    const picked = await api.pickDocumentImportSources();
+    if (!picked?.length) return;
+    setBusy(true);
+    try {
+      const added: ParallelSource[] = [];
+      for (const item of picked) {
+        const loaded = await loadParallelPlainText({
+          format: item.format,
+          sourcePath: item.sourcePath,
+        });
+        if (!loaded.text.trim()) continue;
+        added.push({
+          id: `folder-ref-${item.sourcePath}`,
+          label: loaded.label,
+          text: loaded.text,
+          kind: 'folder-reference',
+        });
+      }
+      if (added.length === 0) {
+        setError('Those files had no usable text.');
+        return;
+      }
+      setSources((current) => [...current, ...added]);
+      setStatus(
+        `Added ${added.length} reference file(s). They will be aligned to juan by content, not by filename, before import.`,
+      );
+    } catch (pickError) {
+      setError(pickError instanceof Error ? pickError.message : String(pickError));
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const canRunImport = Boolean(
     selected &&
     projectReady &&
@@ -795,6 +872,74 @@ export const KanripoImportDialog = ({
       const aiClient =
         punctMode === 'ai' && aiSettings ? createLlmClientFromSettings(aiSettings) : null;
 
+      const convertedByFile = new Map<string, ConvertPayload>();
+      let alignedJuanSources: Record<string, ParallelSource[]> | null = null;
+      let alignedMatches: AlignedParagraphMatch[] | null = null;
+      let alignedSourcesPayload: { id: string; label: string; text: string }[] | null = null;
+      const folderReferenceSources = sources.filter((source) => source.kind === 'folder-reference');
+
+      if (punctMode === 'parallel' && folderReferenceSources.length > 0) {
+        const juanPayload: { juan_id: string; body_xml: string }[] = [];
+        for (let i = 0; i < files.length; i += 1) {
+          signal.throwIfAborted();
+          const filePath = files[i];
+          setStatus(`Converting for alignment (${i + 1} of ${files.length})…`);
+          const converted = (await api.pluginsInvokePython(PLUGIN_ID, {
+            path: filePath,
+            normalize,
+            gaiji_dest_dir: joinPath(destDir, '_gaiji'),
+          })) as ConvertPayload;
+          if (!converted?.body_xml || !converted.meta) continue;
+          convertedByFile.set(filePath, converted);
+          juanPayload.push({
+            juan_id: converted.meta.juan || converted.meta.stem || filePath,
+            body_xml: converted.body_xml,
+          });
+        }
+
+        setStatus(`Aligning ${folderReferenceSources.length} reference file(s) against ${juanPayload.length} juan…`);
+        const alignedSourcesPayloadCandidate = folderReferenceSources.map((source) => ({
+          id: source.id,
+          label: source.label,
+          text: source.text,
+        }));
+        const alignResult = (await api.pluginsInvokePython(PLUGIN_ID, {
+          op: 'align_folder_sources',
+          juan: juanPayload,
+          sources: alignedSourcesPayloadCandidate,
+        })) as {
+          matches: AlignedParagraphMatch[];
+          juan_sources: Record<string, { id: string; label: string; text: string }[]>;
+          missing_juan_ids: string[];
+        };
+
+        const totalParas = alignResult.matches.length;
+        const unmatchedParas = alignResult.matches.filter(
+          (match) => match.match_type === 'unmatched',
+        ).length;
+        const summaryLines = [
+          `Aligned reference folder against ${juanPayload.length} juan.`,
+          `${totalParas - unmatchedParas}/${totalParas} paragraphs matched.`,
+          alignResult.missing_juan_ids.length > 0
+            ? `${alignResult.missing_juan_ids.length} juan have no matching source content: ${alignResult.missing_juan_ids.join(', ')}. They will be imported unpunctuated.`
+            : 'No juan are entirely missing source content.',
+          'Continue with this alignment?',
+        ];
+        if (!window.confirm(summaryLines.join('\n'))) {
+          setStatus('Import cancelled: alignment not confirmed.');
+          return;
+        }
+
+        alignedJuanSources = Object.fromEntries(
+          Object.entries(alignResult.juan_sources).map(([juanId, list]) => [
+            juanId,
+            list.map((item) => ({ id: item.id, label: item.label, text: item.text }) as ParallelSource),
+          ]),
+        );
+        alignedMatches = alignResult.matches;
+        alignedSourcesPayload = alignedSourcesPayloadCandidate;
+      }
+
       for (let i = 0; i < files.length; i += 1) {
         signal.throwIfAborted();
         const filePath = files[i];
@@ -806,11 +951,13 @@ export const KanripoImportDialog = ({
             ?.replace(/\.txt$/i, '') ?? 'juan';
         setStatus(`Converting ${stem} (${i + 1} of ${files.length})…`);
         try {
-          const converted = (await api.pluginsInvokePython(PLUGIN_ID, {
-            path: filePath,
-            normalize,
-            gaiji_dest_dir: joinPath(destDir, '_gaiji'),
-          })) as ConvertPayload;
+          const converted =
+            convertedByFile.get(filePath) ??
+            ((await api.pluginsInvokePython(PLUGIN_ID, {
+              path: filePath,
+              normalize,
+              gaiji_dest_dir: joinPath(destDir, '_gaiji'),
+            })) as ConvertPayload);
           if (!converted?.body_xml || !converted.meta) {
             throw new Error('Python conversion returned no TEI body.');
           }
@@ -819,7 +966,12 @@ export const KanripoImportDialog = ({
           let barCoverage: Coverage | undefined;
           if (punctMode === 'parallel') {
             setStatus(`Punctuating ${stem} (${i + 1} of ${files.length})…`);
-            const punct = await invokeParallel(bodyXml, usedDuringImport);
+            const juanId = converted.meta.juan || converted.meta.stem || stem;
+            const overrideSources = alignedJuanSources ? (alignedJuanSources[juanId] ?? []) : undefined;
+            const punct =
+              alignedMatches && alignedSourcesPayload
+                ? await invokeParagraphScoped(bodyXml, juanId, alignedMatches, alignedSourcesPayload)
+                : await invokeParallel(bodyXml, usedDuringImport, overrideSources);
             if (punct.matched_chapter_ids?.length) {
               for (const chapterId of punct.matched_chapter_ids) {
                 if (!usedDuringImport.includes(chapterId)) {
@@ -832,7 +984,7 @@ export const KanripoImportDialog = ({
             }
             if (punct.applied) {
               bodyXml = punct.body_xml;
-              punctNote = formatParallelProvenance(sources, alignMode);
+              punctNote = formatParallelProvenance(overrideSources ?? sources, alignMode);
             }
             barCoverage = await fetchPunctCoverage(bodyXml);
           } else if (punctMode === 'ai' && aiClient) {
@@ -898,10 +1050,13 @@ export const KanripoImportDialog = ({
       }
       setUsedChapterIds(usedDuringImport);
 
+      setStatus(`Finalising ${written.length} juan…`);
       await ensureImportHeaderEntitiesForPaths(written);
       await project.refreshExplorer?.();
-      for (const outputPath of written) {
-        await project.reloadFileFromDisk?.(outputPath);
+      for (let i = 0; i < written.length; i += 1) {
+        signal.throwIfAborted();
+        setStatus(`Reloading juan (${i + 1} of ${written.length})…`);
+        await project.reloadFileFromDisk?.(written[i]);
       }
       setReport({ written, failed, bars, warnings });
       const warningCount = warnings.reduce((sum, row) => sum + row.items.length, 0);
@@ -1175,6 +1330,52 @@ export const KanripoImportDialog = ({
           {daozangIssueDetail ? ` ${daozangIssueDetail}` : ''}
         </Alert>
       )}
+      <Box sx={{ mt: 2 }}>
+        <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+          Or add your own reference text(s) — a single file per juan, or a whole folder of
+          reference files (any provider, e.g. ctext) whose boundaries don't match juan
+          boundaries; those are aligned to juan by content automatically.
+        </Typography>
+        <Button size="small" variant="outlined" disabled={busy} sx={{ mr: 1 }} onClick={() => void addFiles()}>
+          Add file…
+        </Button>
+        <Tooltip title="For a folder of reference files whose boundaries don't match juan boundaries (e.g. ctext) -- content is aligned to juan automatically, not by filename.">
+          <Button
+            size="small"
+            variant="outlined"
+            disabled={busy}
+            onClick={() => void addReferenceFolder()}
+          >
+            Add reference folder (auto-align)…
+          </Button>
+        </Tooltip>
+        {sources.length > 0 && (
+          <List dense sx={{ mt: 1, border: 1, borderColor: 'divider', borderRadius: 1 }}>
+            {sources.map((source) => (
+              <ListItem
+                key={source.id}
+                disablePadding
+                secondaryAction={
+                  <Button
+                    size="small"
+                    onClick={() =>
+                      setSources((current) => current.filter((item) => item.id !== source.id))
+                    }
+                  >
+                    Remove
+                  </Button>
+                }
+              >
+                <ListItemText
+                  sx={{ pl: 1 }}
+                  primary={source.label}
+                  secondary={source.kind === 'folder-reference' ? 'reference folder file' : source.kind}
+                />
+              </ListItem>
+            ))}
+          </List>
+        )}
+      </Box>
     </Box>
   );
 
@@ -1464,10 +1665,13 @@ export const KanripoImportDialog = ({
         )}
         {!punctuateOnly && (
           <>
+            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5 }}>
+              Search Kanripo — title, KR id, section, dynasty, or author
+            </Typography>
             <TextField
               autoFocus
               fullWidth
-              label="Search by title, KR id, section, dynasty or author"
+              hiddenLabel
               placeholder="KR1a0145 or 周易"
               value={query}
               onChange={(event) => setQuery(event.target.value)}

@@ -522,6 +522,20 @@ CBETA and similar texts often split a running string across milestones, e.g. `�
   plugin's JavaScript entry module picks up the new code on the next app
   start. Auto-update never _adds_ a plugin the user has not chosen to install.
   The manual "Look for Updates" path still works as a fallback.
+- **Kanripo import: punctuate from a whole folder of reference-source files,
+  not just one hand-picked file per juan.** Parallel punctuation previously
+  required either a preset crosswalk source or manually adding one file/paste
+  per juan; a folder of reference files (e.g. a ctext.org download) whose
+  file boundaries don't line up with juan boundaries had no way in. A new
+  "Add reference folder (auto-align)" option splits both sides into
+  paragraphs, matches them by content (bigram-indexed containment scoring,
+  not filename), and shows a summary — paragraphs matched, juan with no
+  matching source content at all — before you confirm and import. Punctuation
+  is then inserted per matched paragraph at its own known position rather
+  than via a single reassembled excerpt per juan, which also required
+  splitting Kanripo `<p>` paragraphs at internal citation boundaries (an
+  ideographic space separating several citations glued into one page-line
+  paragraph) so each citation gets matched and punctuated independently.
 
 ### Packaging
 
@@ -549,3 +563,20 @@ CBETA and similar texts often split a running string across milestones, e.g. `�
   now stays untouched until a backup config file actually exists on disk —
   cross-device sync and the Turso PEDB token store were already gated this
   way, only the backup status read was not.
+- **Punctuation coverage bars were silently under-reporting almost
+  everywhere.** `segment_is_adequately_punctuated` (Python) and
+  `punctPer100Han` (TS) computed punctuation density from a segment's
+  Han-only text, which by construction never contains a punctuation mark —
+  so the density check could never pass for any run of 20+ characters,
+  regardless of how well it was actually punctuated. This affected every
+  coverage bar in the Kanripo import/punctuate dialogs and the AI gap-fill
+  feature's "needs more punctuation" detection, not just the new
+  folder-alignment path. Both now count density from the segment's
+  punctuated text instead.
+- **A whole-work Kanripo import (100+ juan) could sit at "Finalising" for a
+  very long time.** `ensureImportHeaderEntitiesForPaths` synced each file's
+  linked work/author entities to the central store individually, inside the
+  per-file loop — up to one round trip per file, even though every juan of
+  the same work shares the same work and author entities. It now collects
+  the entities linked across all files and makes one batched sync call after
+  the loop instead.

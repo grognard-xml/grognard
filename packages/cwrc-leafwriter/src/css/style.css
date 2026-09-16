@@ -27,7 +27,7 @@ h3 {
   resize: none;
 }
 
-.cwrc .ui-dialog label {
+.cwrc .ui-dialog label:not(.MuiFormLabel-root) {
   margin-right: 2px;
   display: inline;
 }
