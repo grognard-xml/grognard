@@ -5,7 +5,12 @@
  *
  * Walks a local entities.sqlite, exports every non-deleted entity exactly as
  * the client would (`exportEntityElementXml` + `computeEntityContentHash`),
- * and writes numbered `.sql` files of `INSERT`s plus the `sync_counter` row.
+ * and writes numbered `.sql` files of `INSERT`s. The first file also reserves
+ * the whole seq range in `sync_counter` up front (not the last file, as it
+ * used to) — see the comment at that write for why: seeding is meant to be
+ * spread across days against the write cap, and a real device's own push
+ * during that window must not collide with a seq value this script has
+ * already committed to a not-yet-imported file.
  *
  * Usage:
  *   node -r apps/desktop/scripts/node-dom-stub.cjs \
@@ -94,6 +99,25 @@ const main = async (): Promise<void> => {
         handle,
         `DELETE FROM central_entities WHERE owner_id = ${sqlStr(args.owner)};\n`,
       );
+      // Reserve the whole seq range up front, in file 1, rather than after the
+      // last file: seeding is explicitly meant to be spread "one file per
+      // day" against the write cap, and a real device can push a genuine
+      // edit at any point in that window. `reserveSeqRange` (the Worker) only
+      // consults this counter, never the rows actually present yet, so if it
+      // were left at 0 until the final file, that push would be handed
+      // seq = 1, 2, … — colliding with seq values this seed script already
+      // hardcoded into not-yet-imported files. `seq` has no uniqueness
+      // constraint, so a collision doesn't error; it silently strands
+      // whichever of the two rows sharing that seq is not the one a client's
+      // cursor lands on, since `WHERE seq > since` never revisits it.
+      // `rows.length` is a safe ceiling (seq only increments for rows that
+      // actually export, so seq <= rows.length always) — reserving a few
+      // more than get used just leaves harmless gaps in the sequence.
+      fs.writeSync(
+        handle,
+        `INSERT INTO sync_counter (owner_id, last_seq) VALUES (${sqlStr(args.owner)}, ${rows.length}) ` +
+          `ON CONFLICT(owner_id) DO UPDATE SET last_seq = ${rows.length};\n`,
+      );
     }
   };
   const closeFile = (): void => {
@@ -124,12 +148,6 @@ const main = async (): Promise<void> => {
     if (seq % 5_000 === 0) console.log(`  … ${seq}`);
   }
 
-  // The counter lands in the final file so it is applied last.
-  fs.writeSync(
-    handle!,
-    `INSERT INTO sync_counter (owner_id, last_seq) VALUES (${sqlStr(args.owner)}, ${seq}) ` +
-      `ON CONFLICT(owner_id) DO UPDATE SET last_seq = ${seq};\n`,
-  );
   closeFile();
   await repo.close();
 

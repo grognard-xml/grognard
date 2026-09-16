@@ -50,7 +50,7 @@ Decisions locked:
 | 2b  | Wire it up: sync config, GitHub token from `leaderboardAuth`, IPC, auto-sync timer                 | **built**   |
 | 3   | (folded into 2) conflict detection → `sync_conflicts`, entity held back from push while open       | **built**   |
 | 4   | Renderer UI: sync status affordance + inline conflict resolution                                   | **built**   |
-| 5   | Hardening: large-batch cold sync, interrupted-sync recovery, backfill hash-guard, two-machine soak | **in progress** — interrupted-sync recovery (mid-push race) and the hash-guard shipped; large-batch cold sync unaudited and the soak itself not started |
+| 5   | Hardening: large-batch cold sync, interrupted-sync recovery, backfill hash-guard, two-machine soak | **in progress** — interrupted-sync recovery (mid-push race), the hash-guard, and the large-batch cold-sync seq-collision audit shipped; the soak itself not started |
 
 Full phase detail, endpoints, and the D1 data model: see the working plan
 (shared as a Claude artifact 2026-09-01).
@@ -215,10 +215,16 @@ D1's free-tier write cap (100k rows/day, and each `central_entities` insert is
   writes a `write-quota` marker and skips automatic runs for ~1h (manual "Sync
   now" still tries).
 - `apps/desktop/scripts/generate-entity-sync-seed.mjs` emits `seed-NNN.sql`
-  files (INSERTs at `revision = 1` + the `sync_counter` row) from a local
-  `entities.sqlite`. Bulk-import with `wrangler d1 import … --file` (batches and retries), one per day if
-  needed. The next in-app **Sync now** then reconciles everything locally
-  (reads only) via the pull fast-path below — no D1 writes.
+  files (INSERTs at `revision = 1`) from a local `entities.sqlite`, plus a
+  `sync_counter` reservation for the whole range **in the first file**, so a
+  real push landing mid-import (spread over days against the write cap) can
+  never be handed a `seq` this seeding already committed to a later,
+  not-yet-imported file (`seq` has no uniqueness constraint server-side — a
+  collision doesn't error, it silently strands whichever row a client's cursor
+  doesn't land on). Bulk-import with `wrangler d1 import … --file` (batches and
+  retries), one per day if needed. The next in-app **Sync now** then
+  reconciles everything locally (reads only) via the pull fast-path below — no
+  D1 writes.
 - Pull fast-path: when a pulled change's `contentHash` already equals the local
   entity's, `applyPulledChange` records `sync_state` and skips the
   import/replace round-trip. Speeds every drain-pull and makes post-seed

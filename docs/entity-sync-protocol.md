@@ -219,7 +219,13 @@ A large first load can be seeded out of band instead of pushed: insert rows at
 `revision = 1` with ascending `seq`, set `sync_counter`, then the client's next
 pull adopts them (reads only — it recognises that local content already
 matches and records the mapping without a re-import). See
-`apps/desktop/scripts/generate-entity-sync-seed.mjs`.
+`apps/desktop/scripts/generate-entity-sync-seed.mjs`. Set `sync_counter` to the
+full reserved range **before** any of the row inserts land, not after: seeding
+is meant to be spread over several `wrangler d1 import` runs against the write
+cap, and a real device can push a genuine edit at any point in that window —
+if the counter were still at its old value, that push would violate the
+uniqueness rule above by reserving a `seq` this seeding has already committed
+to a row in a not-yet-imported file.
 
 ## Left to the server (not specified here)
 
