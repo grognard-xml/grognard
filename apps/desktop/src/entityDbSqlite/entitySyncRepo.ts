@@ -12,11 +12,17 @@
  * row is open for an entity, that entity is held back from push.
  */
 import { EntitySqliteRepository, type SqliteEntityKind } from './repository';
-import { computeEntityContentHash, exportEntityElementXml, importEntitiesXml } from './xmlCodec';
+import {
+  computeEntityContentHash,
+  CONTENT_HASH_VERSION,
+  exportEntityElementXml,
+  importEntitiesXml,
+} from './xmlCodec';
 
 const TEI_NS = 'http://www.tei-c.org/ns/1.0';
 const CURSOR_KEY = 'sync_cursor';
 const DEVICE_KEY = 'sync_device_id';
+const HASH_VERSION_KEY = 'sync_content_hash_version';
 
 /**
  * `org`/`office` and `work`/`thing` share a wrapper tag, distinguished only by
@@ -52,6 +58,29 @@ export const getOrCreateDeviceId = async (repo: EntitySqliteRepository): Promise
   const id = crypto.randomUUID();
   await repo.setMetadata(DEVICE_KEY, id);
   return id;
+};
+
+/**
+ * Guard against `CONTENT_HASH_VERSION` bumps (a hashing/normalization change
+ * that can change an unchanged entity's hash). A stale `sync_state` hash from
+ * before the bump can no longer be trusted for an equality check against a
+ * freshly computed one — it would either falsely match a real change or
+ * falsely flag an unchanged entity as different. Neither is safe to leave in
+ * place, so on a version change this blanks every cached hash (never the
+ * revisions, so nothing is marked dirty or gets re-pushed) and lets the next
+ * pull/push fall back to a real content comparison instead of the stale hash.
+ * Call once at the start of a sync run, before pull/push. Returns whether a
+ * re-baseline actually ran.
+ */
+export const reconcileContentHashVersion = async (
+  repo: EntitySqliteRepository,
+): Promise<boolean> => {
+  const stored = await repo.getMetadata(HASH_VERSION_KEY);
+  const current = String(CONTENT_HASH_VERSION);
+  if (stored === current) return false;
+  await repo.backend.run(`UPDATE sync_state SET central_hash = '', project_hash = ''`);
+  await repo.setMetadata(HASH_VERSION_KEY, current);
+  return true;
 };
 
 // --- dirty set ------------------------------------------------------------

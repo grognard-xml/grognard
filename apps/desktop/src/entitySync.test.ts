@@ -8,6 +8,7 @@ import {
   localEntityHash,
   setSyncCursor,
 } from './entityDbSqlite/entitySyncRepo';
+import { CONTENT_HASH_VERSION } from './entityDbSqlite/xmlCodec';
 import { runSync, resolveConflictKeepLocal, resolveConflictKeepRemote } from './entitySync';
 import { EntitySyncQuotaError } from './entitySyncClient';
 import type {
@@ -381,6 +382,54 @@ describe('runSync', () => {
       (c) => c.centralId === 'person-a',
     )?.contentXml;
     expect(centralXmlAfter).toContain('V2');
+  });
+
+  it('re-baselines stale hashes after a content-hash-version bump instead of misreading them', async () => {
+    const central = new FakeCentral();
+    const repoA = await freshRepo();
+    await addPerson(repoA, 'person-a', '張衡');
+    await runSync({ repo: repoA, client: central });
+
+    const repoB = await freshRepo();
+    await runSync({ repo: repoB, client: central });
+    expect(await listDirtyForSync(repoB)).toHaveLength(0);
+
+    // Simulate repoB having synced under an older hash algorithm: its cached
+    // hashes are in a shape a fresh compute will never produce, and its
+    // recorded hash version is behind the current one.
+    await repoB.backend.run(
+      `UPDATE sync_state SET central_hash = 'stale-pre-version-hash', project_hash = 'stale-pre-version-hash'`,
+    );
+    await repoB.setMetadata('sync_content_hash_version', '0');
+
+    // Nothing changed on either side; re-syncing repoB must not invent a
+    // conflict or mark anything dirty just because the cached hash no longer
+    // matches the current algorithm's shape. There's nothing to pull (repoB's
+    // cursor is already caught up) or push (it isn't dirty), so the stale
+    // hash is blanked rather than misread — not repopulated yet, since
+    // nothing here recomputes it.
+    const result = await runSync({ repo: repoB, client: central });
+    expect(result.pulledConflicts).toBe(0);
+    expect(await countOpenConflicts(repoB)).toBe(0);
+    expect(await listDirtyForSync(repoB)).toHaveLength(0);
+    const blanked = (await repoB.backend.get(
+      `SELECT central_hash, project_hash FROM sync_state WHERE project_entity_id = 'person-a'`,
+    )) as { central_hash: string; project_hash: string };
+    expect(blanked.central_hash).toBe('');
+    expect(blanked.project_hash).toBe('');
+
+    // A real edit afterwards still syncs normally, and repopulates the hash
+    // in the current format once repoB actually applies the incoming change.
+    await repoA.addName({ entityId: 'person-a', text: 'Zhang Heng' });
+    await runSync({ repo: repoA, client: central });
+    const again = await runSync({ repo: repoB, client: central });
+    expect(again.pulledConflicts).toBe(0);
+    expect((await repoB.listNames('person-a')).some((n) => n.text === 'Zhang Heng')).toBe(true);
+    const refreshed = (await repoB.backend.get(
+      `SELECT central_hash, project_hash FROM sync_state WHERE project_entity_id = 'person-a'`,
+    )) as { central_hash: string; project_hash: string };
+    expect(refreshed.central_hash.startsWith(`v${CONTENT_HASH_VERSION}:`)).toBe(true);
+    expect(refreshed.project_hash).toBe(await localEntityHash(repoB, 'person-a'));
   });
 
   it('adopts a seeded central row without a re-apply when local content already matches', async () => {

@@ -20,6 +20,7 @@ import {
   listDirtyForSync,
   localEntityHash,
   openConflict,
+  reconcileContentHashVersion,
   resolveConflict,
   setSyncCursor,
   upsertSyncState,
@@ -84,6 +85,7 @@ const emptyResult = (cursor: number): SyncRunResult => ({
 
 export async function runSync(options: RunSyncOptions): Promise<SyncRunResult> {
   const { repo, client, pullLimit = 500, signal, onProgress } = options;
+  await reconcileContentHashVersion(repo);
   const result = emptyResult(await getSyncCursor(repo));
 
   // ---- pull ----

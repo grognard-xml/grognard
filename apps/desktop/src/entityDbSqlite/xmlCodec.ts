@@ -1188,6 +1188,17 @@ export async function exportEntityElementXml(
 }
 
 /**
+ * Bump whenever `hashContent` or `normalizeEntityXmlForContentHash` changes in
+ * a way that can change a hash for unchanged content (algorithm tweak, a
+ * normalization rule added/removed, …). The version travels as a prefix on
+ * the hash string itself, so a stale locally-cached hash from before the bump
+ * reads as "different" rather than silently comparing equal or unequal to a
+ * freshly computed one of a different shape. `reconcileContentHashVersion` in
+ * entitySyncRepo.ts uses this to force a clean re-baseline after a bump.
+ */
+export const CONTENT_HASH_VERSION = 1;
+
+/**
  * Content hash matching `entityContentHash` in synchronizedMirror.ts for the
  * same SQLite-backed entity export.
  */
@@ -1197,7 +1208,7 @@ export async function computeEntityContentHash(
 ): Promise<string | null> {
   const xml = await exportEntityElementXml(repository, entityId);
   if (!xml) return null;
-  return hashContent(normalizeEntityXmlForContentHash(xml));
+  return `v${CONTENT_HASH_VERSION}:${hashContent(normalizeEntityXmlForContentHash(xml))}`;
 }
 
 /**
