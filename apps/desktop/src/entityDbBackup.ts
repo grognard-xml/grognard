@@ -1,6 +1,16 @@
 /**
  * Entity-database cloud backup — Phase 0 of docs/entity-sync-planning.
  *
+ * This backs up the CENTRAL entity database (CEDB) only, never a per-project
+ * PEDB — regardless of which project happens to be open, and regardless of
+ * whether that project's PEDB is local or Turso-backed. It must not switch
+ * targets based on `activateProjectBundle`/the active project: a previous
+ * version did that (see the removed `setActiveProjectPedb`), which meant
+ * opening a Turso-backed project silently redirected the "central database"
+ * cloud backup into exporting that project's PEDB instead — overwriting the
+ * CEDB backup history with unrelated, much smaller data. Per-project PEDB
+ * backup, if ever wanted, belongs in a separate, explicitly-scoped feature.
+ *
  * The live `entities.sqlite` must never sit in a file-sync folder (that
  * corrupts it). This module gives it an off-machine safety net instead: on a
  * timer while the app runs, and once more on quit, it takes a consistent
@@ -12,6 +22,11 @@
  *
  * This is a stop-gap until logical entity sync lands (Phase 2+); it is not a
  * merge mechanism and only ever moves whole-database snapshots.
+ *
+ * `snapshots-logical/` (`.sql.gz`) below is legacy: this module used to write
+ * Turso logical exports there. It no longer writes any; the segment is kept
+ * read-only (list/prune/restore-refuse) so old snapshots from that bug remain
+ * visible instead of vanishing silently.
  */
 import { app } from 'electron';
 import { createHash } from 'node:crypto';
@@ -44,34 +59,12 @@ import {
 import { getEntityDbFolder } from './projectPrefs';
 import { resolveLiveEntityDbPath } from './ensureDefaultEntityDatabase';
 import { R2Client, type R2Object } from './r2Client';
-import { createLogicalSnapshot } from './entityDbSqlite/logicalSnapshot';
-import { readTursoAuthToken } from './entityDbTursoTokenStore';
 
 const ENTITY_DB_FILENAME = 'entities.sqlite';
 const MARKER_FILENAME = 'entity-db-last-backup.json';
 const SNAPSHOTS_SEGMENT = 'snapshots/';
+/** Legacy segment — read-only, see the module doc comment above. */
 const LOGICAL_SNAPSHOTS_SEGMENT = 'snapshots-logical/';
-
-/** A Turso-backed project's pedb, as tracked by `setActiveProjectPedb`. */
-interface ActiveTursoPedb {
-  backend: 'turso';
-  url: string;
-}
-
-let activePedb: ActiveTursoPedb | null = null;
-
-/**
- * Tell this module which project is currently open, so `runBackup` (on its
- * timer, on quit, or manual) knows whether to snapshot the local
- * `entities.sqlite` via `VACUUM INTO` (unset, or `{ backend: 'local' }`) or
- * to take a logical export of a remote Turso database instead. Called from
- * `main.ts`'s `activateProjectBundle` — never inferred from renderer input.
- */
-export const setActiveProjectPedb = (
-  pedb: { backend: 'local' } | { backend: 'turso'; url: string } | null | undefined,
-): void => {
-  activePedb = pedb?.backend === 'turso' ? { backend: 'turso', url: pedb.url } : null;
-};
 
 export type BackupReason = 'timer' | 'quit' | 'manual';
 
@@ -313,98 +306,9 @@ const pruneSnapshotSegment = async (client: R2Client, segmentPrefix: string): Pr
 };
 
 /**
- * Logical-export backup path for a Turso-backed project (see
- * `entityDbSqlite/logicalSnapshot.ts`) — `VACUUM INTO` needs a local file
- * handle a hosted database doesn't have, so this walks the tables over the
- * network instead and uploads a plain SQL script rather than a `.sqlite`
- * copy. Shares upload/retention/marker plumbing with the local-file path;
- * only snapshot *creation* differs.
- */
-const runTursoBackup = async (
-  reason: BackupReason,
-  config: EntityDbBackupConfig,
-  pedb: ActiveTursoPedb,
-): Promise<BackupResult> => {
-  runInProgress = true;
-  const startedAt = Date.now();
-  try {
-    const authToken = await readTursoAuthToken(pedb.url);
-    if (!authToken) {
-      return {
-        ok: false,
-        reason,
-        error: 'No Turso auth token is stored for this project on this machine.',
-        durationMs: Date.now() - startedAt,
-      };
-    }
-
-    const { TursoBackend } = await import('./entityDbSqlite/tursoBackend');
-    const backend = new TursoBackend({ url: pedb.url, authToken });
-    let sql: string;
-    try {
-      ({ sql } = await createLogicalSnapshot(backend));
-    } finally {
-      await backend.close();
-    }
-
-    const gz = gzipSync(Buffer.from(sql, 'utf8'), { level: 6 });
-    const sha256 = createHash('sha256').update(gz).digest('hex');
-    const sourceBytes = Buffer.byteLength(sql, 'utf8');
-    const client = new R2Client(toR2Config(config));
-    const timestamp = compactTimestamp(new Date());
-    const key = `${config.prefix}${LOGICAL_SNAPSHOTS_SEGMENT}entities-${timestamp}-${reason}.sql.gz`;
-
-    await client.putObject(key, gz, {
-      contentType: 'application/gzip',
-      metadata: {
-        sha256,
-        'source-bytes': String(sourceBytes),
-        'app-version': app.getVersion(),
-        reason,
-      },
-    });
-
-    const achievementsKey = await uploadAchievementsSidecar(client, key, reason);
-    const prunedKeys = await pruneSnapshotSegment(
-      client,
-      `${config.prefix}${LOGICAL_SNAPSHOTS_SEGMENT}`,
-    );
-
-    const marker: LastBackupMarker = {
-      at: new Date().toISOString(),
-      reason,
-      key,
-      uploadedBytes: gz.length,
-      sourceBytes,
-      sha256,
-      ...(achievementsKey ? { achievementsKey } : {}),
-    };
-    await writeMarker(marker);
-
-    return {
-      ok: true,
-      reason,
-      key,
-      uploadedBytes: gz.length,
-      sourceBytes,
-      sha256,
-      durationMs: Date.now() - startedAt,
-      prunedKeys,
-    };
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    console.error('[entityDbBackup] logical backup failed:', message);
-    return { ok: false, reason, error: message, durationMs: Date.now() - startedAt };
-  } finally {
-    runInProgress = false;
-  }
-};
-
-/**
- * Run one backup cycle. `manual` runs even when `enabled` is false (the user
- * pressed the button); `timer`/`quit` respect the toggle. Branches on the
- * active project's `pedb.backend`: unset/local uses today's `VACUUM INTO`
- * snapshot of `entities.sqlite`; turso uses the logical-export path above.
+ * Run one backup cycle against the central entity database (CEDB) only.
+ * `manual` runs even when `enabled` is false (the user pressed the button);
+ * `timer`/`quit` respect the toggle.
  */
 export const runBackup = async (reason: BackupReason): Promise<BackupResult> => {
   if (runInProgress) return { ok: false, reason, skipped: 'in-progress' };
@@ -412,8 +316,6 @@ export const runBackup = async (reason: BackupReason): Promise<BackupResult> => 
   const config = await readBackupConfig().catch(() => null);
   if (!isBackupConfigComplete(config)) return { ok: false, reason, skipped: 'not-configured' };
   if (!config.enabled && reason !== 'manual') return { ok: false, reason, skipped: 'disabled' };
-
-  if (activePedb) return runTursoBackup(reason, config, activePedb);
 
   const dbPath = await getEntityDbPath();
   if (!dbPath) return { ok: false, reason, skipped: 'no-database' };
@@ -705,13 +607,12 @@ export interface EntityDbIntegrityReport {
 }
 
 /**
- * Cheap `PRAGMA integrity_check` used at startup to offer a restore. Local
- * `entities.sqlite` corruption only — a Turso-backed project's data lives on
- * the hosted database, not a file this process can corrupt by itself, so
- * there's nothing local to check.
+ * Cheap `PRAGMA integrity_check` used at startup to offer a restore. Checks
+ * the central entity database (CEDB) only — `getEntityDbPath` always
+ * resolves to it, never to whichever project's PEDB is currently open, so
+ * this runs regardless of the active project's pedb backend.
  */
 export const checkEntityDbIntegrity = async (): Promise<EntityDbIntegrityReport> => {
-  if (activePedb) return { ok: true, problems: [], checked: false };
   const dbPath = await getEntityDbPath();
   if (!dbPath) return { ok: true, problems: [], checked: false };
   try {
