@@ -116,12 +116,19 @@ seq pagination, the three auth outcomes, the 413 cap). The GitHub lookup is
 injected via `createWorker({ verifyGitHubUser })` — no network, no module
 mocking.
 
+### Done (continued)
+
+- **Redeploy (2026-09-16)** — shipped the two pending contract tweaks (a push
+  without `centralId` adopts `localId` as the central id; `contentHash` may be
+  empty when `deleted`). Pure code deploy, no D1 migrations involved (all
+  already applied remotely beforehand). Version `f2ab8784-bf1c-43d8-8e82-d17d5aa8def8`,
+  source pinned to commit `3325d8df2`, confirmed live via `GET /`. A D1 Time
+  Travel bookmark from immediately before the deploy
+  (`000002dc-00000000-000050e8-dcd7aac5b082bbd6a272a0b1e38731c1`) was taken as
+  a precaution but not needed.
+
 ### Still open for Phase 1
 
-- **Redeploy** (`wrangler deploy` in `workers/entity-sync/`) — the deployed
-  version predates two contract tweaks: a push without `centralId` now adopts
-  `localId` as the central id (so local id == central id everywhere), and
-  `contentHash` may be empty when `deleted`.
 - Decide whether to cache the GitHub `/user` verification (KV, short TTL) or
   keep re-verifying every request as now.
 
