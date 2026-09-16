@@ -113,17 +113,18 @@ export async function runSync(options: RunSyncOptions): Promise<SyncRunResult> {
       throw error;
     }
     const byLocal = new Map(batch.map((d) => [d.localId, d]));
+    const hashByLocal = new Map(payload.map((p) => [p.localId, p.contentHash]));
     await repo.transaction(async () => {
       for (const applied of res.applied) {
         const d = byLocal.get(applied.localId);
         if (!d) continue;
-        await recordPushSuccess(repo, d, applied);
+        await recordPushSuccess(repo, d, hashByLocal.get(d.localId) ?? '', applied);
         result.pushedApplied += 1;
       }
       for (const reconciled of res.reconciled) {
         const d = byLocal.get(reconciled.localId);
         if (!d) continue;
-        await recordPushSuccess(repo, d, reconciled);
+        await recordPushSuccess(repo, d, hashByLocal.get(d.localId) ?? '', reconciled);
         result.pushedReconciled += 1;
       }
       for (const conflict of res.conflicts) {
@@ -310,17 +311,23 @@ async function toPushEntity(
 async function recordPushSuccess(
   repo: EntitySqliteRepository,
   d: DirtyEntity,
+  pushedHash: string,
   outcome: SyncAppliedEntity,
 ): Promise<void> {
-  const liveRevision = (await repo.getEntity(d.localId))?.revision ?? d.revision;
-  const hash = d.deleted ? '' : ((await localEntityHash(repo, d.localId)) ?? '');
+  const hash = d.deleted ? '' : pushedHash;
   await upsertSyncState(repo, {
     projectEntityId: d.localId,
     centralEntityId: outcome.centralId,
     centralRevision: outcome.revision,
-    projectRevision: liveRevision,
-    // We just pushed this content (or the server confirmed it already matched),
-    // so local content == central content.
+    // `d.revision` is the revision that was actually exported and pushed, not
+    // whatever `entities.revision` is *now* — if the entity was edited again
+    // while this push was in flight, the live revision has since moved past
+    // it, and recording that live value here would mark the interim edit
+    // "synced" without it ever having been sent. Using `d.revision` leaves
+    // `project_revision` behind the live revision in that case, so
+    // `listDirtyForSync` still picks the entity up on the next run.
+    projectRevision: d.revision,
+    // The server now holds exactly what we pushed (or already matched it).
     centralHash: hash,
     projectHash: hash,
   });

@@ -344,6 +344,45 @@ describe('runSync', () => {
     expect(await countOpenConflicts(repo)).toBe(0);
   });
 
+  it('keeps an entity dirty if it is edited again while its push is in flight', async () => {
+    const central = new FakeCentral();
+    const repo = await freshRepo();
+    await addPerson(repo, 'person-a', '張衡');
+    await runSync({ repo, client: central });
+
+    await repo.addName({ entityId: 'person-a', text: 'V1' });
+
+    // Wraps `central` so that, while the push request is "in flight", another
+    // part of the app edits the same entity again — simulating a user save
+    // that lands mid-round-trip. The push itself only ever carries V1.
+    const raceyClient = {
+      pull: central.pull,
+      push: async (entities: SyncPushEntity[]) => {
+        await repo.addName({ entityId: 'person-a', text: 'V2' });
+        return central.push(entities);
+      },
+    };
+
+    const result = await runSync({ repo, client: raceyClient });
+    expect(result.pushedApplied).toBe(1);
+
+    // V2 was never sent, so it must not be marked as synced.
+    expect((await listDirtyForSync(repo)).map((d) => d.localId)).toEqual(['person-a']);
+    const centralXml = (await central.pull(0)).changes.find((c) => c.centralId === 'person-a')
+      ?.contentXml;
+    expect(centralXml).toContain('V1');
+    expect(centralXml).not.toContain('V2');
+
+    // The next run picks up V2 cleanly.
+    const again = await runSync({ repo, client: central });
+    expect(again.pushedApplied).toBe(1);
+    expect(await listDirtyForSync(repo)).toHaveLength(0);
+    const centralXmlAfter = (await central.pull(0)).changes.find(
+      (c) => c.centralId === 'person-a',
+    )?.contentXml;
+    expect(centralXmlAfter).toContain('V2');
+  });
+
   it('adopts a seeded central row without a re-apply when local content already matches', async () => {
     // Emulate the out-of-band seed: the entity exists locally, an identical
     // row is on central at revision 1, and there's no local sync_state yet.
