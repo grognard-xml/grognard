@@ -28,7 +28,7 @@ import { useTranslation } from 'react-i18next';
 import { createEntitiesScaffold } from '../../../../packages/cwrc-leafwriter/src/autoTagging/entities';
 import { refreshCbdbConcordanceAfterPackLifecycle } from '../../../../packages/cwrc-leafwriter/src/autoTagging/cbdbConcordance';
 import { clearPackContentCache } from '../../../../packages/cwrc-leafwriter/src/services/authority-pack-lookup';
-import { PROJECT_FILE_NAME } from '@src/desktop/projectFile';
+import { PROJECT_FILE_NAME, LEGACY_PROJECT_FILE_NAME } from '@src/desktop/projectFile';
 import { ensureEntityDbFolder } from './entityDbOnboarding';
 import { refreshPluginsInRenderer } from './ensureLanguagePlugins';
 
@@ -451,9 +451,9 @@ export const useCommonsUiBridge = () => {
 
     const folder = picked.replace(/[/\\]+$/, '');
 
-    const isProjectFolder = await window.electronAPI?.pathExists?.(
-      `${folder}/${PROJECT_FILE_NAME}`,
-    );
+    const isProjectFolder =
+      (await window.electronAPI?.pathExists?.(`${folder}/${PROJECT_FILE_NAME}`)) ||
+      (await window.electronAPI?.pathExists?.(`${folder}/${LEGACY_PROJECT_FILE_NAME}`));
     if (isProjectFolder) {
       await window.electronAPI?.showNativeMessageBox?.({
         type: 'warning',

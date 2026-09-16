@@ -2160,7 +2160,7 @@ export const refreshProjectSchemaConfig = ({ state }: Context, bundle: ProjectBu
   }
 };
 
-/** Refresh in-memory project config after a partial jean-baptiste.project.json patch. */
+/** Refresh in-memory project config after a partial project-file patch. */
 export const syncProjectFileConfig = ({ state }: Context, bundle: ProjectBundle) => {
   if (state.project.projectFilePath !== bundle.projectFilePath) return;
   state.project.config = bundle.config;

@@ -26,7 +26,7 @@ export {
 } from './nameTypeTaggingPolicy';
 export { validateCustomThingTypeId } from './thingTypePolicy';
 
-/** Per-project authority tag-bomb settings (stored in jean-baptiste.project.json). */
+/** Per-project authority tag-bomb settings (stored in the project file (grognard.project.json)). */
 export interface AutoTaggingAuthoritySettings {
   packs?: AuthorityPackId[];
   /** Show the live authority-pack string totals in the tag-bomb panel (off by default because the scan is expensive). */

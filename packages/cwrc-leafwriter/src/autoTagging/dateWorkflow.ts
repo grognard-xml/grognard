@@ -10,7 +10,10 @@ import {
 const DATES_PASS_STORAGE_KEY = 'grognard:autoTagging:datesPass';
 const PROJECT_LANGUAGE_FIELD = 'profileDesc/langUsage/language';
 const DEFAULT_METADATA_REL = 'schema/project-metadata.json';
-const PROJECT_FILE_NAME = 'jean-baptiste.project.json';
+// Kept in sync by hand with apps/desktop/src/projectTypes.ts and
+// apps/commons/src/desktop/projectTypes.ts — see the fuller comment there.
+const PROJECT_FILE_NAME = 'grognard.project.json';
+const LEGACY_PROJECT_FILE_NAME = 'jean-baptiste.project.json';
 
 const HAN_RE = /\p{Script=Han}/u;
 const KANA_RE = /[\p{Script=Hiragana}\p{Script=Katakana}]/u;
@@ -140,15 +143,23 @@ export async function readProjectLanguageFromDisk(): Promise<string | null> {
   if (!root || !api?.readFile) return null;
 
   let metadataRel = DEFAULT_METADATA_REL;
-  const projectFile =
-    projectApi?.__leafWriterProject?.getProjectFilePath?.().trim() ||
-    joinProjectPath(root, PROJECT_FILE_NAME);
+  const explicitProjectFile = projectApi?.__leafWriterProject?.getProjectFilePath?.().trim();
+  // Falls back to guessing the filename only when the real, already-resolved
+  // path isn't available (e.g. the Word add-in's LSP bridge) — try the
+  // current name first, then the pre-rename name for a project that still
+  // uses it (see PROJECT_FILE_NAME's doc comment in projectTypes.ts).
+  const candidateProjectFiles = explicitProjectFile
+    ? [explicitProjectFile]
+    : [joinProjectPath(root, PROJECT_FILE_NAME), joinProjectPath(root, LEGACY_PROJECT_FILE_NAME)];
 
-  try {
-    const config = JSON.parse(await api.readFile(projectFile)) as { metadata?: string };
-    if (config.metadata?.trim()) metadataRel = config.metadata.trim();
-  } catch {
-    // default metadata path
+  for (const projectFile of candidateProjectFiles) {
+    try {
+      const config = JSON.parse(await api.readFile(projectFile)) as { metadata?: string };
+      if (config.metadata?.trim()) metadataRel = config.metadata.trim();
+      break;
+    } catch {
+      // try the next candidate, or fall through to the default metadata path
+    }
   }
 
   try {

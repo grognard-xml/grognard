@@ -3,7 +3,7 @@ import { persistProjectConfigPatch } from './projectConfigPersist';
 import { DEFAULT_PLACE_PROXIMITY_KM } from './authorityOverlap';
 import type { DateFilterMode } from './packLoader';
 
-/** Per-project disambiguation UI settings (stored in jean-baptiste.project.json). */
+/** Per-project disambiguation UI settings (stored in the project file (grognard.project.json)). */
 export interface DisambiguationSettings {
   /** When true, the disambiguation panel asks the configured model to pre-check candidates. */
   aiCuration?: boolean;

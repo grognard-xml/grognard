@@ -3,7 +3,7 @@ import { persistProjectConfigPatch } from './projectConfigPersist';
 /**
  * AI validation settings for auto-tagging review.
  * Controls whether AI pre-validates suggestions before human review.
- * Persisted per project in jean-baptiste.project.json as `autoTaggingValidation`.
+ * Persisted per project in the project file (grognard.project.json) as `autoTaggingValidation`.
  */
 
 export interface ValidationSettings {

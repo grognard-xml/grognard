@@ -8,6 +8,7 @@ import { importEntitySqliteXml } from './entityDbSqlite/readService';
 import {
   DEFAULT_METADATA_PATH,
   PROJECT_FILE_NAME,
+  resolveProjectFileName,
   type AutoTaggingAuthoritySettings,
   type AutoTaggingValidationSettings,
   type DisambiguationSettings,
@@ -19,6 +20,9 @@ import {
 export {
   DEFAULT_METADATA_PATH,
   PROJECT_FILE_NAME,
+  LEGACY_PROJECT_FILE_NAME,
+  resolveProjectFileName,
+  isExistingProjectFolder,
   type ProjectBundle,
   type ProjectFileConfig,
   type ProjectMetadataFile,
@@ -300,7 +304,7 @@ const ensureProjectEntityDatabase = async (
 };
 
 export const loadOrCreateProject = async (rootPath: string): Promise<ProjectBundle> => {
-  const projectFilePath = path.join(rootPath, PROJECT_FILE_NAME);
+  const projectFilePath = path.join(rootPath, await resolveProjectFileName(rootPath));
 
   let raw: string;
   try {

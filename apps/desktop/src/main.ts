@@ -208,7 +208,7 @@ import {
   renamePath,
 } from './explorerFileOps';
 import { moveEntityDbFolder } from './moveEntityDb';
-import { PROJECT_FILE_NAME } from './projectTypes';
+import { isExistingProjectFolder } from './projectTypes';
 import { OpenFileWatcher } from './openFileWatcher';
 import {
   cancelZoteroPick,
@@ -3741,7 +3741,7 @@ const registerIpcHandlers = () => {
     if (!dest) return { ok: false, cancelled: true };
     rememberDialogDir(dest, 'directory');
 
-    if (existsSync(path.join(dest, PROJECT_FILE_NAME))) {
+    if (await isExistingProjectFolder(dest)) {
       return {
         ok: false,
         error:

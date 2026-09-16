@@ -1,4 +1,18 @@
-export const PROJECT_FILE_NAME = 'jean-baptiste.project.json';
+/**
+ * Renamed from `jean-baptiste.project.json` when the app became Grognard.
+ * `LEGACY_PROJECT_FILE_NAME` stays around so an existing project keeps
+ * working under its current filename forever — no forced rename. See the
+ * matching (fuller) comment on the desktop copy of this constant in
+ * `apps/desktop/src/projectTypes.ts`, which also has the fs-based
+ * `resolveProjectFileName`/`isExistingProjectFolder` helpers this file
+ * deliberately doesn't (it's bundled into the renderer, so it stays free of
+ * Node imports; anywhere here that needs to check which name a folder
+ * actually uses goes through an IPC call instead). Also duplicated in
+ * `packages/cwrc-leafwriter/src/autoTagging/dateWorkflow.ts`. Keep all
+ * three in sync.
+ */
+export const PROJECT_FILE_NAME = 'grognard.project.json';
+export const LEGACY_PROJECT_FILE_NAME = 'jean-baptiste.project.json';
 export const DEFAULT_METADATA_PATH = 'schema/project-metadata.json';
 
 export interface ProjectSchemaConfig {

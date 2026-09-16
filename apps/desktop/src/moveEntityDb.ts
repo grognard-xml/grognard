@@ -1,6 +1,6 @@
 import fs from 'fs/promises';
 import path from 'path';
-import { PROJECT_FILE_NAME } from './projectTypes';
+import { isExistingProjectFolder } from './projectTypes';
 
 export class MoveEntityDbError extends Error {
   constructor(message: string) {
@@ -45,12 +45,8 @@ const assertSourceHasEntities = async (source: string): Promise<void> => {
 };
 
 const assertNotProjectFolder = async (folder: string): Promise<void> => {
-  try {
-    await fs.access(path.join(folder, PROJECT_FILE_NAME));
+  if (await isExistingProjectFolder(folder)) {
     throw new MoveEntityDbError('That folder is a Grognard project. Choose a different folder.');
-  } catch (error) {
-    if (error instanceof MoveEntityDbError) throw error;
-    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
   }
 };
 

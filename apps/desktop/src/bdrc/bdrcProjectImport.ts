@@ -6,10 +6,8 @@ import {
   wrapBdrcTeiDocument,
   type BdrcHeaderFields,
 } from '../../../commons/src/desktop/bdrcImportXml';
-import {
-  PROJECT_FILE_NAME,
-  type ProjectFileConfig,
-} from '../../../commons/src/desktop/projectTypes';
+import type { ProjectFileConfig } from '../../../commons/src/desktop/projectTypes';
+import { resolveProjectFileName } from '../projectTypes';
 import { loadBdrcImport } from './bdrcRuntime';
 
 export interface BdrcProjectImportOptions {
@@ -46,7 +44,10 @@ const xmlLooksWellFormed = (xml: string): boolean => {
 };
 
 const readProjectConfig = async (projectRoot: string): Promise<ProjectFileConfig> => {
-  const raw = await fs.readFile(path.join(projectRoot, PROJECT_FILE_NAME), 'utf8');
+  const raw = await fs.readFile(
+    path.join(projectRoot, await resolveProjectFileName(projectRoot)),
+    'utf8',
+  );
   return JSON.parse(raw) as ProjectFileConfig;
 };
 

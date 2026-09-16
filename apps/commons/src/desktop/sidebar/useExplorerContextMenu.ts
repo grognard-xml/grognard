@@ -8,14 +8,13 @@ import {
 import { useActions, useAppState } from '@src/overmind';
 import { useCallback, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { LEGACY_PROJECT_FILE_NAME, PROJECT_FILE_NAME } from '@src/desktop/projectFile';
 
 export interface ExplorerTarget {
   isDirectory: boolean;
   name: string;
   path: string;
 }
-
-export const PROJECT_JSON = 'jean-baptiste.project.json';
 
 export const isExplorerItemProtected = (
   target: ExplorerTarget,
@@ -24,7 +23,7 @@ export const isExplorerItemProtected = (
 ): boolean => {
   if (!rootPath) return true;
   if (target.path === rootPath) return true;
-  if (target.name === PROJECT_JSON) return true;
+  if (target.name === PROJECT_FILE_NAME || target.name === LEGACY_PROJECT_FILE_NAME) return true;
   if (schemaDirPath && isPathUnder(target.path, schemaDirPath)) return true;
   return false;
 };

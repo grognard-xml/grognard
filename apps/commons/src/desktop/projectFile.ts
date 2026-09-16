@@ -5,6 +5,7 @@ import { type ProjectBundle, type ProjectFileConfig } from './projectTypes';
 export {
   DEFAULT_METADATA_PATH,
   PROJECT_FILE_NAME,
+  LEGACY_PROJECT_FILE_NAME,
   type ProjectBundle,
   type ProjectFileConfig,
   type ProjectMetadataFile,

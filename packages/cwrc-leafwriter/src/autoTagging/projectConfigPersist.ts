@@ -1,7 +1,7 @@
 import type { ProjectBundle } from '../../../../apps/commons/src/desktop/projectTypes';
 
 /**
- * Patch `jean-baptiste.project.json` and sync the returned bundle into the
+ * Patch the project file (grognard.project.json) and sync the returned bundle into the
  * desktop bridge + Overmind. Without the sync step, toggles appear to save
  * but revert as soon as the in-memory cache is cleared.
  */

@@ -200,7 +200,7 @@ let achievementsSaveQueue: Promise<void> = Promise.resolve();
 export const processSaveForAchievements = async (options: {
   rootPath: string;
   /**
-   * Stable per-project id from jean-baptiste.project.json (see
+   * Stable per-project id from the project file (grognard.project.json) (see
    * ProjectFileConfig.projectId). Falls back to the normalized root path
    * for callers that predate this field, but that fallback re-splits a
    * project's stats if it's later opened from a different absolute path

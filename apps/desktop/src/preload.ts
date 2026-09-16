@@ -267,7 +267,7 @@ export interface WorkspaceSessionRestore {
 
 export interface ElectronAPI {
   openProject: () => Promise<ProjectBundle | null>;
-  /** Open a project by its jean-baptiste.project.json path (recent-projects menu). */
+  /** Open a project by its project-file path (recent-projects menu). */
   openProjectAtPath: (projectFilePath: string) => Promise<ProjectBundle | null>;
   /** @deprecated Use openProject */
   openProjectFolder: () => Promise<ProjectBundle | null>;
