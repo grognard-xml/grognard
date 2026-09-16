@@ -7,7 +7,6 @@ import { importEntitySqliteXml } from './entityDbSqlite/readService';
 
 import {
   DEFAULT_METADATA_PATH,
-  PROJECT_FILE_NAME,
   resolveProjectFileName,
   type AutoTaggingAuthoritySettings,
   type AutoTaggingValidationSettings,
