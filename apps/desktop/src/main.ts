@@ -91,6 +91,7 @@ import {
   readBackupConfigView,
   writeBackupConfig,
   clearBackupConfig,
+  isBackupConfigComplete,
   type EntityDbBackupConfig,
 } from './entityDbBackupConfig';
 import {
@@ -4128,6 +4129,91 @@ const registerIpcHandlers = () => {
 };
 
 let backgroundServicesStarted = false;
+let integrityPromptShown = false;
+
+/**
+ * On-launch guard for a corrupted entity database: `entityDbBackup:getStatus`
+ * already surfaces `checkEntityDbIntegrity`'s result as a red alert in
+ * Settings, but nothing prompted for action unless the user happened to open
+ * that panel. This runs the same check once at startup and, on failure, offers
+ * a one-click restore from the most recent cloud snapshot before the user does
+ * any more damage editing on top of a corrupted store.
+ */
+const maybePromptEntityDbIntegrityRestore = async (): Promise<void> => {
+  if (integrityPromptShown || !mainWindow) return;
+  integrityPromptShown = true;
+
+  const report = await checkEntityDbIntegrity();
+  if (report.ok || !report.checked) return;
+
+  const { response } = await dialog.showMessageBox(mainWindow, {
+    type: 'warning',
+    buttons: ['Restore from cloud backup…', 'Continue anyway'],
+    defaultId: 0,
+    cancelId: 1,
+    message: 'The entity database appears to be corrupted.',
+    detail:
+      `SQLite's integrity check reported:\n${report.problems.join('\n')}\n\n` +
+      'Continuing risks further data loss or a crash later. If cloud backup is ' +
+      'configured, the most recent snapshot can be restored now instead.',
+  });
+  if (response !== 0) return;
+
+  const config = await readBackupConfig().catch(() => null);
+  if (!isBackupConfigComplete(config)) {
+    await dialog.showMessageBox(mainWindow, {
+      type: 'error',
+      message: 'Cloud backup is not configured.',
+      detail:
+        'Set it up under Settings › Profil › Cloud backup, then use Restore… from there once a snapshot exists.',
+    });
+    return;
+  }
+
+  let snapshots;
+  try {
+    snapshots = await listCloudSnapshots();
+  } catch (error) {
+    await dialog.showMessageBox(mainWindow, {
+      type: 'error',
+      message: 'Could not list cloud snapshots.',
+      detail: error instanceof Error ? error.message : String(error),
+    });
+    return;
+  }
+  // Only a local-file VACUUM INTO snapshot is restorable in place; a Turso
+  // logical export needs the manual replay flow (see restoreSnapshot's doc
+  // comment in entityDbBackup.ts).
+  const latest = snapshots.find((snapshot) => snapshot.kind === 'sqlite');
+  if (!latest) {
+    await dialog.showMessageBox(mainWindow, {
+      type: 'error',
+      message: 'No restorable snapshot was found.',
+      detail:
+        'Only local-file snapshots can be restored automatically here. A Turso logical export needs the manual replay flow — see docs/entity-db-cloud-backup-setup.md.',
+    });
+    return;
+  }
+
+  await closeEntitySqliteReadRepositories();
+  const result = await restoreSnapshot(latest.key);
+  if (!result.ok) {
+    await dialog.showMessageBox(mainWindow, {
+      type: 'error',
+      message: 'Restore failed.',
+      detail: result.error ?? 'Unknown error.',
+    });
+    return;
+  }
+
+  await dialog.showMessageBox(mainWindow, {
+    type: 'info',
+    message: 'Restore complete — Grognard will now restart.',
+    detail: `Restored from ${latest.key}. The previous database was moved aside (not deleted) in case it's needed.`,
+  });
+  app.relaunch();
+  app.exit(0);
+};
 
 /**
  * Backup and sync startup work, deferred until the window is up.
@@ -4143,6 +4229,7 @@ let backgroundServicesStarted = false;
 const startBackgroundServices = (): void => {
   if (backgroundServicesStarted) return;
   backgroundServicesStarted = true;
+  void maybePromptEntityDbIntegrityRestore();
   void startBackupTimer();
   void startSyncTimer();
   scheduleLaunchSync();

@@ -361,11 +361,16 @@ calls, plus restore and troubleshooting:
   bridge): enable toggle, credential form, Test connection, Save, Back up now,
   last-backup line, integrity-failure alert, `safeStorage`-unavailable warning,
   and a Restore… expander (snapshot dropdown + armed confirm).
+- **Corrupt-DB startup prompt** — `maybePromptEntityDbIntegrityRestore()` in
+  `main.ts` runs `checkEntityDbIntegrity()` once per launch (from
+  `startBackgroundServices`, after the window is up) and, on failure, offers a
+  native dialog to restore the latest local-file (`.sqlite.gz`) cloud snapshot
+  on the spot — closing cached read handles, restoring, and relaunching the
+  app — or to continue anyway. Falls back to a clear message when cloud backup
+  isn't configured or no restorable snapshot exists (a Turso logical export
+  still needs the manual replay flow).
 
 ### Still open for Phase 0
 
-- **Corrupt-DB startup prompt** — `checkEntityDbIntegrity` runs and the panel
-  shows a red alert, but there's no on-launch dialog offering a one-click
-  restore yet.
 - **Packaged-build check** that `safeStorage` encryption is available on the
   target OSes (Linux needs an unlocked keyring).

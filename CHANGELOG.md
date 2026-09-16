@@ -610,3 +610,9 @@ Continued hardening of the Cloudflare D1 entity-sync Worker/client (Phase 5 of [
 
 - Fixed an entity edited again while its previous version was still mid-push getting silently marked "synced" without the interim edit ever having been sent — the sync engine recorded the entity's live revision instead of the one it actually pushed, so the newer content was lost from sync until the entity happened to be edited again. Now the pushed revision is recorded, keeping the entity dirty for the next run when this happens.
 - Added a version tag to the entity content hash (`CONTENT_HASH_VERSION`) with automatic re-baselining: a future change to the hashing/normalization algorithm no longer risks spurious conflicts or false "nothing changed" reads against hashes cached before the change — cached hashes are cleared (not the underlying revisions) and recomputed cleanly on the next sync.
+
+### Cloud backup hardening
+
+Closes the last open item under Phase 0 of the same plan:
+
+- Added an on-launch prompt for a corrupted entity database: if `checkEntityDbIntegrity` fails at startup, a dialog now offers to restore the latest cloud snapshot on the spot (closing cached handles, restoring, and relaunching) instead of only showing a red alert if the user happens to open Settings first.
