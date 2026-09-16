@@ -7,7 +7,7 @@ jest.mock('../entityDbTursoTokenStore', () => ({
 }));
 
 import { tursoConnectionRef } from '../entityDbConnectionRef';
-import { getEntitySqlite, searchEntitySqlite } from './readService';
+import { getEntitySqlite, listEntitySqliteAuthorityDuplicates, searchEntitySqlite } from './readService';
 import { EntitySqliteRepository } from './repository';
 
 describe('readService with a Turso connection reference', () => {
@@ -29,6 +29,22 @@ describe('readService with a Turso connection reference', () => {
     await expect(
       getEntitySqlite({ databasePath: ref, entityId: 'person-turso-read-1' }),
     ).resolves.toEqual(expect.objectContaining({ id: 'person-turso-read-1' }));
+
+    rmSync(directory, { recursive: true, force: true });
+  });
+
+  it('accepts a Turso connection reference for authority-duplicate lookups', async () => {
+    // Regression test: `listEntitySqliteAuthorityDuplicates` used to bypass
+    // the shared, sentinel-aware `validDatabasePath` check with its own
+    // literal `path.basename(...) === 'entities.sqlite'` test, which a
+    // `grognard-turso:` reference can never satisfy — it always threw
+    // "Invalid entity SQLite database path." before even trying to open the
+    // database (found via live two-machine testing, database-viewer panel).
+    const directory = mkdtempSync(path.join(tmpdir(), 'grognard-readservice-turso-authdup-'));
+    const url = `file:${path.join(directory, 'entities.sqlite')}`;
+    const ref = tursoConnectionRef(url);
+
+    await expect(listEntitySqliteAuthorityDuplicates(ref)).resolves.toEqual([]);
 
     rmSync(directory, { recursive: true, force: true });
   });

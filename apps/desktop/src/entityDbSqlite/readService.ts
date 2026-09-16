@@ -394,8 +394,7 @@ export async function listEntitySqlitePanelSummaries(
 export async function listEntitySqliteAuthorityDuplicates(
   databasePath: string,
 ): Promise<SqliteDuplicateGroup[] | null> {
-  if (path.basename(databasePath).toLowerCase() !== 'entities.sqlite')
-    throw new Error('Invalid entity SQLite database path.');
+  if (!validDatabasePath(databasePath)) throw new Error('Invalid entity SQLite database path.');
   try {
     await assertConnectionExists(databasePath);
   } catch {
