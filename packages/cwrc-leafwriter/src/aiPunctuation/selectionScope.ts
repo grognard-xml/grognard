@@ -37,7 +37,11 @@ export function punctPer100Han(han: string, text?: string): number {
 }
 
 /** True when a segment still needs AI after parallel transfer (unpunctuated or sparse marks). */
-export function segmentNeedsAiGap(seg: { han: string; has_punct: boolean; text?: string }): boolean {
+export function segmentNeedsAiGap(seg: {
+  han: string;
+  has_punct: boolean;
+  text?: string;
+}): boolean {
   if (seg.han.length < MIN_SEGMENT_HAN) return false;
   if (!seg.has_punct) return true;
   return punctPer100Han(seg.han, seg.text) < MIN_PUNCT_PER_100_HAN;

@@ -897,7 +897,9 @@ export const KanripoImportDialog = ({
           });
         }
 
-        setStatus(`Aligning ${folderReferenceSources.length} reference file(s) against ${juanPayload.length} juan…`);
+        setStatus(
+          `Aligning ${folderReferenceSources.length} reference file(s) against ${juanPayload.length} juan…`,
+        );
         const alignedSourcesPayloadCandidate = folderReferenceSources.map((source) => ({
           id: source.id,
           label: source.label,
@@ -933,7 +935,9 @@ export const KanripoImportDialog = ({
         alignedJuanSources = Object.fromEntries(
           Object.entries(alignResult.juan_sources).map(([juanId, list]) => [
             juanId,
-            list.map((item) => ({ id: item.id, label: item.label, text: item.text }) as ParallelSource),
+            list.map(
+              (item) => ({ id: item.id, label: item.label, text: item.text }) as ParallelSource,
+            ),
           ]),
         );
         alignedMatches = alignResult.matches;
@@ -967,10 +971,17 @@ export const KanripoImportDialog = ({
           if (punctMode === 'parallel') {
             setStatus(`Punctuating ${stem} (${i + 1} of ${files.length})…`);
             const juanId = converted.meta.juan || converted.meta.stem || stem;
-            const overrideSources = alignedJuanSources ? (alignedJuanSources[juanId] ?? []) : undefined;
+            const overrideSources = alignedJuanSources
+              ? (alignedJuanSources[juanId] ?? [])
+              : undefined;
             const punct =
               alignedMatches && alignedSourcesPayload
-                ? await invokeParagraphScoped(bodyXml, juanId, alignedMatches, alignedSourcesPayload)
+                ? await invokeParagraphScoped(
+                    bodyXml,
+                    juanId,
+                    alignedMatches,
+                    alignedSourcesPayload,
+                  )
                 : await invokeParallel(bodyXml, usedDuringImport, overrideSources);
             if (punct.matched_chapter_ids?.length) {
               for (const chapterId of punct.matched_chapter_ids) {
@@ -1332,11 +1343,17 @@ export const KanripoImportDialog = ({
       )}
       <Box sx={{ mt: 2 }}>
         <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
-          Or add your own reference text(s) — a single file per juan, or a whole folder of
-          reference files (any provider, e.g. ctext) whose boundaries don't match juan
-          boundaries; those are aligned to juan by content automatically.
+          Or add your own reference text(s) — a single file per juan, or a whole folder of reference
+          files (any provider, e.g. ctext) whose boundaries don't match juan boundaries; those are
+          aligned to juan by content automatically.
         </Typography>
-        <Button size="small" variant="outlined" disabled={busy} sx={{ mr: 1 }} onClick={() => void addFiles()}>
+        <Button
+          size="small"
+          variant="outlined"
+          disabled={busy}
+          sx={{ mr: 1 }}
+          onClick={() => void addFiles()}
+        >
           Add file…
         </Button>
         <Tooltip title="For a folder of reference files whose boundaries don't match juan boundaries (e.g. ctext) -- content is aligned to juan automatically, not by filename.">
@@ -1369,7 +1386,9 @@ export const KanripoImportDialog = ({
                 <ListItemText
                   sx={{ pl: 1 }}
                   primary={source.label}
-                  secondary={source.kind === 'folder-reference' ? 'reference folder file' : source.kind}
+                  secondary={
+                    source.kind === 'folder-reference' ? 'reference folder file' : source.kind
+                  }
                 />
               </ListItem>
             ))}
