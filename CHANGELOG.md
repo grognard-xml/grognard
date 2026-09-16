@@ -615,4 +615,5 @@ Continued hardening of the Cloudflare D1 entity-sync Worker/client (Phase 5 of [
 
 Closes the last open item under Phase 0 of the same plan:
 
-- Added an on-launch prompt for a corrupted entity database: if `checkEntityDbIntegrity` fails at startup, a dialog now offers to restore the latest cloud snapshot on the spot (closing cached handles, restoring, and relaunching) instead of only showing a red alert if the user happens to open Settings first.
+- Added an on-launch prompt for a corrupted entity database: if `checkEntityDbIntegrity` fails at startup, a dialog now offers to restore on the spot (closing cached handles, restoring, and relaunching) instead of only showing a red alert if the user happens to open Settings first.
+- That prompt offers whichever backup this device actually has, not just R2: a local Time Machine snapshot of the central database now works too — most users never configure cloud backup and rely on Time Machine instead. Restoring from it preserves merge/delete orders recorded since the snapshot, same as the interactive Time Machine dialog's central tab.

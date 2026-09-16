@@ -364,11 +364,17 @@ calls, plus restore and troubleshooting:
 - **Corrupt-DB startup prompt** — `maybePromptEntityDbIntegrityRestore()` in
   `main.ts` runs `checkEntityDbIntegrity()` once per launch (from
   `startBackgroundServices`, after the window is up) and, on failure, offers a
-  native dialog to restore the latest local-file (`.sqlite.gz`) cloud snapshot
-  on the spot — closing cached read handles, restoring, and relaunching the
-  app — or to continue anyway. Falls back to a clear message when cloud backup
-  isn't configured or no restorable snapshot exists (a Turso logical export
-  still needs the manual replay flow).
+  native dialog to restore on the spot — closing cached read handles,
+  restoring, and relaunching — or to continue anyway. Offers **both** backup
+  sources when present, since not every user configures R2: the latest
+  local-file (`.sqlite.gz`) cloud snapshot, and/or the latest local Time
+  Machine snapshot of the central-database folder (the same rollback
+  `TimeMachineDialog.tsx`'s central tab offers, reimplemented against the
+  filesystem directly — including the order-log union that preserves
+  merge/delete orders across the rollback — since that dialog needs a project
+  already open and can't be relied on this early in startup). Falls back to a
+  clear message when neither is available (a Turso logical export still needs
+  the manual replay flow).
 
 ### Still open for Phase 0
 

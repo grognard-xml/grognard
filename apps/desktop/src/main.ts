@@ -235,7 +235,9 @@ import {
   listTimeMachineSnapshots,
   restoreTimeMachineSnapshotToProject,
   restoreTimeMachineSnapshotToDirectory,
+  type TimeMachineSnapshotSummary,
 } from './timeMachine';
+import { ORDERS_FILE, unionOrderLogs } from './entityOrderLogUnion';
 import { invokePluginPython } from './pluginPythonBridge';
 import {
   cloneKanripoWork,
@@ -4131,44 +4133,11 @@ const registerIpcHandlers = () => {
 let backgroundServicesStarted = false;
 let integrityPromptShown = false;
 
-/**
- * On-launch guard for a corrupted entity database: `entityDbBackup:getStatus`
- * already surfaces `checkEntityDbIntegrity`'s result as a red alert in
- * Settings, but nothing prompted for action unless the user happened to open
- * that panel. This runs the same check once at startup and, on failure, offers
- * a one-click restore from the most recent cloud snapshot before the user does
- * any more damage editing on top of a corrupted store.
- */
-const maybePromptEntityDbIntegrityRestore = async (): Promise<void> => {
-  if (integrityPromptShown || !mainWindow) return;
-  integrityPromptShown = true;
+const CENTRAL_TIME_MACHINE_NAME = 'Central entity database';
 
-  const report = await checkEntityDbIntegrity();
-  if (report.ok || !report.checked) return;
-
-  const { response } = await dialog.showMessageBox(mainWindow, {
-    type: 'warning',
-    buttons: ['Restore from cloud backup…', 'Continue anyway'],
-    defaultId: 0,
-    cancelId: 1,
-    message: 'The entity database appears to be corrupted.',
-    detail:
-      `SQLite's integrity check reported:\n${report.problems.join('\n')}\n\n` +
-      'Continuing risks further data loss or a crash later. If cloud backup is ' +
-      'configured, the most recent snapshot can be restored now instead.',
-  });
-  if (response !== 0) return;
-
-  const config = await readBackupConfig().catch(() => null);
-  if (!isBackupConfigComplete(config)) {
-    await dialog.showMessageBox(mainWindow, {
-      type: 'error',
-      message: 'Cloud backup is not configured.',
-      detail:
-        'Set it up under Settings › Profil › Cloud backup, then use Restore… from there once a snapshot exists.',
-    });
-    return;
-  }
+/** R2 cloud-backup branch of the integrity-restore prompt below. */
+const restoreCorruptEntityDbFromCloud = async (): Promise<void> => {
+  if (!mainWindow) return;
 
   let snapshots;
   try {
@@ -4188,7 +4157,7 @@ const maybePromptEntityDbIntegrityRestore = async (): Promise<void> => {
   if (!latest) {
     await dialog.showMessageBox(mainWindow, {
       type: 'error',
-      message: 'No restorable snapshot was found.',
+      message: 'No restorable cloud snapshot was found.',
       detail:
         'Only local-file snapshots can be restored automatically here. A Turso logical export needs the manual replay flow — see docs/entity-db-cloud-backup-setup.md.',
     });
@@ -4213,6 +4182,118 @@ const maybePromptEntityDbIntegrityRestore = async (): Promise<void> => {
   });
   app.relaunch();
   app.exit(0);
+};
+
+/**
+ * Local Time Machine branch of the integrity-restore prompt below — for users
+ * without cloud backup configured. Mirrors `restoreCentralPreservingOrders` in
+ * TimeMachineDialog.tsx (same order-log union, so a rollback here can't lose
+ * merge/delete orders other checkouts haven't applied yet), reimplemented
+ * against the filesystem directly since that dialog requires an open project
+ * and can't be relied on to be reachable at this point in startup.
+ */
+const restoreCorruptEntityDbFromTimeMachine = async (
+  centralFolder: string,
+  snapshot: TimeMachineSnapshotSummary,
+): Promise<void> => {
+  if (!mainWindow) return;
+
+  const { response } = await dialog.showMessageBox(mainWindow, {
+    type: 'warning',
+    buttons: ['Restore', 'Cancel'],
+    defaultId: 0,
+    cancelId: 1,
+    message: `Restore the central entity database to the local snapshot from ${new Date(snapshot.createdAt).toLocaleString()}?`,
+    detail:
+      'Merge/delete orders recorded since then are preserved. Grognard will restart afterwards.',
+  });
+  if (response !== 0) return;
+
+  await closeEntitySqliteReadRepositories();
+  const ordersPath = path.join(centralFolder, ORDERS_FILE);
+  const preRestoreLog = await fs.readFile(ordersPath, 'utf-8').catch(() => '');
+  try {
+    await restoreTimeMachineSnapshotToProject(
+      centralFolder,
+      CENTRAL_TIME_MACHINE_NAME,
+      snapshot.path,
+    );
+  } catch (error) {
+    await dialog.showMessageBox(mainWindow, {
+      type: 'error',
+      message: 'Restore failed.',
+      detail: error instanceof Error ? error.message : String(error),
+    });
+    return;
+  }
+  if (preRestoreLog.trim()) {
+    const restoredLog = await fs.readFile(ordersPath, 'utf-8').catch(() => '');
+    const merged = unionOrderLogs(preRestoreLog, restoredLog);
+    if (merged !== restoredLog) await fs.writeFile(ordersPath, merged, 'utf-8');
+  }
+
+  await dialog.showMessageBox(mainWindow, {
+    type: 'info',
+    message: 'Restore complete — Grognard will now restart.',
+    detail:
+      'Projects linked to this database may report unresolved keys on next open — review the sync prompts there.',
+  });
+  app.relaunch();
+  app.exit(0);
+};
+
+/**
+ * On-launch guard for a corrupted entity database: `entityDbBackup:getStatus`
+ * already surfaces `checkEntityDbIntegrity`'s result as a red alert in
+ * Settings, but nothing prompted for action unless the user happened to open
+ * that panel. This runs the same check once at startup and, on failure, offers
+ * a one-click restore before the user does any more damage editing on top of a
+ * corrupted store — from whichever backup this device actually has: not every
+ * user configures R2 cloud backup, and local Time Machine central-database
+ * snapshots are the more common safety net, so both are offered when present.
+ */
+const maybePromptEntityDbIntegrityRestore = async (): Promise<void> => {
+  if (integrityPromptShown || !mainWindow) return;
+  integrityPromptShown = true;
+
+  const report = await checkEntityDbIntegrity();
+  if (report.ok || !report.checked) return;
+
+  const backupConfig = await readBackupConfig().catch(() => null);
+  const cloudAvailable = isBackupConfigComplete(backupConfig);
+
+  const centralFolder = await getEntityDbFolder().catch(() => null);
+  const localSnapshots = centralFolder
+    ? await listTimeMachineSnapshots(centralFolder).catch(() => [])
+    : [];
+  const latestLocal = localSnapshots[0] ?? null;
+
+  const choices: { label: string; run: () => Promise<void> }[] = [];
+  if (cloudAvailable) {
+    choices.push({ label: 'Restore from cloud backup…', run: restoreCorruptEntityDbFromCloud });
+  }
+  if (centralFolder && latestLocal) {
+    choices.push({
+      label: 'Restore from local snapshot (Time Machine)…',
+      run: () => restoreCorruptEntityDbFromTimeMachine(centralFolder, latestLocal),
+    });
+  }
+  choices.push({ label: 'Continue anyway', run: async () => undefined });
+
+  const { response } = await dialog.showMessageBox(mainWindow, {
+    type: 'warning',
+    buttons: choices.map((choice) => choice.label),
+    defaultId: 0,
+    cancelId: choices.length - 1,
+    message: 'The entity database appears to be corrupted.',
+    detail:
+      `SQLite's integrity check reported:\n${report.problems.join('\n')}\n\n` +
+      (choices.length > 1
+        ? 'Continuing risks further data loss or a crash later. A backup can be restored right now instead.'
+        : 'Continuing risks further data loss or a crash later. No cloud backup or local Time Machine snapshot was found for this database, so there is nothing to restore automatically here — see Settings › Profil › Cloud backup, or docs/entity-sync-planning.md, for recovery options.'),
+  });
+
+  await choices[response]?.run();
 };
 
 /**
