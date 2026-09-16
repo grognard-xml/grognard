@@ -50,7 +50,7 @@ Decisions locked:
 | 2b  | Wire it up: sync config, GitHub token from `leaderboardAuth`, IPC, auto-sync timer                 | **built**   |
 | 3   | (folded into 2) conflict detection → `sync_conflicts`, entity held back from push while open       | **built**   |
 | 4   | Renderer UI: sync status affordance + inline conflict resolution                                   | **built**   |
-| 5   | Hardening: large-batch cold sync, interrupted-sync recovery, backfill hash-guard, two-machine soak | not started |
+| 5   | Hardening: large-batch cold sync, interrupted-sync recovery, backfill hash-guard, two-machine soak | **in progress** — interrupted-sync recovery (mid-push race) and the hash-guard shipped; large-batch cold sync unaudited and the soak itself not started |
 
 Full phase detail, endpoints, and the D1 data model: see the working plan
 (shared as a Claude artifact 2026-09-01).
@@ -226,10 +226,12 @@ D1's free-tier write cap (100k rows/day, and each `central_entities` insert is
 
 ### Still open
 
-- **Content-hash fidelity** — confirm `applyRemoteEntity` (and the seed script)
-  reproduce the pusher's `computeEntityContentHash` byte-for-byte across app
-  versions (a spike showed the transfer is faithful; a schema/serialization
-  change could still drift it — version the hash and re-baseline on migration).
+- ~~**Content-hash fidelity**~~ — `computeEntityContentHash` is now versioned
+  (`CONTENT_HASH_VERSION`) with automatic re-baselining on a version bump (see
+  Phase 5 below). Still unverified: whether `applyRemoteEntity` and the seed
+  script reproduce the pusher's hash byte-for-byte *within* one version across
+  app builds — a spike showed the transfer is faithful, but this hasn't been
+  re-checked since.
 - **Second-device soak** — two project folders against one central store for a
   week; watch conflict rate and D1 usage.
 
