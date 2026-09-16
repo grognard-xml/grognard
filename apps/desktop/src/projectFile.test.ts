@@ -92,10 +92,7 @@ describe('project file — filename rename (jean-baptiste.project.json -> grogna
 
   it('keeps loading and saving an existing project under its legacy filename', async () => {
     const legacyPath = path.join(root, LEGACY_PROJECT_FILE_NAME);
-    await writeFile(
-      legacyPath,
-      JSON.stringify({ version: 1, name: 'legacy-project' }, null, 2),
-    );
+    await writeFile(legacyPath, JSON.stringify({ version: 1, name: 'legacy-project' }, null, 2));
 
     const bundle = await loadOrCreateProject(root);
 

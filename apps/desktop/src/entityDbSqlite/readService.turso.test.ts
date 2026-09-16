@@ -7,7 +7,11 @@ jest.mock('../entityDbTursoTokenStore', () => ({
 }));
 
 import { tursoConnectionRef } from '../entityDbConnectionRef';
-import { getEntitySqlite, listEntitySqliteAuthorityDuplicates, searchEntitySqlite } from './readService';
+import {
+  getEntitySqlite,
+  listEntitySqliteAuthorityDuplicates,
+  searchEntitySqlite,
+} from './readService';
 import { EntitySqliteRepository } from './repository';
 
 describe('readService with a Turso connection reference', () => {
