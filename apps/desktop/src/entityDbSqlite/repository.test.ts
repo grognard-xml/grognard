@@ -800,6 +800,38 @@ describe('EntitySqliteRepository', () => {
     await repository.close();
   });
 
+  it('marks a classified-from-mention primary name as is_primary and demotes the old one', async () => {
+    const repository = await EntitySqliteRepository.open();
+    await repository.createEntity({ id: 'place-prim-1', kind: 'place' });
+    await repository.addName({
+      entityId: 'place-prim-1',
+      text: 'Rta\'u rdzong',
+      isPrimary: true,
+      origin: 'xml',
+    });
+
+    expect(
+      await repository.updateNamesByText({
+        entityId: 'place-prim-1',
+        text: 'ཏའུ',
+        nameType: 'primary',
+      }),
+    ).toBe(1);
+
+    expect(
+      await repository.backend.all(
+        `SELECT text, is_primary FROM entity_names
+           WHERE entity_id = ? AND status = 'active' ORDER BY id`,
+        ['place-prim-1'],
+      ),
+    ).toEqual([
+      { text: "Rta'u rdzong", is_primary: 0 },
+      { text: 'ཏའུ', is_primary: 1 },
+    ]);
+
+    await repository.close();
+  });
+
   it('includes office affiliations as role assertions in the panel snapshot', async () => {
     const repository = await EntitySqliteRepository.open();
     await repository.createEntity({ id: 'person-office-1', kind: 'person' });

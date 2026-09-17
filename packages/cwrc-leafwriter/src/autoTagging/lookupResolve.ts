@@ -638,7 +638,10 @@ export async function planLookupResolution(
     };
   }
 
-  const headword = candidateMeta?.primaryName ?? input.label;
+  // `??` alone would accept an empty-string primaryName (a malformed/partial
+  // authority record) and mint a nameless entity downstream — fall back to
+  // the search label whenever the authority name is blank, not just absent.
+  const headword = candidateMeta?.primaryName?.trim() ? candidateMeta.primaryName : input.label;
   const titleParts = nobleTitlesFromMetadata(candidateMeta);
   const packPerson =
     kind === 'person' ? personEnrichmentFromPackCandidate(candidateMeta, deps.projectLang) : {};

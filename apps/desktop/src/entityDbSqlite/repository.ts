@@ -2689,11 +2689,17 @@ export class EntitySqliteRepository {
           nameType === 'romanization'
             ? languageForRomanization(input.language)
             : (input.language ?? null);
+        if (nameRole === 'primary') {
+          await this.activeBackend.run(
+            'UPDATE entity_names SET is_primary = 0 WHERE entity_id = ?',
+            [input.entityId],
+          );
+        }
         const result = await this.activeBackend.run(
           `INSERT INTO entity_names
                (entity_id, text, name_type, name_role, language, is_primary, origin, source, status, created_at, updated_at)
-             VALUES (?, ?, ?, ?, ?, 0, 'user', NULL, 'active', ?, ?)`,
-          [input.entityId, text, nameType, nameRole, language, now, now],
+             VALUES (?, ?, ?, ?, ?, ?, 'user', NULL, 'active', ?, ?)`,
+          [input.entityId, text, nameType, nameRole, language, nameRole === 'primary' ? 1 : 0, now, now],
         );
         await this.syncPersonNameScalars(input.entityId, text, nameType, now);
         await this.normalizeEntityNameIntegrity(input.entityId, now);

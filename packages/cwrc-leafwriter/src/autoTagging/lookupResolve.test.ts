@@ -379,6 +379,33 @@ describe('planLookupResolution / applyLookupResolution', () => {
     });
   });
 
+  it('falls back to the search label when the pack primaryName is blank, instead of minting a nameless entity', async () => {
+    const { store } = makeStore();
+    const blankNamePackRow = ndjsonLine({
+      source: 'cbdb',
+      authorityId: '31305',
+      kind: 'person',
+      primaryName: '',
+      searchStrings: ['沈攸之', '攸之'],
+      metadata: {
+        description: 'Liu-Song general, d. 478',
+        crosswalk: { wikidata: ['Q712570'] },
+      },
+    });
+    const result = await applyLookupResolution(input(), {
+      store,
+      packIds,
+      readPackFile: async () => blankNamePackRow + '\n',
+    });
+    expect(result).toMatchObject({ status: 'linked', wasCreated: true, entityName: '沈攸之' });
+    if (result.status !== 'linked') return;
+
+    const doc = await store.loadEntities();
+    const person = doc.getElementsByTagName('person')[0]!;
+    expect(person.getAttribute('xml:id')).toBe(result.key);
+    expect(person.getElementsByTagName('persName')[0]?.textContent).toBe('沈攸之');
+  });
+
   it('links to an existing entity on a direct idno hit and enriches it', async () => {
     const { store } = makeStore();
     const doc = await store.loadEntities();
