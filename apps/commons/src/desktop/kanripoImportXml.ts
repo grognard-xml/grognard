@@ -3,7 +3,7 @@ import { cbetaFamilyBodyFragment, cbetaFamilyTitleStmt } from './cbetaFamilyMark
 import { teiDateLiteral } from './sourceDescription';
 import type { ProjectFileConfig } from './projectTypes';
 
-export type KanripoNormalizeMode = 'off' | 'dpm' | 'hard_replacements';
+export type KanripoNormalizeMode = 'off' | 'dpm';
 
 export interface KanripoAuthorshipMeta {
   author_index?: string;

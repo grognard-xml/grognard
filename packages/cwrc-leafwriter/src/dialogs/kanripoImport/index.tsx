@@ -1763,11 +1763,6 @@ export const KanripoImportDialog = ({
               >
                 <FormControlLabel value="off" control={<Radio />} label="None" />
                 <FormControlLabel value="dpm" control={<Radio />} label="DPM variant table" />
-                <FormControlLabel
-                  value="hard_replacements"
-                  control={<Radio />}
-                  label="Hard replacements"
-                />
               </RadioGroup>
             </FormControl>
             <FormControl sx={{ mt: 2 }} disabled={busy}>
