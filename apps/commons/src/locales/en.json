@@ -1260,6 +1260,23 @@
         "label_required": "Label is required.",
         "id_exists": "A custom type with id \"{{id}}\" already exists."
       }
+    },
+    "thingTypePolicy": {
+      "title": "Thing sub-types",
+      "intro": "Define your own categories of \"thing\" (e.g. philosophical concept, medicinal plant). They appear as their own options when tagging and as a filter in the database viewer.",
+      "id_label": "Id",
+      "id_placeholder": "philosophical_concept",
+      "label_label": "Label",
+      "label_placeholder": "Display label",
+      "add": "Add type",
+      "remove": "Remove {{label}}",
+      "errors": {
+        "invalid_slug": "Id must be an ASCII slug matching [a-z][a-z0-9_-]*",
+        "reserved": "Id \"{{id}}\" is reserved for the generic \"thing\" type",
+        "label_required": "Label is required.",
+        "id_exists": "A type with id \"{{id}}\" already exists.",
+        "persist_failed": "Could not save: {{detail}}"
+      }
     }
   }
 }
