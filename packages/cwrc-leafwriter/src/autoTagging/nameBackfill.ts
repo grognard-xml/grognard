@@ -240,6 +240,14 @@ const OFFICE_ENRICHMENT_PACKS: { packId: AuthorityPackId; source: string }[] = [
   { packId: 'norbert-offices', source: 'NORBERT' },
 ];
 
+/** CBDB/CHGIS are the two place sources with real coordinate coverage —
+ * see docs/placename-geo-disambiguation-planning.md Phase 0/1. DILA is
+ * dropped (0.3% coverage, not worth a pack read here). */
+const PLACE_ENRICHMENT_PACKS: { packId: AuthorityPackId; source: string }[] = [
+  { packId: 'cbdb-places', source: 'CBDB' },
+  { packId: 'chgis-places', source: 'CHGIS' },
+];
+
 function addPackRowToNameIndex(
   index: Map<string, AuthorityEnrichment>,
   source: string,
@@ -375,6 +383,61 @@ export async function buildOfficePackNameIndexForAuthorities(
     const ids = [...(idsBySource.get(source) ?? [])];
     if (ids.length === 0) continue;
     options.onPackProgress?.(`Reading ${source} offices…`);
+    try {
+      let content: AuthorityPackContent | undefined;
+      if (options.lookupPackRowsByIds) {
+        content = await options.lookupPackRowsByIds(packId, ids);
+      } else if (options.readPackFile) {
+        const all = await options.readPackFile(packId);
+        const wanted = new Set(ids);
+        const lines: string[] = [];
+        for (const row of iterateAuthorityNdjson(all)) {
+          const id = String(row.authorityId ?? '').trim();
+          if (!id || !wanted.has(id)) continue;
+          lines.push(JSON.stringify(row));
+          wanted.delete(id);
+          if (wanted.size === 0) break;
+        }
+        content = lines;
+      }
+      if (!content) continue;
+      for (const row of iterateAuthorityNdjson(content)) {
+        addPackRowToNameIndex(index, source, row);
+      }
+    } catch {
+      // Pack missing or unreadable — skip silently.
+    }
+  }
+  return index;
+}
+
+/**
+ * Same as {@link buildOfficePackNameIndexForAuthorities} but for place packs
+ * (CBDB/CHGIS) — used to pull `metadata.geo` onto place entity cards.
+ */
+export async function buildPlacePackIndexForAuthorities(
+  authorities: readonly { type: string; value: string }[],
+  options: {
+    lookupPackRowsByIds?: AuthorityPackRowsByIdsFn;
+    readPackFile?: (packId: AuthorityPackId) => Promise<AuthorityPackContent>;
+    onPackProgress?: (label: string) => void;
+  },
+): Promise<Map<string, AuthorityEnrichment>> {
+  const idsBySource = new Map<string, Set<string>>();
+  for (const auth of authorities) {
+    const source = auth.type.trim().toUpperCase();
+    if (source !== 'CBDB' && source !== 'CHGIS') continue;
+    const set = idsBySource.get(source) ?? new Set<string>();
+    const id = auth.value.trim();
+    if (id) set.add(id);
+    idsBySource.set(source, set);
+  }
+
+  const index = new Map<string, AuthorityEnrichment>();
+  for (const { packId, source } of PLACE_ENRICHMENT_PACKS) {
+    const ids = [...(idsBySource.get(source) ?? [])];
+    if (ids.length === 0) continue;
+    options.onPackProgress?.(`Reading ${source} places…`);
     try {
       let content: AuthorityPackContent | undefined;
       if (options.lookupPackRowsByIds) {

@@ -682,6 +682,17 @@ export async function acceptEntitySqliteDateAssertion(
   );
 }
 
+export async function acceptEntitySqliteGeoAssertion(
+  request: EntitySqliteAssertionRequest,
+): Promise<boolean> {
+  if (!validDatabasePath(request.databasePath))
+    throw new Error('Invalid entity SQLite database path.');
+  return (await repositoryFor(request.databasePath)).acceptGeoAssertion(
+    request.entityId,
+    request.key,
+  );
+}
+
 export async function acceptEntitySqliteDescriptionAssertion(
   request: EntitySqliteAssertionRequest,
 ): Promise<boolean> {

@@ -56,6 +56,10 @@ import { backfillEntitiesSqlite } from '../../../../../packages/cwrc-leafwriter/
 import { refreshCbdbConcordanceSqlite } from '../../../../../packages/cwrc-leafwriter/src/autoTagging/cbdbConcordance';
 import { AUTHORITY_PACKS } from '../../../../../packages/cwrc-leafwriter/src/autoTagging/packPaths';
 import { packRowsByIdsReader } from '../../../../../packages/cwrc-leafwriter/src/services/authority-pack-lookup';
+import {
+  PlaceComparisonMap,
+  type MapPin,
+} from '../../../../../packages/cwrc-leafwriter/src/autoTagging/mapView/PlaceComparisonMap';
 import { useActions, useAppState } from '@src/overmind';
 import { BackgroundJobBanner, useBackgroundJob, yieldToUi } from './BackgroundJobBanner';
 import { EntityCompareCard } from './EntityCompareCard';
@@ -361,6 +365,7 @@ export const DatabaseWindow = () => {
   }, [kindFilter]);
 
   const [mainPane, setMainPane] = useState<MainPane>('detail');
+  const [geoMapPin, setGeoMapPin] = useState<MapPin | null>(null);
   const [rightTab, setRightTab] = useState('cleaning');
   const [findings, setFindings] = useState<HygieneFinding[]>([]);
   const [findingIndex, setFindingIndex] = useState(0);
@@ -1561,7 +1566,27 @@ export const DatabaseWindow = () => {
             </>
           )}
 
-          {mainPane === 'detail' && leftCard && <EntityCompareCard model={leftCard} detail />}
+          {mainPane === 'detail' && leftCard && (
+            <EntityCompareCard
+              model={leftCard}
+              detail
+              onOpenMap={
+                leftCard.kind === 'place' && leftCard.location
+                  ? () =>
+                      setGeoMapPin({
+                        id: selectedId ?? leftCard.subtitle ?? leftCard.title,
+                        label: 'A',
+                        color: '#d32f2f',
+                        lat: leftCard.location!.lat,
+                        lon: leftCard.location!.lon,
+                        sources: leftCard.location!.source ? [leftCard.location!.source] : [],
+                        description: leftCard.primaryName ?? leftCard.title,
+                        memberIds: [selectedId ?? leftCard.subtitle ?? leftCard.title],
+                      })
+                  : undefined
+              }
+            />
+          )}
           {mainPane === 'detail' && !leftCard && (
             <Typography color="text.secondary">Select an entity</Typography>
           )}
@@ -1684,6 +1709,12 @@ export const DatabaseWindow = () => {
           )}
         </Box>
       </Box>
+      <PlaceComparisonMap
+        open={geoMapPin != null}
+        pins={geoMapPin ? [geoMapPin] : []}
+        title={geoMapPin?.description ?? ''}
+        onClose={() => setGeoMapPin(null)}
+      />
     </Box>
   );
 };

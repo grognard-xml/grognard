@@ -650,6 +650,9 @@ export interface ElectronAPI {
   entitySqliteAcceptDateAssertion: (
     request: import('./entityDbSqlite/readService').EntitySqliteAssertionRequest,
   ) => Promise<boolean>;
+  entitySqliteAcceptGeoAssertion: (
+    request: import('./entityDbSqlite/readService').EntitySqliteAssertionRequest,
+  ) => Promise<boolean>;
   entitySqliteAcceptDescriptionAssertion: (
     request: import('./entityDbSqlite/readService').EntitySqliteAssertionRequest,
   ) => Promise<boolean>;
@@ -1214,6 +1217,8 @@ const electronAPI: ElectronAPI = {
     ipcRenderer.invoke('entitySqlite:validateAssertion', request),
   entitySqliteAcceptDateAssertion: (request) =>
     ipcRenderer.invoke('entitySqlite:acceptDateAssertion', request),
+  entitySqliteAcceptGeoAssertion: (request) =>
+    ipcRenderer.invoke('entitySqlite:acceptGeoAssertion', request),
   entitySqliteAcceptDescriptionAssertion: (request) =>
     ipcRenderer.invoke('entitySqlite:acceptDescriptionAssertion', request),
   entitySqliteRenamePrimaryName: (request) =>

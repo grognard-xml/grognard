@@ -10,6 +10,7 @@ import MergeIcon from '@mui/icons-material/Merge';
 import OpenInNewIcon from '@mui/icons-material/OpenInNew';
 import PlaylistAddIcon from '@mui/icons-material/PlaylistAdd';
 import RefreshIcon from '@mui/icons-material/Refresh';
+import RoomIcon from '@mui/icons-material/Room';
 import SearchIcon from '@mui/icons-material/Search';
 import UndoIcon from '@mui/icons-material/Undo';
 import VisibilityIcon from '@mui/icons-material/Visibility';
@@ -81,6 +82,10 @@ import { backfillEntitiesSqlite } from '../../../../../packages/cwrc-leafwriter/
 import { entitySummaryFromSqlite } from '../../../../../packages/cwrc-leafwriter/src/autoTagging/sqliteSummary';
 import { autoSyncEntitiesToCentral } from '../../../../../packages/cwrc-leafwriter/src/autoTagging/autoSync';
 import {
+  PlaceComparisonMap,
+  type MapPin,
+} from '../../../../../packages/cwrc-leafwriter/src/autoTagging/mapView/PlaceComparisonMap';
+import {
   countUnlinkedPedbEntities,
   synchronizeMirroredProject,
 } from '../../../../../packages/cwrc-leafwriter/src/autoTagging/synchronizedMirror';
@@ -117,7 +122,6 @@ import { useActions, useAppState } from '@src/overmind';
 import { EntityLookupField, type EntityLookupValue } from '@src/desktop/EntityLookupField';
 import { readStoredKindFilter, writeStoredKindFilter } from '../databaseViewPrefs';
 import { EntityNamesAccordion, type NameRow } from './EntityNamesAccordion';
-import { EntityRelationsEditor } from './EntityRelationsEditor';
 import { entityLookupDialogAtom } from '@cwrc/leafwriter';
 import { getDefaultStore } from 'jotai';
 import { RESET } from 'jotai/utils';
@@ -418,7 +422,7 @@ interface SidebarDatabaseTabProps {
   active?: boolean;
 }
 
-type PendingValidationMode = 'assertion' | 'date' | 'description';
+type PendingValidationMode = 'assertion' | 'date' | 'description' | 'geo';
 interface PendingValidation {
   key: string;
   mode: PendingValidationMode;
@@ -826,6 +830,7 @@ export const SidebarDatabaseTab = ({ active = false }: SidebarDatabaseTabProps) 
   const [namesExpanded, setNamesExpanded] = useState(false);
   const [titlesExpanded, setTitlesExpanded] = useState(false);
   const [rolesExpanded, setRolesExpanded] = useState(false);
+  const [geoMapPin, setGeoMapPin] = useState<MapPin | null>(null);
   const [newTitle, setNewTitle] = useState({
     dynasty: '',
     fief: '',
@@ -2189,6 +2194,8 @@ export const SidebarDatabaseTab = ({ active = false }: SidebarDatabaseTabProps) 
         for (const validation of validations) {
           if (validation.mode === 'date') {
             await targetStore.sqliteAcceptDateAssertion(id, validation.key);
+          } else if (validation.mode === 'geo') {
+            await targetStore.sqliteAcceptGeoAssertion(id, validation.key);
           } else if (validation.mode === 'description') {
             await targetStore.sqliteAcceptDescriptionAssertion(id, validation.key);
           } else {
@@ -2316,6 +2323,7 @@ export const SidebarDatabaseTab = ({ active = false }: SidebarDatabaseTabProps) 
     nationalityGridRows,
     originGridRows,
     descriptionGroups,
+    geoGroups,
     nameRows,
     roleRows,
   } = useMemo(() => {
@@ -2717,6 +2725,18 @@ export const SidebarDatabaseTab = ({ active = false }: SidebarDatabaseTabProps) 
       showRejected,
     );
 
+    const geoAssertions =
+      editEntity?.kind === 'place'
+        ? editEntity.assertions.filter((assertion) => assertion.element === 'geo')
+        : [];
+    const geoGroups = groupFieldAssertions(
+      geoAssertions,
+      new Set(
+        editEntity?.location ? [`${editEntity.location.lat} ${editEntity.location.lon}`] : [],
+      ),
+      showRejected,
+    );
+
     /** One row per distinct name text: authority badges + accept/reject, grouped like the fields above. */
     const nameTag = editEntity ? ENTITY_KINDS[editEntity.kind].name : null;
     const nameAssertions =
@@ -2826,6 +2846,7 @@ export const SidebarDatabaseTab = ({ active = false }: SidebarDatabaseTabProps) 
       nationalityGridRows,
       originGridRows,
       descriptionGroups,
+      geoGroups,
       nameRows,
       roleRows,
     };
@@ -4013,9 +4034,7 @@ export const SidebarDatabaseTab = ({ active = false }: SidebarDatabaseTabProps) 
                 </IconButton>
               </Tooltip>
             )}
-            {(editEntity?.kind === 'person' ||
-              editEntity?.kind === 'work' ||
-              editEntity?.kind === 'office') && (
+            {editEntity && (
               <Tooltip title={t('LWC.desktop.sidebar.database.refresh_authorities')}>
                 <span>
                   <IconButton
@@ -4195,6 +4214,126 @@ export const SidebarDatabaseTab = ({ active = false }: SidebarDatabaseTabProps) 
               {t('LWC.desktop.sidebar.database.card_wip_note')}
             </Alert>
           )}
+          {editEntity?.kind === 'place' && (
+            <Stack direction="row" spacing={0.5} alignItems="center" sx={{ mb: 0.5 }}>
+              <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                {t('LWC.desktop.sidebar.database.coordinates_heading')}
+              </Typography>
+              <Typography variant="body2" color={editEntity.location ? undefined : 'text.disabled'}>
+                {editEntity.location
+                  ? `${editEntity.location.lat.toFixed(4)}, ${editEntity.location.lon.toFixed(4)}`
+                  : '—'}
+              </Typography>
+              {editEntity.location && (
+                <>
+                  <SourceBadges label={editEntity.location.source ?? 'authority'} />
+                  <Tooltip title={t('LWC.desktop.sidebar.database.show_on_map')}>
+                    <IconButton
+                      size="small"
+                      sx={neutralActionButtonSx}
+                      onClick={() =>
+                        setGeoMapPin({
+                          id: editEntity.id,
+                          label: 'A',
+                          color: '#d32f2f',
+                          lat: editEntity.location!.lat,
+                          lon: editEntity.location!.lon,
+                          sources: editEntity.location!.source
+                            ? [editEntity.location!.source]
+                            : [],
+                          description: editEntity.names[0] ?? editEntity.id,
+                          memberIds: [editEntity.id],
+                        })
+                      }
+                    >
+                      <RoomIcon fontSize="small" />
+                    </IconButton>
+                  </Tooltip>
+                </>
+              )}
+            </Stack>
+          )}
+          {editEntity?.kind === 'place' &&
+            geoGroups.pending.map((assertion) => (
+              <Stack
+                key={assertion.key}
+                direction="row"
+                spacing={0.5}
+                alignItems="center"
+                sx={{ mt: 0.5 }}
+              >
+                <Typography
+                  variant="body2"
+                  sx={{ flex: 1, minWidth: 0 }}
+                  noWrap
+                  title={assertion.value}
+                >
+                  {assertion.value.replace(' ', ', ')}
+                </Typography>
+                <SourceBadges label={assertion.source?.split(':')[0] ?? 'authority'} />
+                <Tooltip title={t('LWC.desktop.sidebar.database.accept_data')}>
+                  <IconButton
+                    size="small"
+                    sx={neutralActionButtonSx}
+                    onClick={() => queueValidation([assertion.key], 'geo')}
+                  >
+                    <CheckIcon fontSize="small" />
+                  </IconButton>
+                </Tooltip>
+                <Tooltip title={t('LWC.desktop.sidebar.database.reject_data')}>
+                  <IconButton
+                    size="small"
+                    sx={neutralActionButtonSx}
+                    onClick={() =>
+                      rejectAssertionKeys(
+                        editEntity.id,
+                        [assertion.key],
+                        t('LWC.desktop.sidebar.database.rejecting_data'),
+                      )
+                    }
+                  >
+                    <ClearIcon fontSize="small" />
+                  </IconButton>
+                </Tooltip>
+              </Stack>
+            ))}
+          {editEntity?.kind === 'place' &&
+            showRejected &&
+            geoGroups.rejected.map((assertion) => (
+              <Stack
+                key={assertion.key}
+                direction="row"
+                spacing={0.5}
+                alignItems="center"
+                sx={{ mt: 0.5 }}
+              >
+                <Typography
+                  variant="body2"
+                  sx={{ flex: 1, minWidth: 0 }}
+                  noWrap
+                  title={assertion.value}
+                  color="text.disabled"
+                >
+                  {assertion.value.replace(' ', ', ')}
+                </Typography>
+                <SourceBadges label={assertion.source?.split(':')[0] ?? 'authority'} />
+                <Tooltip title={t('LWC.desktop.sidebar.database.restore_data')}>
+                  <IconButton
+                    size="small"
+                    sx={neutralActionButtonSx}
+                    onClick={() =>
+                      restoreAssertionKeys(
+                        editEntity.id,
+                        [assertion.key],
+                        t('LWC.desktop.sidebar.database.restoring_data'),
+                      )
+                    }
+                  >
+                    <UndoIcon fontSize="small" />
+                  </IconButton>
+                </Tooltip>
+              </Stack>
+            ))}
           <EntityDescriptionEditor
             initialValue={editDescriptionSeed}
             label={t('LWC.desktop.sidebar.database.one_line_description')}
@@ -4229,7 +4368,6 @@ export const SidebarDatabaseTab = ({ active = false }: SidebarDatabaseTabProps) 
               ))}
             </TextField>
           )}
-          {editEntity && <EntityRelationsEditor entityId={editEntity.id} />}
           {editEntity &&
             descriptionGroups.pending.map((assertion) => (
               <Stack
@@ -4970,6 +5108,13 @@ export const SidebarDatabaseTab = ({ active = false }: SidebarDatabaseTabProps) 
           </Button>
         </DialogActions>
       </Dialog>
+
+      <PlaceComparisonMap
+        open={geoMapPin != null}
+        pins={geoMapPin ? [geoMapPin] : []}
+        title={geoMapPin?.description ?? ''}
+        onClose={() => setGeoMapPin(null)}
+      />
 
       {/* Post-remap summary */}
       <Dialog open={!!lastSummary} onClose={() => setLastSummary(null)} maxWidth="xs" fullWidth>

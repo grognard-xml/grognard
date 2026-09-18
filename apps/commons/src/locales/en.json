@@ -863,6 +863,8 @@
           "dont_warn_detach": "Don't warn me about detaching again",
           "one_line_description": "One-line description",
           "card_wip_note": "Work in progress — this card type is still unfinished.",
+          "coordinates_heading": "Coordinates:",
+          "show_on_map": "Show on map",
           "romanized_name": "Romanized name",
           "refresh_authorities": "Refresh data from authorities",
           "backfill_progress_enriching": "Enriching {{label}}… ({{done}}/{{total}})",

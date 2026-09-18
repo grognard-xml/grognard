@@ -337,6 +337,8 @@
           "dont_warn_detach": "Beim Trennen nicht erneut warnen",
           "one_line_description": "Einzeilige Beschreibung",
           "card_wip_note": "In Arbeit – dieser Kartentyp ist noch nicht fertiggestellt.",
+          "coordinates_heading": "Koordinaten:",
+          "show_on_map": "Auf der Karte anzeigen",
           "romanized_name": "Romanisierter Name",
           "refresh_authorities": "Daten aus Autoritäten aktualisieren",
           "backfill_progress_enriching": "{{label}} wird angereichert… ({{done}}/{{total}})",

@@ -268,6 +268,11 @@ export interface EntityFileApi {
     entityId: string;
     key: string;
   }) => Promise<boolean>;
+  entitySqliteAcceptGeoAssertion?: (input: {
+    databasePath: string;
+    entityId: string;
+    key: string;
+  }) => Promise<boolean>;
   entitySqliteAcceptDescriptionAssertion?: (input: {
     databasePath: string;
     entityId: string;
@@ -423,6 +428,7 @@ export interface EntityFileApi {
       startYear?: number | null;
       endYear?: number | null;
     } | null;
+    geo?: { source: string; lat: number; lon: number }[];
   }) => Promise<{ changed: boolean; namesAdded: number }>;
   entitySqliteReconcileXmlExtractedData?: (input: {
     databasePath: string;
@@ -1036,6 +1042,16 @@ export class EntityStore {
     });
   }
 
+  async sqliteAcceptGeoAssertion(entityId: string, key: string): Promise<boolean> {
+    if (!this.api.entitySqliteAcceptGeoAssertion)
+      throw new Error('SQLite geo acceptance is unavailable.');
+    return this.api.entitySqliteAcceptGeoAssertion({
+      databasePath: this.sqlitePath,
+      entityId,
+      key,
+    });
+  }
+
   async sqliteAcceptDescriptionAssertion(entityId: string, key: string): Promise<boolean> {
     if (!this.api.entitySqliteAcceptDescriptionAssertion)
       throw new Error('SQLite description acceptance is unavailable.');
@@ -1247,6 +1263,7 @@ export class EntityStore {
       startYear?: number | null;
       endYear?: number | null;
     } | null;
+    geo?: { source: string; lat: number; lon: number }[];
   }): Promise<{ changed: boolean; namesAdded: number }> {
     if (!this.api.entitySqliteApplyAuthorityBackfillPatch)
       throw new Error('SQLite authority backfill is unavailable.');
@@ -1740,6 +1757,9 @@ export function desktopEntityFileApi(): EntityFileApi | null {
       : undefined,
     entitySqliteAcceptDateAssertion: rawApi.entitySqliteAcceptDateAssertion
       ? (input) => rawApi.entitySqliteAcceptDateAssertion!(input)
+      : undefined,
+    entitySqliteAcceptGeoAssertion: rawApi.entitySqliteAcceptGeoAssertion
+      ? (input) => rawApi.entitySqliteAcceptGeoAssertion!(input)
       : undefined,
     entitySqliteAcceptDescriptionAssertion: rawApi.entitySqliteAcceptDescriptionAssertion
       ? (input) => rawApi.entitySqliteAcceptDescriptionAssertion!(input)

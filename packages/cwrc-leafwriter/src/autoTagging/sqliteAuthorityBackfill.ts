@@ -31,6 +31,7 @@ import {
   authorityEnrichmentsForEntity,
   buildOfficePackNameIndexForAuthorities,
   buildPackNameIndexForAuthorities,
+  buildPlacePackIndexForAuthorities,
   buildUniqueOfficeAuthorityByName,
   firstAuthorityEnrichment,
   nobleTitleIndexFromPackNameIndex,
@@ -653,6 +654,85 @@ export async function backfillEntitiesSqlite(
       }
     } catch {
       // Attach/panel APIs unavailable — skip office backfill silently.
+    }
+  }
+
+  // Places: pull coordinates from already-linked CBDB/CHGIS authorities.
+  if (!idFilter || entityIds!.some((id) => id.startsWith('place-'))) {
+    try {
+      const placeSummaries = (
+        idFilter
+          ? (
+              await Promise.all(
+                entityIds!
+                  .filter((id) => id.startsWith('place-'))
+                  .map((id) => store.sqliteEntitySummary(id)),
+              )
+            )
+              .map(panelPersonFromSummary)
+              .filter((row): row is PanelPerson => Boolean(row))
+          : ((await store.sqlitePanelSummaries('place')) ?? [])
+              .map(panelPersonFromSummary)
+              .filter((row): row is PanelPerson => Boolean(row))
+      ) as PanelPerson[];
+      const placePackIndex =
+        canReadPacks && placeSummaries.length > 0
+          ? await buildPlacePackIndexForAuthorities(
+              placeSummaries.flatMap((row) => row.authorities),
+              {
+                lookupPackRowsByIds,
+                readPackFile,
+                onPackProgress: (label) =>
+                  onProgress?.({
+                    done: entitiesScanned,
+                    total: Math.max(totalTargets + placeSummaries.length, 1),
+                    entityLabel: label,
+                  }),
+              },
+            )
+          : null;
+      for (const summary of placeSummaries) {
+        if (signal?.aborted) {
+          cancelled = true;
+          break;
+        }
+        if (idFilter && !idFilter.has(summary.id)) continue;
+        const primary =
+          summary.names
+            .find((name) => name.nameType === 'primary')
+            ?.text?.normalize('NFC')
+            .trim() || summary.names[0]?.text?.normalize('NFC').trim();
+        entitiesScanned++;
+        let changed = false;
+        if (placePackIndex) {
+          const geo: { source: string; lat: number; lon: number }[] = [];
+          for (const auth of summary.authorities) {
+            const source = auth.type.trim().toUpperCase();
+            if (source !== 'CBDB' && source !== 'CHGIS') continue;
+            const point = placePackIndex.get(`${source}:${auth.value.trim()}`)?.metadata?.geo;
+            if (point && Number.isFinite(point.lat) && Number.isFinite(point.lon)) {
+              geo.push({ source, lat: point.lat, lon: point.lon });
+            }
+          }
+          if (geo.length > 0) {
+            const result = await store.sqliteApplyAuthorityBackfillPatch({
+              entityId: summary.id,
+              geo,
+            });
+            if (result.changed) changed = true;
+          }
+        }
+        if (changed) entitiesUpdated++;
+        onProgress?.({
+          done: entitiesScanned,
+          total: Math.max(totalTargets + placeSummaries.length, 1),
+          entityId: summary.id,
+          entityLabel: primary || summary.id,
+        });
+        await yieldFn();
+      }
+    } catch {
+      // Attach/panel APIs unavailable — skip place backfill silently.
     }
   }
 

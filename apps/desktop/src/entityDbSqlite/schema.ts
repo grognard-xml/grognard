@@ -8,7 +8,7 @@
 
 import type { EntityDbBackend } from './backend';
 
-export const ENTITY_DB_SCHEMA_VERSION = 11;
+export const ENTITY_DB_SCHEMA_VERSION = 12;
 
 const migration1 = `
 CREATE TABLE IF NOT EXISTS entities (
@@ -548,6 +548,22 @@ CREATE TABLE IF NOT EXISTS things (
 );
 `;
 
+const migration12 = `
+CREATE TABLE IF NOT EXISTS place_locations (
+  id INTEGER PRIMARY KEY,
+  entity_id TEXT NOT NULL REFERENCES entities(id) ON DELETE CASCADE,
+  latitude REAL NOT NULL,
+  longitude REAL NOT NULL,
+  origin TEXT NOT NULL DEFAULT 'user' CHECK (origin IN ('user', 'authority', 'xml')),
+  source TEXT,
+  status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'rejected', 'withdrawn')),
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS place_locations_entity_idx ON place_locations(entity_id);
+`;
+
 /** Exported for tests that need to seed a database at a specific pre-migration schema version. */
 export const migrations: Record<number, string> = {
   1: migration1,
@@ -561,6 +577,7 @@ export const migrations: Record<number, string> = {
   9: migration9,
   10: migration10,
   11: migration11,
+  12: migration12,
 };
 
 /**

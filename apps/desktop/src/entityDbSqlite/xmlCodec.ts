@@ -222,6 +222,7 @@ export async function importEntitiesXml(
         DELETE FROM person_origins;
         DELETE FROM person_nationalities;
         DELETE FROM entity_dates;
+        DELETE FROM place_locations;
         DELETE FROM entity_authorities;
         DELETE FROM entity_names;
         DELETE FROM offices;
@@ -525,6 +526,28 @@ export async function importEntitiesXml(
             );
             continue;
           }
+          if (childName === 'geo') {
+            const [latRaw, lonRaw] = (childText ?? '').trim().split(/\s+/);
+            const lat = Number(latRaw);
+            const lon = Number(lonRaw);
+            if (Number.isFinite(lat) && Number.isFinite(lon)) {
+              await db.run(
+                `INSERT INTO place_locations
+                  (entity_id, latitude, longitude, origin, source, status, created_at, updated_at)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+                [id, lat, lon, p.origin, p.source, p.status, childNow, childNow],
+              );
+              if (kind === 'place' && p.status === 'active') {
+                await db.run(
+                  `INSERT INTO places (entity_id, latitude, longitude)
+                     VALUES (?, ?, ?)
+                   ON CONFLICT(entity_id) DO UPDATE SET latitude = excluded.latitude, longitude = excluded.longitude`,
+                  [id, lat, lon],
+                );
+              }
+            }
+            continue;
+          }
           if (
             childName === 'note' &&
             ['dates', 'fl.', 'floruit'].includes(child.getAttribute('type'))
@@ -781,6 +804,7 @@ export async function importEntitiesXml(
       ['person_offices', 'person_id'],
       ['office_classifications', 'office_id'],
       ['entity_metadata', 'entity_id'],
+      ['place_locations', 'entity_id'],
     ] as const) {
       await db.exec(
         `INSERT OR IGNORE INTO entity_tombstones (entity_id, table_name, row_id, reason, created_at)
@@ -989,6 +1013,20 @@ async function entityXml(db: EntityDbBackend, entity: Record<string, unknown>): 
       parts.push(
         `<note type="${attrEscape(String(row.date_kind || 'dates'))}"${attrs}${row.raw_text ? `>${xmlEscape(String(row.raw_text))}</note>` : '/>'}`,
       );
+    }
+  }
+  if (kind === 'place') {
+    for (const row of await rows(
+      db,
+      `SELECT * FROM place_locations WHERE entity_id = ? ORDER BY id`,
+      id,
+    )) {
+      const attrs = [
+        row.origin !== 'user' ? ` origin="${attrEscape(String(row.origin))}"` : '',
+        row.source ? ` source="${attrEscape(String(row.source))}"` : '',
+        row.status !== 'active' ? ` status="${attrEscape(String(row.status))}"` : '',
+      ].join('');
+      parts.push(`<geo${attrs}>${String(row.latitude)} ${String(row.longitude)}</geo>`);
     }
   }
   if (kind === 'person') {

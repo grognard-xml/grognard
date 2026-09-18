@@ -1968,6 +1968,7 @@ export class AutoTaggingSession {
       origin: candidate.authorityMetadata?.origin,
       authorityAssertions,
       localEntityId: options.createNew ? undefined : candidate.localEntityId,
+      geo: kind === 'place' ? candidate.geo : undefined,
     });
     // Keep display-only title headwords as searchable variants when we minted
     // a reconstructed personal name instead.

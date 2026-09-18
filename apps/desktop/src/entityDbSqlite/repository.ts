@@ -145,6 +145,8 @@ export interface SqliteEntityPanelSummary extends SqliteEntitySummary {
   } | null;
   /** work kind only: 'book' | 'chapter' | 'poem' | 'painting' | 'object'. */
   workType: string | null;
+  /** place kind only: the currently accepted coordinate + its source, if any. */
+  location: { lat: number; lon: number; source: string | null } | null;
   /** thing kind only: user-defined sub-category id from Project Settings (entity_metadata key='subtype'). */
   subtype: string | null;
   /** Vernacular glosses (fr/en/…); not searched as names. */
@@ -446,6 +448,8 @@ export interface AuthorityBackfillPatch {
     startYear?: number | null;
     endYear?: number | null;
   } | null;
+  /** Place kind only: authority-origin coordinates, one entry per source. */
+  geo?: { source: string; lat: number; lon: number }[];
   now?: string;
 }
 
@@ -480,6 +484,7 @@ const ASSERTION_OWNER: Record<string, string> = {
   person_titles: 'person_id',
   person_offices: 'person_id',
   work_authors: 'work_id',
+  place_locations: 'entity_id',
 };
 
 function nowIso(): string {
@@ -581,6 +586,7 @@ function assemblePanelSummary(
     translationRows: Record<string, unknown>[];
     descriptionRows: Record<string, unknown>[];
     classificationRows: Record<string, unknown>[];
+    locationRows: Record<string, unknown>[];
     subtype: string | null;
   },
   allRejections: SqliteConcordanceRejection[],
@@ -687,6 +693,17 @@ function assemblePanelSummary(
       status: date.status as SqliteValueStatus,
       precision: (date.start_precision as string | null) ?? null,
       noteType: kind === 'birth' || kind === 'death' ? null : 'dates',
+      ref: null,
+    });
+  }
+  for (const location of bags.locationRows) {
+    addAssertion({
+      key: `place_locations:${location.id}`,
+      element: 'geo',
+      value: `${location.latitude} ${location.longitude}`,
+      origin: location.origin as SqliteValueOrigin,
+      source: (location.source as string | null) ?? null,
+      status: location.status as SqliteValueStatus,
       ref: null,
     });
   }
@@ -837,6 +854,16 @@ function assemblePanelSummary(
     entity.kind === 'work'
       ? null
       : (preferredVitalYear('death') ?? (genericDatesRow?.end_year as number | null) ?? null);
+  const activeLocations = bags.locationRows.filter((row) => row.status === 'active');
+  const preferredLocation =
+    activeLocations.find((row) => row.origin === 'user') ?? activeLocations[0];
+  const location = preferredLocation
+    ? {
+        lat: Number(preferredLocation.latitude),
+        lon: Number(preferredLocation.longitude),
+        source: (preferredLocation.source as string | null) ?? null,
+      }
+    : null;
   return {
     ...entity,
     // Merge glosses into names so the entity editor / sqliteSummary keep working
@@ -851,6 +878,7 @@ function assemblePanelSummary(
     startYear: entity.kind === 'work' ? (workDate?.startYear ?? null) : fallbackStartYear,
     endYear: entity.kind === 'work' ? (workDate?.endYear ?? null) : fallbackEndYear,
     workDate,
+    location: entity.kind === 'place' ? location : null,
     workType: bags.work?.work_type ?? (entity.kind === 'work' ? 'book' : null),
     subtype: entity.kind === 'thing' ? bags.subtype : null,
     classification,
@@ -1797,6 +1825,11 @@ export class EntitySqliteRepository {
              FROM entity_dates WHERE entity_id = ? ORDER BY id`,
           [id],
         )) as Record<string, unknown>[],
+        locationRows: (await this.activeBackend.all(
+          `SELECT id, latitude, longitude, origin, source, status
+             FROM place_locations WHERE entity_id = ? ORDER BY id`,
+          [id],
+        )) as Record<string, unknown>[],
         nationalityRows: (await this.activeBackend.all(
           `SELECT id, label, reference, origin, source, status
              FROM person_nationalities WHERE person_id = ? ORDER BY id`,
@@ -1983,6 +2016,11 @@ export class EntitySqliteRepository {
            FROM office_classifications ORDER BY id`)) as Record<string, unknown>[],
       'office_id',
     );
+    const locationsByEntity = groupRowsByKey(
+      (await this.activeBackend.all(`SELECT id, entity_id, latitude, longitude, origin, source, status
+           FROM place_locations ORDER BY id`)) as Record<string, unknown>[],
+      'entity_id',
+    );
 
     const empty: Record<string, unknown>[] = [];
     return entityRows.map((row) => {
@@ -2007,6 +2045,7 @@ export class EntitySqliteRepository {
           person: peopleByEntity.get(id),
           work: worksByEntity.get(id),
           dates: datesByEntity.get(id) ?? empty,
+          locationRows: locationsByEntity.get(id) ?? empty,
           nationalityRows: nationalityByPerson.get(id) ?? empty,
           originRows: originByPerson.get(id) ?? empty,
           officeRows: officeByPerson.get(id) ?? empty,
@@ -3559,7 +3598,11 @@ export class EntitySqliteRepository {
           const sourceValue = row.source.slice(sourcePrefix.length);
           if (normalizeAuthorityValue(type, sourceValue) !== normalized) continue;
           if (row.origin !== 'authority') continue;
-          if (row.status === 'active' || (row.status === 'rejected' && table === 'entity_dates')) {
+          if (
+            row.status === 'active' ||
+            (row.status === 'rejected' &&
+              (table === 'entity_dates' || table === 'place_locations'))
+          ) {
             await this.activeBackend.run(`DELETE FROM ${table} WHERE id = ?`, [row.id]);
             removed += 1;
           }
@@ -3572,6 +3615,7 @@ export class EntitySqliteRepository {
       await purgeBySource('person_titles', 'person_id');
       await purgeBySource('person_offices', 'person_id');
       await purgeBySource('work_authors', 'work_id');
+      await purgeBySource('place_locations', 'entity_id');
 
       await this.activeBackend.run(
         `DELETE FROM authority_caches
@@ -3624,6 +3668,34 @@ export class EntitySqliteRepository {
            WHERE id = ?`,
         [now, parsed.rowId],
       );
+      await this.bumpEntity(entityId, now);
+      return true;
+    });
+  }
+
+  async acceptGeoAssertion(entityId: string, key: string, now = nowIso()): Promise<boolean> {
+    const parsed = parseAssertionKey(key);
+    if (!parsed || parsed.kind !== 'row' || parsed.table !== 'place_locations') return false;
+    return this.transaction(async () => {
+      const row = (await this.activeBackend.get('SELECT * FROM place_locations WHERE id = ?', [
+        parsed.rowId,
+      ])) as Record<string, unknown> | undefined;
+      if (!row || String(row.entity_id) !== entityId) return false;
+      const others = (await this.activeBackend.all(
+        `SELECT id FROM place_locations
+           WHERE entity_id = ? AND origin = 'user' AND id != ?`,
+        [entityId, parsed.rowId],
+      )) as { id: number }[];
+      for (const other of others) {
+        await this.activeBackend.run('DELETE FROM place_locations WHERE id = ?', [other.id]);
+      }
+      await this.activeBackend.run(
+        `UPDATE place_locations
+           SET origin = 'user', source = NULL, status = 'active', updated_at = ?
+           WHERE id = ?`,
+        [now, parsed.rowId],
+      );
+      await this.syncPlaceLocationScalars(entityId, Number(row.latitude), Number(row.longitude));
       await this.bumpEntity(entityId, now);
       return true;
     });
@@ -3926,6 +3998,7 @@ export class EntitySqliteRepository {
       ['person_offices', 'person_id'],
       ['work_authors', 'work_id'],
       ['office_classifications', 'office_id'],
+      ['place_locations', 'entity_id'],
     ];
     for (const [table, ownerCol] of tables) {
       try {
@@ -4091,6 +4164,11 @@ export class EntitySqliteRepository {
       'office_id',
       await sourceRows('office_classifications', 'office_id'),
     );
+    await insertRows(
+      'place_locations',
+      'entity_id',
+      await sourceRows('place_locations', 'entity_id'),
+    );
 
     const kind = (await this.getEntity(targetId))?.kind;
     if (kind === 'person') {
@@ -4103,6 +4181,15 @@ export class EntitySqliteRepository {
           'UPDATE people SET family_name = ?, given_name = ? WHERE entity_id = ?',
           [person.family_name, person.given_name, targetId],
         );
+      }
+    }
+    if (kind === 'place') {
+      const place = (await source.backend.get(
+        'SELECT latitude, longitude FROM places WHERE entity_id = ?',
+        [sourceId],
+      )) as { latitude: number | null; longitude: number | null } | undefined;
+      if (place && place.latitude != null && place.longitude != null) {
+        await this.syncPlaceLocationScalars(targetId, place.latitude, place.longitude);
       }
     }
 
@@ -4118,6 +4205,7 @@ export class EntitySqliteRepository {
       ['person_offices', 'person_id'],
       ['office_classifications', 'office_id'],
       ['entity_metadata', 'entity_id'],
+      ['place_locations', 'entity_id'],
     ] as const) {
       await this.activeBackend.run(
         `INSERT OR IGNORE INTO entity_tombstones (entity_id, table_name, row_id, reason, created_at)
@@ -4244,6 +4332,28 @@ export class EntitySqliteRepository {
             now,
             now,
           ],
+        );
+        changed = true;
+      };
+
+      const upsertAuthorityGeo = async (source: string, lat: number, lon: number) => {
+        const normalizedSource = source.trim().toUpperCase();
+        const existing = (await this.activeBackend.all(
+          `SELECT id, latitude, longitude FROM place_locations
+             WHERE entity_id = ? AND origin = 'authority' AND UPPER(COALESCE(source, '')) = ?
+             ORDER BY id`,
+          [patch.entityId, normalizedSource],
+        )) as { id: number; latitude: number; longitude: number }[];
+        const exact = existing.find((row) => row.latitude === lat && row.longitude === lon);
+        if (exact) return;
+        for (const row of existing) {
+          await this.activeBackend.run('DELETE FROM place_locations WHERE id = ?', [row.id]);
+        }
+        await this.activeBackend.run(
+          `INSERT INTO place_locations
+               (entity_id, latitude, longitude, origin, source, status, created_at, updated_at)
+             VALUES (?, ?, ?, 'authority', ?, 'active', ?, ?)`,
+          [patch.entityId, lat, lon, normalizedSource, now, now],
         );
         changed = true;
       };
@@ -4609,6 +4719,10 @@ export class EntitySqliteRepository {
           patch.workDate.startYear,
           patch.workDate.endYear,
         );
+      }
+
+      for (const point of patch.geo ?? []) {
+        await upsertAuthorityGeo(point.source, point.lat, point.lon);
       }
 
       for (const value of patch.nationalities ?? []) {
@@ -5190,6 +5304,20 @@ export class EntitySqliteRepository {
       await this.bumpEntity(entityId, now);
       return true;
     });
+  }
+
+  private async syncPlaceLocationScalars(
+    entityId: string,
+    latitude: number,
+    longitude: number,
+  ): Promise<void> {
+    if ((await this.getEntity(entityId))?.kind !== 'place') return;
+    await this.activeBackend.run(
+      `INSERT INTO places (entity_id, latitude, longitude)
+         VALUES (?, ?, ?)
+       ON CONFLICT(entity_id) DO UPDATE SET latitude = excluded.latitude, longitude = excluded.longitude`,
+      [entityId, latitude, longitude],
+    );
   }
 
   private async syncPersonNameScalars(

@@ -1,11 +1,14 @@
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
+import RoomIcon from '@mui/icons-material/Room';
 import {
   Accordion,
   AccordionDetails,
   AccordionSummary,
   Box,
   Chip,
+  IconButton,
   Stack,
+  Tooltip,
   Typography,
 } from '@mui/material';
 import type { ReactNode } from 'react';
@@ -74,11 +77,14 @@ export const EntityCompareCard = ({
   selected,
   onSelect,
   detail = false,
+  onOpenMap,
 }: {
   model: CompareCardModel;
   selected?: boolean;
   onSelect?: () => void;
   detail?: boolean;
+  /** Called when the map icon next to Coordinates is clicked (place kind, detail mode only). */
+  onOpenMap?: () => void;
 }) => {
   const hl = new Set(model.highlightFields ?? []);
   const dateLabel =
@@ -187,43 +193,83 @@ export const EntityCompareCard = ({
             </Box>
           )}
 
-          <Box
-            sx={{
-              display: 'grid',
-              gridTemplateColumns: 'max-content minmax(0, 1fr)',
-              gap: 0.25,
-              alignItems: 'center',
-            }}
-          >
-            <Typography variant="body2" sx={{ fontWeight: 600, whiteSpace: 'nowrap' }}>
-              Dates:
-            </Typography>
-            <Typography variant="body2">{dateLabel ?? dash}</Typography>
-            <Typography variant="body2" sx={{ fontWeight: 600, whiteSpace: 'nowrap' }}>
-              Nationality:
-            </Typography>
-            <Typography variant="body2">
-              {model.nationalities.length ? model.nationalities.join(', ') : dash}
-            </Typography>
-            <Typography variant="body2" sx={{ fontWeight: 600, whiteSpace: 'nowrap' }}>
-              Origin:
-            </Typography>
-            <Typography variant="body2">
-              {model.placesOfOrigin.length ? model.placesOfOrigin.join(', ') : dash}
-            </Typography>
-          </Box>
+          {(model.kind === 'person' ||
+            model.kind === 'work' ||
+            model.kind === 'place') && (
+            <Box
+              sx={{
+                display: 'grid',
+                gridTemplateColumns: 'max-content minmax(0, 1fr)',
+                gap: 0.25,
+                alignItems: 'center',
+              }}
+            >
+              {(model.kind === 'person' || model.kind === 'work') && (
+                <>
+                  <Typography variant="body2" sx={{ fontWeight: 600, whiteSpace: 'nowrap' }}>
+                    Dates:
+                  </Typography>
+                  <Typography variant="body2">{dateLabel ?? dash}</Typography>
+                </>
+              )}
+              {model.kind === 'person' && (
+                <>
+                  <Typography variant="body2" sx={{ fontWeight: 600, whiteSpace: 'nowrap' }}>
+                    Nationality:
+                  </Typography>
+                  <Typography variant="body2">
+                    {model.nationalities.length ? model.nationalities.join(', ') : dash}
+                  </Typography>
+                  <Typography variant="body2" sx={{ fontWeight: 600, whiteSpace: 'nowrap' }}>
+                    Origin:
+                  </Typography>
+                  <Typography variant="body2">
+                    {model.placesOfOrigin.length ? model.placesOfOrigin.join(', ') : dash}
+                  </Typography>
+                </>
+              )}
+              {model.kind === 'place' && (
+                <>
+                  <Typography variant="body2" sx={{ fontWeight: 600, whiteSpace: 'nowrap' }}>
+                    Coordinates:
+                  </Typography>
+                  <Stack direction="row" spacing={0.5} alignItems="center">
+                    <Typography variant="body2">
+                      {model.location
+                        ? `${model.location.lat.toFixed(4)}, ${model.location.lon.toFixed(4)}`
+                        : dash}
+                    </Typography>
+                    {model.location && (
+                      <SourceBadges label={model.location.source ?? 'authority'} compact />
+                    )}
+                    {onOpenMap && model.location && (
+                      <Tooltip title="Show on map">
+                        <IconButton size="small" onClick={onOpenMap}>
+                          <RoomIcon fontSize="small" />
+                        </IconButton>
+                      </Tooltip>
+                    )}
+                  </Stack>
+                </>
+              )}
+            </Box>
+          )}
 
           <DetailAccordion title="Names">
             <Stack spacing={0.25}>
               <Field label="Primary">
                 <Typography variant="body2">{model.primaryName ?? dash}</Typography>
               </Field>
-              <Field label="姓">
-                <Typography variant="body2">{model.familyName ?? dash}</Typography>
-              </Field>
-              <Field label="名">
-                <Typography variant="body2">{model.givenName ?? dash}</Typography>
-              </Field>
+              {model.kind === 'person' && (
+                <>
+                  <Field label="姓">
+                    <Typography variant="body2">{model.familyName ?? dash}</Typography>
+                  </Field>
+                  <Field label="名">
+                    <Typography variant="body2">{model.givenName ?? dash}</Typography>
+                  </Field>
+                </>
+              )}
               <Field label="Other names">
                 <Stack direction="row" flexWrap="wrap" gap={0.5}>
                   {model.otherNames.length === 0
@@ -239,16 +285,20 @@ export const EntityCompareCard = ({
               </Field>
             </Stack>
           </DetailAccordion>
-          <DetailAccordion title="Noble titles">
-            <Typography variant="body2">
-              {model.nobleTitles?.length ? model.nobleTitles.join(', ') : dash}
-            </Typography>
-          </DetailAccordion>
-          <DetailAccordion title="Roles">
-            <Typography variant="body2">
-              {model.roles?.length ? model.roles.join(', ') : dash}
-            </Typography>
-          </DetailAccordion>
+          {model.kind === 'person' && (
+            <DetailAccordion title="Noble titles">
+              <Typography variant="body2">
+                {model.nobleTitles?.length ? model.nobleTitles.join(', ') : dash}
+              </Typography>
+            </DetailAccordion>
+          )}
+          {model.kind === 'person' && (
+            <DetailAccordion title="Roles">
+              <Typography variant="body2">
+                {model.roles?.length ? model.roles.join(', ') : dash}
+              </Typography>
+            </DetailAccordion>
+          )}
         </Stack>
       ) : (
         <Stack spacing={0.5}>
@@ -271,14 +321,16 @@ export const EntityCompareCard = ({
             <Typography variant="body2">{model.romanized ?? dash}</Typography>
           </Field>
 
-          <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 0.5 }}>
-            <Field label="姓" highlight={hl.has('familyName')}>
-              <Typography variant="body2">{model.familyName ?? dash}</Typography>
-            </Field>
-            <Field label="名" highlight={hl.has('givenName')}>
-              <Typography variant="body2">{model.givenName ?? dash}</Typography>
-            </Field>
-          </Box>
+          {model.kind === 'person' && (
+            <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 0.5 }}>
+              <Field label="姓" highlight={hl.has('familyName')}>
+                <Typography variant="body2">{model.familyName ?? dash}</Typography>
+              </Field>
+              <Field label="名" highlight={hl.has('givenName')}>
+                <Typography variant="body2">{model.givenName ?? dash}</Typography>
+              </Field>
+            </Box>
+          )}
 
           <Field label="Other names" highlight={hl.has('otherNames')}>
             <Stack direction="row" flexWrap="wrap" gap={0.5}>
@@ -294,33 +346,54 @@ export const EntityCompareCard = ({
             </Stack>
           </Field>
 
-          <Field label="Dates" highlight={hl.has('dates')}>
-            <Typography variant="body2">{dateLabel ?? dash}</Typography>
-          </Field>
+          {(model.kind === 'person' || model.kind === 'work') && (
+            <Field label="Dates" highlight={hl.has('dates')}>
+              <Typography variant="body2">{dateLabel ?? dash}</Typography>
+            </Field>
+          )}
 
-          <Field label="Dynasties / nationalities" highlight={hl.has('nationalities')}>
-            <Typography variant="body2">
-              {model.nationalities.length ? model.nationalities.join(', ') : dash}
-            </Typography>
-          </Field>
+          {model.kind === 'person' && (
+            <>
+              <Field label="Dynasties / nationalities" highlight={hl.has('nationalities')}>
+                <Typography variant="body2">
+                  {model.nationalities.length ? model.nationalities.join(', ') : dash}
+                </Typography>
+              </Field>
 
-          <Field label="Origin" highlight={hl.has('origins')}>
-            <Typography variant="body2">
-              {model.placesOfOrigin.length ? model.placesOfOrigin.join(', ') : dash}
-            </Typography>
-          </Field>
+              <Field label="Origin" highlight={hl.has('origins')}>
+                <Typography variant="body2">
+                  {model.placesOfOrigin.length ? model.placesOfOrigin.join(', ') : dash}
+                </Typography>
+              </Field>
 
-          <Field label="Roles" highlight={hl.has('roles')}>
-            <Typography variant="body2">
-              {model.roles?.length ? model.roles.join(', ') : dash}
-            </Typography>
-          </Field>
+              <Field label="Roles" highlight={hl.has('roles')}>
+                <Typography variant="body2">
+                  {model.roles?.length ? model.roles.join(', ') : dash}
+                </Typography>
+              </Field>
 
-          <Field label="Noble titles" highlight={hl.has('nobleTitles')}>
-            <Typography variant="body2">
-              {model.nobleTitles?.length ? model.nobleTitles.join(', ') : dash}
-            </Typography>
-          </Field>
+              <Field label="Noble titles" highlight={hl.has('nobleTitles')}>
+                <Typography variant="body2">
+                  {model.nobleTitles?.length ? model.nobleTitles.join(', ') : dash}
+                </Typography>
+              </Field>
+            </>
+          )}
+
+          {model.kind === 'place' && (
+            <Field label="Coordinates" highlight={hl.has('location')}>
+              <Stack direction="row" spacing={0.5} alignItems="center">
+                <Typography variant="body2">
+                  {model.location
+                    ? `${model.location.lat.toFixed(4)}, ${model.location.lon.toFixed(4)}`
+                    : dash}
+                </Typography>
+                {model.location && (
+                  <SourceBadges label={model.location.source ?? 'authority'} compact />
+                )}
+              </Stack>
+            </Field>
+          )}
 
           <Field label="Description" highlight={hl.has('description')}>
             <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap' }}>

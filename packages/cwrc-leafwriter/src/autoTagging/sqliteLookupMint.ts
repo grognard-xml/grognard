@@ -37,6 +37,8 @@ export interface SqliteMintEntityInput {
   authorityAssertions?: AuthoritySourcedFields[];
   authoritySource?: string | null;
   origin?: OriginAssertion[];
+  /** Place kind only: authority-sourced coordinates. */
+  geo?: { lat: number; lon: number } | null;
 }
 
 async function enrichPersonAuthority(
@@ -214,6 +216,7 @@ export async function enrichEntitySqlite(
     familyName?: string | null;
     givenName?: string | null;
     nameLang?: string | null;
+    geo?: { lat: number; lon: number } | null;
   },
 ): Promise<void> {
   await assertLookupSqliteStore(store);
@@ -222,6 +225,18 @@ export async function enrichEntitySqlite(
   }
   if (input.romanizedName) {
     await store.sqliteSetRomanizedName(entityId, input.romanizedName, input.nameLang ?? undefined);
+  }
+  if (input.kind === 'place' && input.geo) {
+    await store.sqliteApplyAuthorityBackfillPatch({
+      entityId,
+      geo: [
+        {
+          source: input.authoritySource ?? 'authority',
+          lat: input.geo.lat,
+          lon: input.geo.lon,
+        },
+      ],
+    });
   }
   if (input.kind === 'person') {
     if (input.familyName) {
@@ -303,6 +318,7 @@ export async function mintEntitySqlite(
     authorityAssertions: input.authorityAssertions,
     authoritySource: input.authoritySource,
     origin: input.origin,
+    geo: input.geo,
   });
   return id;
 }

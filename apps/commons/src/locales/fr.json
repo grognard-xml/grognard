@@ -681,6 +681,8 @@
           "dont_warn_detach": "Ne plus m’avertir lors du détachement",
           "one_line_description": "Description en une ligne",
           "card_wip_note": "En cours — ce type de fiche n’est pas encore achevé.",
+          "coordinates_heading": "Coordonnées :",
+          "show_on_map": "Afficher sur la carte",
           "romanized_name": "Nom romanisé",
           "refresh_authorities": "Actualiser les données des autorités",
           "backfill_progress_enriching": "Enrichissement de {{label}}… ({{done}}/{{total}})",

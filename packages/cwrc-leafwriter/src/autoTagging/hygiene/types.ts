@@ -1,3 +1,4 @@
+import type { EntityKind } from '../entities';
 import type { EntitySummary, NameEntry } from '../entityOps';
 import type { NameTypeId } from '../nameTypes';
 import type { EntityDataAssertion } from '../../plugins/entityDataExtractors';
@@ -81,6 +82,7 @@ export interface HygieneFinding {
 export interface CompareCardModel {
   title: string;
   subtitle?: string;
+  kind?: EntityKind;
   primaryName: string | null;
   romanized: string | null;
   familyName: string | null;
@@ -95,6 +97,8 @@ export interface CompareCardModel {
   description: string | null;
   /** thing kind only: user-defined sub-category id. */
   subtype?: string | null;
+  /** place kind only: the currently accepted coordinate + its source. */
+  location?: { lat: number; lon: number; source: string | null } | null;
   authorities: { type: string; value: string }[];
   /** Field keys to lightly highlight as differing / proposed. */
   highlightFields?: string[];
@@ -114,6 +118,7 @@ export function entityToCompareCard(
   return {
     title: options?.title ?? entity.names[0] ?? entity.id,
     subtitle: entity.id,
+    kind: entity.kind,
     primaryName: entity.names[0] ?? null,
     romanized: entity.romanized,
     familyName: entity.familyName,
@@ -121,6 +126,7 @@ export function entityToCompareCard(
     otherNames,
     startYear: entity.startYear,
     endYear: entity.endYear,
+    location: entity.location ?? null,
     nationalities: entity.nationalities,
     placesOfOrigin: entity.placesOfOrigin,
     roles: entity.roles,

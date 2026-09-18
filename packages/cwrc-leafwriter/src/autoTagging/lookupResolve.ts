@@ -35,7 +35,7 @@ import { authorityPackLines, type AuthorityPackContent } from './packLoader';
 import { WARNINGS_FILE } from './lookupWarnings';
 import type { LookupWarning } from './lookupWarnings';
 import type { SqlitePanelSummaryLike } from './sqliteSummary';
-import { typedNamesFromPackRow, type TypedName } from './disambiguationCandidates';
+import { normalizeGeo, typedNamesFromPackRow, type TypedName } from './disambiguationCandidates';
 import { preferCanonicalFamilyGiven } from './nameTypes';
 import {
   isNobleTitleHeadword,
@@ -185,6 +185,8 @@ export interface CrosswalkResult {
       posthumousNameAbbr?: string | null;
       roleName?: string | null;
     }[];
+    /** Place kind only: authority-sourced coordinates. */
+    geo?: { lat: number; lon: number };
   };
 }
 
@@ -218,6 +220,8 @@ interface PackRow {
       posthumousNameAbbr?: string | null;
       roleName?: string | null;
     }[];
+    /** Place kind only: authority-sourced coordinates. */
+    geo?: { lat: number; lon: number };
   };
 }
 
@@ -323,6 +327,7 @@ export async function crosswalkForRef(
           typedNames: typedNamesFromPackRow(row.names),
           nobleTitle: row.metadata?.nobleTitle,
           nobleTitles: row.metadata?.nobleTitles,
+          geo: normalizeGeo(row.metadata?.geo),
         };
       }
     }
@@ -383,6 +388,8 @@ export type LookupResolutionPlan =
       typedNames?: TypedName[];
       familyName?: string;
       givenName?: string;
+      /** Place kind only: authority-sourced coordinates. */
+      geo?: { lat: number; lon: number };
     }
   | {
       action: 'mint';
@@ -402,6 +409,8 @@ export type LookupResolutionPlan =
       givenName?: string;
       /** Pack short forms (bare 姓/名/字, …) written as typed names on mint. */
       typedNames?: TypedName[];
+      /** Place kind only: authority-sourced coordinates. */
+      geo?: { lat: number; lon: number };
     }
   | { action: 'conflict'; candidates: LookupConflictCandidate[]; idnos: AuthorityId[] }
   /** Entity type has no home in entities.xml (thing/concept) — plain URI link. */
@@ -603,6 +612,7 @@ export async function planLookupResolution(
       endYear: candidateMeta?.endYear,
       nationality: candidateMeta?.nationality,
       authorityAssertions,
+      geo: kind === 'place' ? candidateMeta?.geo : undefined,
       ...packPerson,
     };
   }
@@ -634,6 +644,7 @@ export async function planLookupResolution(
       endYear: candidateMeta?.endYear,
       nationality: candidateMeta?.nationality,
       authorityAssertions,
+      geo: kind === 'place' ? candidateMeta?.geo : undefined,
       ...packPerson,
     };
   }
@@ -691,6 +702,7 @@ export async function planLookupResolution(
     familyName: packPerson.familyName ?? personSplit?.familyName,
     givenName: packPerson.givenName ?? personSplit?.givenName,
     typedNames: packPerson.typedNames,
+    geo: kind === 'place' ? candidateMeta?.geo : undefined,
   };
 }
 
@@ -760,7 +772,8 @@ export async function applyLookupResolution(
       plan.endYear != null ||
       plan.authorityAssertions?.length ||
       plan.familyName ||
-      plan.givenName
+      plan.givenName ||
+      plan.geo
     ) {
       await enrichEntitySqlite(deps.store, plan.key, {
         kind,
@@ -773,6 +786,7 @@ export async function applyLookupResolution(
           plan.authoritySource ?? parseAuthorityUri(input.uri)?.idnoType ?? 'authority',
         familyName: plan.familyName,
         givenName: plan.givenName,
+        geo: plan.geo,
       });
     }
     for (const typed of plan.typedNames ?? []) {
@@ -818,6 +832,7 @@ export async function applyLookupResolution(
     authorityAssertions: kind === 'person' ? plan.authorityAssertions : undefined,
     familyName: plan.familyName,
     givenName: plan.givenName,
+    geo: plan.geo,
   });
   for (const typed of plan.typedNames ?? []) {
     await deps.store.sqliteAddName({

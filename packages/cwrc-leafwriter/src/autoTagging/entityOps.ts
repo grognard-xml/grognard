@@ -97,6 +97,8 @@ export interface EntitySummary {
   startYear: number | null;
   endYear: number | null;
   workDate: WorkDateSummary | null;
+  /** Place kind only: the currently accepted coordinate + its source, if any. */
+  location?: { lat: number; lon: number; source: string | null } | null;
   /** 'book' | 'chapter' | 'poem' | 'painting' | 'object'. Work kind only; null for the
    * XML-interchange path (summarizeEntity) until work_type is wired into XML round-trip. */
   workType: string | null;
@@ -211,6 +213,20 @@ const activeDateYear = (item: Element, tag: 'birth' | 'death'): number | null =>
   return parseIsoYear(selected?.getAttribute('when'));
 };
 
+const activeGeo = (item: Element): { lat: number; lon: number; source: string | null } | null => {
+  const points = Array.from(item.children).filter(
+    (child) => child.localName === 'geo' && readEntityValueProvenance(child).status === 'active',
+  );
+  const selected =
+    points.find((child) => readEntityValueProvenance(child).origin === 'user') ?? points[0];
+  if (!selected) return null;
+  const [latRaw, lonRaw] = (selected.textContent ?? '').trim().split(/\s+/);
+  const lat = Number(latRaw);
+  const lon = Number(lonRaw);
+  if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
+  return { lat, lon, source: readEntityValueProvenance(selected).source };
+};
+
 const activeWorkDate = (item: Element): WorkDateSummary | null => {
   const note = Array.from(item.children).find(
     (child) =>
@@ -277,6 +293,7 @@ export function summarizeEntity(
     workType: null,
     startYear: kind === 'work' ? (workDate?.startYear ?? null) : activeDateYear(item, 'birth'),
     endYear: kind === 'work' ? (workDate?.endYear ?? null) : activeDateYear(item, 'death'),
+    location: kind === 'place' ? activeGeo(item) : null,
     nationalities: Array.from(
       new Set(
         Array.from(item.children)

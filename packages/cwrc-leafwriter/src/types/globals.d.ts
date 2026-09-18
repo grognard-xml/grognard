@@ -200,6 +200,11 @@ declare global {
       entityId: string;
       key: string;
     }) => Promise<boolean>;
+    entitySqliteAcceptGeoAssertion?: (request: {
+      databasePath: string;
+      entityId: string;
+      key: string;
+    }) => Promise<boolean>;
     entitySqliteAcceptDescriptionAssertion?: (request: {
       databasePath: string;
       entityId: string;

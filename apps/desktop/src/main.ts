@@ -258,6 +258,7 @@ import { searchDaozangWorks } from './daozangWorks';
 import {
   closeEntitySqliteReadRepositories,
   acceptEntitySqliteDateAssertion,
+  acceptEntitySqliteGeoAssertion,
   acceptEntitySqliteDescriptionAssertion,
   addEntitySqliteName,
   addEntitySqliteNationality,
@@ -2380,6 +2381,17 @@ const registerIpcHandlers = () => {
       await assertRendererReadPath(request.databasePath);
       await assertRendererWritePath(request.databasePath);
       return acceptEntitySqliteDateAssertion(request);
+    },
+  );
+  ipcMain.handle(
+    'entitySqlite:acceptGeoAssertion',
+    async (
+      _event,
+      request: import('./entityDbSqlite/readService').EntitySqliteAssertionRequest,
+    ) => {
+      await assertRendererReadPath(request.databasePath);
+      await assertRendererWritePath(request.databasePath);
+      return acceptEntitySqliteGeoAssertion(request);
     },
   );
   ipcMain.handle(

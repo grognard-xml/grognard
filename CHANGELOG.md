@@ -642,6 +642,16 @@ Investigated [issue #53](https://github.com/grognard-xml/grognard/issues/53) (a 
 
 Added regression tests for both (`repository.test.ts`, `lookupResolve.test.ts`).
 
+### Place entity database UI
+
+The entity database viewer treated every entity kind the same regardless of whether the fields made sense for it, and place entities had no coordinate data at all despite the disambiguation panel already computing geo clusters for them (`docs/placename-geo-disambiguation-planning.md`'s Phase 5):
+
+- "Noble titles" and "Roles" no longer show for place entities in Database mode's compare/detail card (`EntityCompareCard`) — they were already correctly person-only in the Editor-mode sidebar, but the standalone Database window's card had no kind check at all.
+- Removed the "Relations" panel (`EntityRelationsEditor`) from the Editor mode's Database Viewer entirely. It had been unconditional for every entity kind since it was introduced; there was no prior scrub to restore.
+- Place entities can now carry a persisted latitude/longitude, following the exact same multi-source, accept/reject pattern already used for a person's birth/death dates: a new `place_locations` sqlite table (schema migration 12) records one row per authority source with `origin`/`source`/`status` provenance, one accepted row wins per entity, and the winning coordinate is mirrored onto the (previously unused) `places.latitude`/`places.longitude` columns. Coordinates round-trip through `entities.xml` as `<geo>` elements, same provenance-attribute convention as `<birth>`/`<death>`. Accepting a geo-bearing CBDB/CHGIS/Wikidata place candidate in the disambiguation panel now persists a coordinate assertion the same way accepting a birth/death year already does.
+- Both the Editor-mode sidebar and the Database mode card show the accepted coordinate with its source badge; the sidebar additionally lists pending authority-sourced coordinates with accept/reject controls, and rejected ones with restore, mirroring the existing dates UI exactly.
+- Added a map icon next to the coordinates in both views, reusing the disambiguation panel's `PlaceComparisonMap` (confirmed to render correctly with a single pin) to open a map centered on the entity's location.
+
 ### Kanripo import normalisation
 
 - Fixed the Kanripo import wizard's "Hard replacements" character-normalisation option (`plugin-kanripo-import`), which applied a simp/trad collapsing table (乎/於→于, 炁→氣, plus a broader simplified→traditional table) directly to the transcription text being written into the document. That table was only ever meant to say two characters read as *the same thing* for the purposes of finding textual parallels (n-gram/paragraph matching against a reference source) — not to actually rewrite one character into another in the transcription itself, which silently altered the source text. Removed the option from the import wizard and the underlying `hard_replacements` normalise mode entirely; that table is now applied only to the comparison key used when matching a Kanripo paragraph against a parallel reference source (`normalize_para_key`), never to output text.
