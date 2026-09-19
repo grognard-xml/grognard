@@ -13,7 +13,22 @@ import { findTeiHeader, TEI_NS } from './teiHeaderXml';
  *
  * Legacy files store free-text source in sourceDesc/p; it is read as the
  * transcription source and migrated into biblStruct/note on the next apply.
+ *
+ * Format (CHHIV: book/slips/boards - 書/簡/牘) is a physical-carrier fact,
+ * which in TEI belongs under sourceDesc/msDesc/physDesc/objectDesc/@form -
+ * but msDesc is only defined by the "TEI All" schema (confirmed by reading
+ * the RNG directly; CBETA, TEI Lite, and the others don't have it at all),
+ * and even there it requires a mandatory msIdentifier as msDesc's first
+ * child. So: proper TEI (msDesc/physDesc/objectDesc/@form, with an empty
+ * but schema-valid msIdentifier placeholder) when the active schema is TEI
+ * All, and a plain sourceDesc/biblStruct/note[@type="format"] sibling
+ * everywhere else - same mechanism the existing sourceNote already uses,
+ * just distinguished by @type. Reading checks both locations regardless of
+ * the current schema, since a file may have been created under a different
+ * one than it's opened under.
  */
+
+export type SourceFormat = 'book' | 'slips' | 'boards';
 
 export interface SourceAuthor {
   name: string;
@@ -41,6 +56,7 @@ export interface SourceDescription {
   edition: string;
   editionDate: string;
   sourceNote: string;
+  format?: SourceFormat;
 }
 
 export const emptySourceDescription = (): SourceDescription => ({
@@ -52,7 +68,12 @@ export const emptySourceDescription = (): SourceDescription => ({
   edition: '',
   editionDate: '',
   sourceNote: '',
+  format: undefined,
 });
+
+const SOURCE_FORMATS: readonly SourceFormat[] = ['book', 'slips', 'boards'];
+const isSourceFormat = (value: string): value is SourceFormat =>
+  (SOURCE_FORMATS as readonly string[]).includes(value);
 
 const childNS = (parent: Element, localName: string): Element | null => {
   for (const child of Array.from(parent.children)) {
@@ -133,11 +154,22 @@ export const readSourceDescription = (header: Element): SourceDescription => {
   }
 
   if (biblStruct) {
-    result.sourceNote = childNS(biblStruct, 'note')?.textContent?.trim() ?? '';
+    const notes = childrenNS(biblStruct, 'note');
+    result.sourceNote =
+      notes.find((note) => note.getAttribute('type') !== 'format')?.textContent?.trim() ?? '';
+    const formatNote = notes.find((note) => note.getAttribute('type') === 'format');
+    const formatNoteValue = formatNote?.textContent?.trim() ?? '';
+    if (isSourceFormat(formatNoteValue)) result.format = formatNoteValue;
   } else if (sourceDesc) {
     // Legacy free-text source in sourceDesc/p.
     result.sourceNote = childNS(sourceDesc, 'p')?.textContent?.trim() ?? '';
   }
+
+  const msDesc = sourceDesc ? childNS(sourceDesc, 'msDesc') : null;
+  const physDesc = msDesc ? childNS(msDesc, 'physDesc') : null;
+  const objectDesc = physDesc ? childNS(physDesc, 'objectDesc') : null;
+  const msDescFormat = objectDesc?.getAttribute('form') ?? '';
+  if (isSourceFormat(msDescFormat)) result.format = msDescFormat;
 
   return result;
 };
@@ -335,20 +367,90 @@ const applyCreationDate = (header: Element, date: SourceWorkDate) => {
   dateEl.textContent = workDateLabel(date);
 };
 
-const hasBiblContent = (data: SourceDescription): boolean =>
+const hasBiblContent = (data: SourceDescription, useMsDescFormat: boolean): boolean =>
   Boolean(
     data.title.trim() ||
     data.authors.length > 0 ||
     data.edition.trim() ||
     data.editionDate.trim() ||
-    data.sourceNote.trim(),
+    data.sourceNote.trim() ||
+    (!useMsDescFormat && data.format),
   );
 
-const applySourceDesc = (fileDesc: Element, data: SourceDescription) => {
+/**
+ * Manages sourceDesc/msDesc/physDesc/objectDesc/@form - the proper TEI home
+ * for a physical-carrier fact, valid only under schemas that define msDesc
+ * (currently just TEI All - see the doc comment above SourceDescription).
+ * msDesc lives alongside biblStruct as an ordinary repeatable sourceDesc
+ * child, not nested inside it. Only removes the wrapper elements this
+ * function itself would have created, and only when they'd otherwise be
+ * left completely empty - never touches msDesc content authored elsewhere
+ * (msContents, history, a real msIdentifier, etc).
+ */
+const applyMsDescFormat = (sourceDesc: Element, format: SourceFormat | undefined) => {
+  const doc = sourceDesc.ownerDocument!;
+  const msDesc = childNS(sourceDesc, 'msDesc');
+
+  if (!format) {
+    if (!msDesc) return;
+    const physDesc = childNS(msDesc, 'physDesc');
+    const objectDesc = physDesc ? childNS(physDesc, 'objectDesc') : null;
+    if (objectDesc) {
+      objectDesc.removeAttribute('form');
+      if (objectDesc.children.length === 0 && !objectDesc.getAttributeNames().length) {
+        physDesc!.removeChild(objectDesc);
+      }
+    }
+    if (physDesc && physDesc.children.length === 0) msDesc!.removeChild(physDesc);
+    const msIdentifier = childNS(msDesc!, 'msIdentifier');
+    const msDescOtherwiseEmpty =
+      msDesc!.children.length === (msIdentifier ? 1 : 0) &&
+      (!msIdentifier || msIdentifier.children.length === 0);
+    if (msDescOtherwiseEmpty) sourceDesc.removeChild(msDesc!);
+    return;
+  }
+
+  const resolvedMsDesc = msDesc ?? doc.createElementNS(TEI_NS, 'msDesc');
+  if (!msDesc) sourceDesc.appendChild(resolvedMsDesc);
+
+  // msIdentifier is msDesc's mandatory first child; every one of its own
+  // children is optional, so an empty placeholder is schema-valid RNG
+  // (TEI's own Schematron guideline wants a real repository/location here,
+  // but this app's validator only checks RelaxNG, not Schematron).
+  if (!childNS(resolvedMsDesc, 'msIdentifier')) {
+    const msIdentifier = doc.createElementNS(TEI_NS, 'msIdentifier');
+    resolvedMsDesc.insertBefore(msIdentifier, resolvedMsDesc.firstChild);
+  }
+
+  const physDesc = ensureChild(resolvedMsDesc, 'physDesc');
+  const objectDesc = ensureChild(physDesc, 'objectDesc');
+  objectDesc.setAttribute('form', format);
+};
+
+/** Whether sourceDesc already has a msDesc/physDesc/objectDesc/@form entry -
+ * the safe default for callers that round-trip a SourceDescription without
+ * knowing the active schema (e.g. the post-import entity-linking pass):
+ * preserve whatever storage a document already uses rather than silently
+ * migrating (and destroying) it. */
+const hasExistingMsDescFormat = (sourceDesc: Element): boolean => {
+  const msDesc = childNS(sourceDesc, 'msDesc');
+  const physDesc = msDesc ? childNS(msDesc, 'physDesc') : null;
+  const objectDesc = physDesc ? childNS(physDesc, 'objectDesc') : null;
+  return Boolean(objectDesc?.hasAttribute('form'));
+};
+
+const applySourceDesc = (
+  fileDesc: Element,
+  data: SourceDescription,
+  useMsDescFormat: boolean | undefined,
+) => {
   const doc = fileDesc.ownerDocument!;
   const sourceDesc = ensureChild(fileDesc, 'sourceDesc');
+  const resolvedUseMsDescFormat = useMsDescFormat ?? hasExistingMsDescFormat(sourceDesc);
 
-  if (!hasBiblContent(data)) {
+  applyMsDescFormat(sourceDesc, resolvedUseMsDescFormat ? data.format : undefined);
+
+  if (!hasBiblContent(data, resolvedUseMsDescFormat)) {
     removeChildrenNS(sourceDesc, 'biblStruct');
     if (sourceDesc.children.length === 0) {
       // sourceDesc cannot be empty — keep a valid empty <p/>.
@@ -404,12 +506,32 @@ const applySourceDesc = (fileDesc: Element, data: SourceDescription) => {
     note.textContent = data.sourceNote.trim();
     biblStruct.appendChild(note);
   }
+
+  if (!resolvedUseMsDescFormat && data.format) {
+    const formatNote = doc.createElementNS(TEI_NS, 'note');
+    formatNote.setAttribute('type', 'format');
+    formatNote.textContent = data.format;
+    biblStruct.appendChild(formatNote);
+  }
 };
 
-export const applySourceDescription = (header: Element, data: SourceDescription) => {
+/**
+ * @param useMsDescFormat Whether the active schema defines msDesc (only
+ * "TEI All" does - see the doc comment above SourceDescription) - decides
+ * where `data.format` is written. Reading isn't gated the same way (it
+ * checks both locations) so this only affects writes. Omit it to preserve
+ * whichever storage the document already uses (see hasExistingMsDescFormat)
+ * - the safe choice for callers that round-trip a SourceDescription without
+ * knowing the active schema.
+ */
+export const applySourceDescription = (
+  header: Element,
+  data: SourceDescription,
+  useMsDescFormat?: boolean,
+) => {
   const fileDesc = ensureHeaderChild(header, 'fileDesc');
   applyTitleStmt(fileDesc, data);
-  applySourceDesc(fileDesc, data);
+  applySourceDesc(fileDesc, data, useMsDescFormat);
   applyCreationDate(header, data.workDate);
 };
 
@@ -422,12 +544,16 @@ export const readSourceDescriptionFromXml = (xml: string): SourceDescription => 
   return readSourceDescription(header);
 };
 
-export const applySourceDescriptionToXml = (xml: string, data: SourceDescription): string => {
+export const applySourceDescriptionToXml = (
+  xml: string,
+  data: SourceDescription,
+  useMsDescFormat?: boolean,
+): string => {
   const parser = new DOMParser();
   const doc = parser.parseFromString(xml, 'application/xml');
   if (doc.querySelector('parsererror')) return xml;
   const header = findTeiHeader(doc);
   if (!header) return xml;
-  applySourceDescription(header, data);
+  applySourceDescription(header, data, useMsDescFormat);
   return new XMLSerializer().serializeToString(doc);
 };

@@ -77,6 +77,82 @@ describe('applySourceDescriptionToXml', () => {
     expect(xml.indexOf('<fileDesc>')).toBeLessThan(xml.indexOf('<profileDesc>'));
   });
 
+  describe('format (CHHIV: book/slips/boards)', () => {
+    test('useMsDescFormat=true writes sourceDesc/msDesc/physDesc/objectDesc/@form', () => {
+      const xml = applySourceDescriptionToXml(skeleton, { ...fullData(), format: 'slips' }, true);
+      expect(xml).toContain(
+        '<msDesc><msIdentifier/><physDesc><objectDesc form="slips"/></physDesc></msDesc>',
+      );
+      expect(xml).not.toContain('type="format"');
+      expect(readSourceDescriptionFromXml(xml).format).toBe('slips');
+    });
+
+    test('useMsDescFormat=false writes sourceDesc/biblStruct/note[@type=format] instead', () => {
+      const xml = applySourceDescriptionToXml(skeleton, { ...fullData(), format: 'boards' }, false);
+      expect(xml).toContain('<note type="format">boards</note>');
+      expect(xml).not.toContain('<msDesc>');
+      expect(readSourceDescriptionFromXml(xml).format).toBe('boards');
+    });
+
+    test('a format-only document (no other bibl fields) still round-trips under both schemas', () => {
+      const onlyFormat = { ...emptySourceDescription(), format: 'book' as const };
+
+      const msDescXml = applySourceDescriptionToXml(skeleton, onlyFormat, true);
+      expect(readSourceDescriptionFromXml(msDescXml).format).toBe('book');
+
+      const noteXml = applySourceDescriptionToXml(skeleton, onlyFormat, false);
+      expect(readSourceDescriptionFromXml(noteXml).format).toBe('book');
+    });
+
+    test('clearing format removes the wrapper elements it created, without a schema hint', () => {
+      const withFormat = applySourceDescriptionToXml(
+        skeleton,
+        { ...fullData(), format: 'slips' },
+        true,
+      );
+      const cleared = applySourceDescriptionToXml(withFormat, { ...fullData(), format: undefined });
+      expect(cleared).not.toContain('<msDesc>');
+      expect(readSourceDescriptionFromXml(cleared).format).toBeUndefined();
+    });
+
+    test('omitting useMsDescFormat preserves existing msDesc-based storage rather than migrating it', () => {
+      const msDescXml = applySourceDescriptionToXml(
+        skeleton,
+        { ...fullData(), format: 'slips' },
+        true,
+      );
+      // A caller that doesn't know the active schema (e.g. the post-import
+      // entity-linking pass) must not silently move this into a note.
+      const roundTripped = applySourceDescriptionToXml(
+        msDescXml,
+        readSourceDescriptionFromXml(msDescXml),
+      );
+      expect(roundTripped).toContain('<objectDesc form="slips"/>');
+      expect(roundTripped).not.toContain('type="format"');
+    });
+
+    test('omitting useMsDescFormat preserves existing note-based storage', () => {
+      const noteXml = applySourceDescriptionToXml(
+        skeleton,
+        { ...fullData(), format: 'boards' },
+        false,
+      );
+      const roundTripped = applySourceDescriptionToXml(
+        noteXml,
+        readSourceDescriptionFromXml(noteXml),
+      );
+      expect(roundTripped).toContain('<note type="format">boards</note>');
+      expect(roundTripped).not.toContain('<msDesc>');
+    });
+
+    test('the transcription-source note and the format note coexist and are read back distinctly', () => {
+      const xml = applySourceDescriptionToXml(skeleton, { ...fullData(), format: 'book' }, false);
+      const read = readSourceDescriptionFromXml(xml);
+      expect(read.sourceNote).toBe('Transcribed from the BnF Gallica scan.');
+      expect(read.format).toBe('book');
+    });
+  });
+
   test('migrates legacy sourceDesc/p text and clearing all fields restores empty p', () => {
     const legacy = skeleton.replace('<sourceDesc><p/>', '<sourceDesc><p>Old source note</p>');
     expect(readSourceDescriptionFromXml(legacy).sourceNote).toBe('Old source note');

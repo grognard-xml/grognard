@@ -7,6 +7,7 @@ export interface PluginHostModule {
   registerDaozangImportUi?: (context: PluginRegisterContext) => void;
   registerCbetaImportUi?: (context: PluginRegisterContext) => void;
   registerBdrcImportUi?: (context: PluginRegisterContext) => void;
+  registerChhivSymbolPaletteUi?: (context: PluginRegisterContext) => void;
 }
 
 const loaders: Record<string, () => Promise<PluginHostModule>> = {
@@ -16,6 +17,7 @@ const loaders: Record<string, () => Promise<PluginHostModule>> = {
   'daozang-import-ui': () => import('./daozangImportUi'),
   'cbeta-import-ui': () => import('./cbetaImportUi'),
   'bdrc-import-ui': () => import('./bdrcImportUi'),
+  'chhiv-symbol-palette-ui': () => import('./chhivSymbolPaletteUi'),
 };
 
 export async function loadPluginHostModule(moduleId: string): Promise<PluginHostModule> {

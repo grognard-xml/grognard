@@ -11,6 +11,7 @@ import {
 } from '@mui/material';
 import { EntityLookupField, type EntityLookupValue } from '@src/desktop/EntityLookupField';
 import { isoYearString } from '../../../../packages/cwrc-leafwriter/src/autoTagging/entities';
+import { isPluginEnabled } from '../../../../packages/cwrc-leafwriter/src/plugins/registry';
 import { useTranslation } from 'react-i18next';
 import {
   applyFileHeaderFields,
@@ -31,6 +32,7 @@ import {
   emptySourceDescription,
   readSourceDescriptionFromXml,
   type SourceDescription,
+  type SourceFormat,
 } from '@src/desktop/sourceDescription';
 import {
   applyProfileToSource,
@@ -246,6 +248,27 @@ const TeiSourceFields = ({
         size="small"
         value={value.sourceNote}
       />
+
+      {isPluginEnabled('chhiv') && (
+        <TextField
+          select
+          disabled={disabled}
+          fullWidth
+          label={t('LWC.desktop.file_metadata.format')}
+          onChange={(event) =>
+            update({ format: (event.target.value || undefined) as SourceFormat | undefined })
+          }
+          size="small"
+          value={value.format ?? ''}
+        >
+          <MenuItem value="">
+            <em>{t('LWC.desktop.file_metadata.format_none')}</em>
+          </MenuItem>
+          <MenuItem value="book">{t('LWC.desktop.file_metadata.format_book')}</MenuItem>
+          <MenuItem value="slips">{t('LWC.desktop.file_metadata.format_slips')}</MenuItem>
+          <MenuItem value="boards">{t('LWC.desktop.file_metadata.format_boards')}</MenuItem>
+        </TextField>
+      )}
     </>
   );
 };
@@ -624,11 +647,14 @@ export const FileMetadataPanel = ({ visible = true }: { visible?: boolean }) => 
       if (!activeTabPath || readonly) return;
       const currentXml = getActiveTabXml(activeTabPath, openTabs);
       if (!currentXml) return;
-      pushUpdatedXml(applySourceDescriptionToXml(currentXml, next), currentXml);
+      pushUpdatedXml(
+        applySourceDescriptionToXml(currentXml, next, catalogId === 'teiAll'),
+        currentXml,
+      );
       sourceValuesRef.current = next;
       setSourceValues(next);
     },
-    [activeTabPath, openTabs, pushUpdatedXml, readonly],
+    [activeTabPath, catalogId, openTabs, pushUpdatedXml, readonly],
   );
 
   const handleFieldChange = (path: string, value: string) => {
