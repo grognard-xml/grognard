@@ -98,6 +98,30 @@ const setStoredDocumentXml = (writer: Writer, xml: string): void => {
 const supportsGlyphCharDecl = (writer: Writer): boolean =>
   writer.schemaManager.getCurrentSchema()?.mapping !== 'teiLite';
 
+/**
+ * `addStructureTag`'s default (ADD) path leaves the selection *inside* the
+ * new tag's content (its `\uFEFF` sentinel) - the right thing for an
+ * ordinary text tag, where typing over the sentinel is how you fill it in.
+ * A glyph never gets real text content (it's marked `_textallowed="false"`
+ * and `contenteditable="false"` once styled), so leaving the caret inside
+ * it is actively wrong: a second glyph inserted right after the first would
+ * capture that stale "inside the previous glyph" selection as its own
+ * bookmark, and land nested inside it instead of beside it - two glyphs
+ * visually piled on the same spot. It also confuses TinyMCE's normal
+ * click-to-select/Backspace-to-delete handling for `contenteditable=false`
+ * widgets, which expects the caret to sit *beside* them, not inside their
+ * (illegal, from the widget's perspective) content. Moving the caret to
+ * just after the element once it exists in the DOM fixes both.
+ */
+export const placeCaretAfterElement = (writer: Writer, el: Element | null | undefined): void => {
+  const editor = writer.editor;
+  if (!editor || !el || !el.isConnected) return;
+  const rng = editor.dom.createRng();
+  rng.setStartAfter(el);
+  rng.collapse(true);
+  editor.selection.setRng(rng);
+};
+
 export const insertGlyph = async (
   writer: Writer,
   options: {
@@ -110,6 +134,8 @@ export const insertGlyph = async (
 ): Promise<boolean> => {
   const bookmark = writer.editor?.selection.getBookmark(1);
   if (!bookmark) return false;
+
+  let insertedEl: Element;
 
   if (supportsGlyphCharDecl(writer)) {
     const storedXml = getStoredDocumentXml(writer);
@@ -128,6 +154,7 @@ export const insertGlyph = async (
       bookmark,
     });
     if (!gTag?.id) return false;
+    insertedEl = gTag;
 
     setStoredDocumentXml(writer, updatedXml);
   } else {
@@ -150,6 +177,7 @@ export const insertGlyph = async (
       bookmark,
     });
     if (!glyphGraphic?.id) return false;
+    insertedEl = glyphGraphic;
   }
 
   const body = writer.editor?.getBody();
@@ -159,6 +187,7 @@ export const insertGlyph = async (
     writer.tagger.processNewContent(body);
     refreshGraphicsInBody(body, { documentFilePath: activeDocumentFilePath() });
   }
+  placeCaretAfterElement(writer, insertedEl);
   writer.event('contentChanged').publish();
   return true;
 };

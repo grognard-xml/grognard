@@ -1,7 +1,7 @@
 import type Writer from '../js/Writer';
 import { resolveDocumentAssetUrl } from './fetchResource';
 import { findGlyphCharDeclEntry } from './glyphCharDecl';
-import { generatePastedGlyphId } from './glyphEditor';
+import { generatePastedGlyphId, placeCaretAfterElement } from './glyphEditor';
 import { refreshGraphicsInBody } from '../js/schema/mappings/utitlities';
 
 /**
@@ -76,6 +76,8 @@ export const insertExistingGlyph = (writer: Writer, occurrence: GlyphOccurrence)
   const bookmark = writer.editor?.selection.getBookmark(1);
   if (!bookmark) return false;
 
+  let insertedEl: Element;
+
   if (occurrence.kind === 'ref') {
     const gTag = writer.tagger.addStructureTag({
       action: writer.tagger.ADD,
@@ -84,6 +86,7 @@ export const insertExistingGlyph = (writer: Writer, occurrence: GlyphOccurrence)
       bookmark,
     });
     if (!gTag?.id) return false;
+    insertedEl = gTag;
   } else if (occurrence.kind === 'legacy') {
     const gTag = writer.tagger.addStructureTag({
       action: writer.tagger.ADD,
@@ -98,6 +101,7 @@ export const insertExistingGlyph = (writer: Writer, occurrence: GlyphOccurrence)
       attributes: { type: 'normalized', url: occurrence.relativeUrl, mimeType: 'image/svg+xml' },
       bookmark: { tagId: gTag.id },
     });
+    insertedEl = gTag;
   } else {
     const graphicTag = writer.tagger.addStructureTag({
       action: writer.tagger.ADD,
@@ -106,6 +110,7 @@ export const insertExistingGlyph = (writer: Writer, occurrence: GlyphOccurrence)
       bookmark,
     });
     if (!graphicTag?.id) return false;
+    insertedEl = graphicTag;
   }
 
   const body = writer.editor?.getBody();
@@ -113,6 +118,7 @@ export const insertExistingGlyph = (writer: Writer, occurrence: GlyphOccurrence)
     writer.tagger.processNewContent(body);
     refreshGraphicsInBody(body, { documentFilePath: activeDocumentFilePath() });
   }
+  placeCaretAfterElement(writer, insertedEl);
   writer.event('contentChanged').publish();
   return true;
 };
