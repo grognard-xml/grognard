@@ -81,6 +81,10 @@ describe('handleGraphics / refreshGraphicsInBody - glyph shapes', () => {
     expect($normalized.css('display')).toBe('block');
     const $wrap = $('[_tag="g"][type="glyph"]', document.body);
     expect($wrap.css('display')).toBe('inline-block');
+    // Regression: the wrap must be non-editable too, or TinyMCE treats it as
+    // an ordinary editable element and Backspace can delete just the
+    // wrapper, leaving its non-editable <graphic> children as orphans.
+    expect($wrap.attr('contenteditable')).toBe('false');
   });
 
   it('handleGraphics ignores a graphic with no url and no ref', () => {

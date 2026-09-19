@@ -170,6 +170,18 @@ const applyMaskedGlyph = ($tag: JQuery<Element>, url: string, standalone: boolea
   if ($wrap.attr('_tag') === 'g' && $wrap.attr('type') === 'glyph') {
     clearEmptyTagSentinel($wrap);
     $wrap.addClass('lw-glyph-wrap');
+    // The standalone shapes above are single elements, already
+    // contenteditable=false directly on the tagged node itself - TinyMCE
+    // treats them as one atomic, click-to-select, Backspace/Delete-to-remove
+    // widget. This legacy two-graphic shape splits the glyph across a
+    // wrapper and children; without this, only the *children* were
+    // non-editable and the wrapper stayed a normal editable inline element,
+    // so Backspace could delete just the `<g>` wrapper (TinyMCE's ordinary
+    // empty-tag cleanup) and leave its non-editable `<graphic>` children
+    // behind as orphaned siblings - "deletes the container, but not the
+    // image." Marking the wrapper itself non-editable makes the whole glyph
+    // one atomic unit, matching every other glyph shape.
+    $wrap.attr('contenteditable', 'false');
     $wrap.attr('data-mce-resize', 'false');
     $wrap.attr('_textallowed', 'false');
     $wrap.css({
