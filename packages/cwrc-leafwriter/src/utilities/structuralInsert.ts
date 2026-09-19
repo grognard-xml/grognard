@@ -217,6 +217,25 @@ export const insertStructuralElementAtCursor = (
   // Otherwise (e.g. `head`) addStructureTag already leaves the caret inside
   // the new tag's sentinel content, ready for the user to type its text.
 
+  if (
+    tagName === 'head' &&
+    !newTag.nextElementSibling &&
+    newTag.parentElement &&
+    schemaManager.isTagValidChildOfParent('p', tagOf(newTag.parentElement))
+  ) {
+    // A heading with nothing after it - typically because it was inserted
+    // at the very end of a document/section, where there was no following
+    // <p> to split - reads as broken (a section that's just a title with no
+    // body). Give it an empty paragraph to write into, same as splitting
+    // would have produced if there'd been content after the cursor.
+    writer.tagger.addStructureTag({
+      action: writer.tagger.AFTER,
+      tagName: 'p',
+      attributes: {},
+      bookmark: { tagId: newTag.id },
+    });
+  }
+
   writer.event('contentChanged').publish();
   return true;
 };

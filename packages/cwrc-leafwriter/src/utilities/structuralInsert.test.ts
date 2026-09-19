@@ -45,16 +45,18 @@ const makeFakeWriter = (
 
   const tagger = {
     ADD: 'ADD',
+    AFTER: 'AFTER',
     addStructureTag: ({
+      action,
       tagName,
       attributes,
+      bookmark,
     }: {
       action: string;
       tagName: string;
       attributes: Record<string, unknown>;
       bookmark: unknown;
     }): Element => {
-      const rng = currentRange;
       const el = document.createElement('span');
       el.setAttribute('_tag', tagName);
       el.id = `dom_${idCounter++}`;
@@ -63,6 +65,16 @@ const makeFakeWriter = (
         el.setAttribute(key, String(value));
       }
       el.appendChild(document.createTextNode('﻿'));
+
+      const tagId = (bookmark as { tagId?: string } | undefined)?.tagId;
+      if (action === 'AFTER' && tagId) {
+        // Mirrors the real tagger: an id-addressed bookmark targets that
+        // element directly, ignoring the live selection entirely.
+        document.getElementById(tagId)!.after(el);
+        return el;
+      }
+
+      const rng = currentRange;
       rng.insertNode(el);
       const after = document.createRange();
       after.selectNodeContents(el);
@@ -248,5 +260,53 @@ describe('insertStructuralElementAtCursor', () => {
     expect(result).toBe(false);
     expect(document.querySelectorAll('[_tag="p"]')).toHaveLength(1);
     expect(document.getElementById('p1')!.textContent).toBe('Hello World');
+  });
+
+  it('sets attributes (e.g. a page number) on the inserted element', () => {
+    document.body.innerHTML =
+      '<span id="d1" _tag="div"><span id="p1" _tag="p">Hello World</span></span>';
+    const writer = makeFakeWriter(document.body, {
+      validParents: { pb: ['p'] },
+      textContaining: [],
+    });
+    setCursor(writer, document.getElementById('p1')!.firstChild!, 5);
+
+    insertStructuralElementAtCursor(writer, 'pb', { n: '12' });
+
+    const pb = document.querySelector('[_tag="pb"]')!;
+    expect(pb.getAttribute('n')).toBe('12');
+  });
+
+  it('appends an empty trailing paragraph after a heading inserted at the end of a section, when none follows', () => {
+    document.body.innerHTML = '<span id="d1" _tag="div">Section Title</span>';
+    const writer = makeFakeWriter(document.body, {
+      validParents: { head: ['div'], p: ['div'] },
+      textContaining: ['head'],
+    });
+    const div = document.getElementById('d1')!;
+    setCursor(writer, div.firstChild!, div.firstChild!.textContent!.length); // cursor at the very end
+
+    const result = insertStructuralElementAtCursor(writer, 'head');
+
+    expect(result).toBe(true);
+    const children = Array.from(div.children).map((el) => el.getAttribute('_tag'));
+    expect(children).toEqual(['head', 'p']);
+  });
+
+  it('does not add a trailing paragraph after a heading that already has content following it', () => {
+    document.body.innerHTML =
+      '<span id="d1" _tag="div"><span id="p1" _tag="p">Hello World</span></span>';
+    const writer = makeFakeWriter(document.body, {
+      validParents: { head: ['div'], p: ['div'] },
+      textContaining: ['head'],
+    });
+    setCursor(writer, document.getElementById('p1')!.firstChild!, 5); // mid-paragraph
+
+    insertStructuralElementAtCursor(writer, 'head');
+
+    const div = document.getElementById('d1')!;
+    const children = Array.from(div.children).map((el) => el.getAttribute('_tag'));
+    // the split already produced a trailing <p> - no extra one should appear
+    expect(children).toEqual(['p', 'head', 'p']);
   });
 });

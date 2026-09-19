@@ -945,7 +945,9 @@
       "Insert Heading": "Heading",
       "Insert Page Break": "Page break",
       "Insert Line Break": "Line break",
-      "Split Paragraph": "Split paragraph"
+      "Split Paragraph": "Split paragraph",
+      "Page Number": "Page number",
+      "Line Number": "Line number"
     },
     "xpathSearch": {
       "title": "XPath Search",

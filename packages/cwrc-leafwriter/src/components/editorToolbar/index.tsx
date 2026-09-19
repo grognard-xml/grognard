@@ -17,6 +17,7 @@ import {
   insertStructuralElementAtCursor,
   splitParagraphAtCursor,
 } from '../../utilities/structuralInsert';
+import { promptForText } from '../../utilities/promptForText';
 import { Button } from './Button';
 import { IconButton } from './IconButton';
 import { MenuButton } from './MenuButton';
@@ -343,17 +344,29 @@ export const EditorToolbar = () => {
         {
           id: 'structure-page-break',
           label: t('LW.editorToolbar.Insert Page Break'),
-          onClick: () => {
+          onClick: async () => {
             const writer = window.writer;
-            if (writer) insertStructuralElementAtCursor(writer, 'pb');
+            if (!writer) return;
+            const n = await promptForText(
+              t('LW.editorToolbar.Insert Page Break'),
+              t('LW.editorToolbar.Page Number'),
+            );
+            if (n === null) return;
+            insertStructuralElementAtCursor(writer, 'pb', n ? { n } : {});
           },
         },
         {
           id: 'structure-line-break',
           label: t('LW.editorToolbar.Insert Line Break'),
-          onClick: () => {
+          onClick: async () => {
             const writer = window.writer;
-            if (writer) insertStructuralElementAtCursor(writer, 'lb');
+            if (!writer) return;
+            const n = await promptForText(
+              t('LW.editorToolbar.Insert Line Break'),
+              t('LW.editorToolbar.Line Number'),
+            );
+            if (n === null) return;
+            insertStructuralElementAtCursor(writer, 'lb', n ? { n } : {});
           },
         },
         {
