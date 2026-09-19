@@ -43,6 +43,11 @@ body.project-language-tibetan *:not([_tag]):not([_tag]:before):not([_tag]:after)
 body {
   margin: 8px !important;
   max-width: none !important;
+  /* How far to nudge a glyph's masked em-cell down from the alphabetic
+     baseline to sit with CJK ink (see applyMaskedGlyph in utitlities.ts) —
+     override per project/font by redeclaring this on body, or live-tune it
+     in DevTools without a rebuild. */
+  --lw-glyph-baseline-shift: 0.22em;
 }
 
 /* Tag pills in show-tags mode — layout shared by all tag names */

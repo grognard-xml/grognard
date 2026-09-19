@@ -98,10 +98,19 @@ const applyMaskedGlyph = ($tag: JQuery<Element>, url: string) => {
     width: '1em',
     lineHeight: '0',
     // Keep ink centered in the 1em cell. (Kanripo's "center bottom" + the
-    // same 0.12em nudge hangs masked glyphs under the line — masks and
-    // background-images do not share the same paint box.) Empirically this
-    // sits with surrounding CJK; nudge only in small steps if it drifts.
-    transform: 'translateY(0.12em)',
+    // same nudge hangs masked glyphs under the line — masks and
+    // background-images do not share the same paint box.)
+    //
+    // `vertical-align: baseline` aligns to the font's *alphabetic* baseline,
+    // but CJK glyphs are conventionally drawn against a lower "ideographic"
+    // baseline/centred within their em box — so any Latin-metrics-aligned
+    // inline box (ours included) reads as sitting too high next to real CJK
+    // ink, by an amount that depends on the surrounding font, not on us.
+    // There's no DOM API to query that gap for an arbitrary font, so this
+    // stays a manual constant — exposed as a CSS custom property so it can
+    // be tuned live (DevTools, or a project stylesheet override) against
+    // the actual editor font without a rebuild.
+    transform: 'translateY(var(--lw-glyph-baseline-shift, 0.22em))',
     // Beat schema `graphic { color: gray }` so the mask paints with the
     // surrounding text colour (inline style wins over non-!important rules).
     color: 'inherit',

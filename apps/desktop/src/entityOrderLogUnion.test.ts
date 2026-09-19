@@ -18,7 +18,12 @@ describe('unionOrderLogs', () => {
     const restored = `${early}\n`;
     const preRestore = `${early}\n${late}\n`;
     const merged = unionOrderLogs(preRestore, restored);
-    expect(merged.split('\n').filter(Boolean).map((l) => JSON.parse(l).id)).toEqual(['a', 'b']);
+    expect(
+      merged
+        .split('\n')
+        .filter(Boolean)
+        .map((l) => JSON.parse(l).id),
+    ).toEqual(['a', 'b']);
   });
 
   it('is idempotent on identical logs', () => {

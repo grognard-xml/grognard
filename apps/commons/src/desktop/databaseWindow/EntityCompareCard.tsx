@@ -193,9 +193,7 @@ export const EntityCompareCard = ({
             </Box>
           )}
 
-          {(model.kind === 'person' ||
-            model.kind === 'work' ||
-            model.kind === 'place') && (
+          {(model.kind === 'person' || model.kind === 'work' || model.kind === 'place') && (
             <Box
               sx={{
                 display: 'grid',

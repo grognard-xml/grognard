@@ -852,9 +852,9 @@ describe('disambiguationCandidates', () => {
     try {
       const rows = await fetchLiveCandidates('placeName', 'ལྷ་ས', cache, ['Wikidata', 'VIAF']);
       expect(rows.every((row) => !row.sources.includes('VIAF'))).toBe(true);
-      expect(
-        rows.some((row) => row.sources.includes('Wikidata') && row.label === 'ལྷ་ས'),
-      ).toBe(true);
+      expect(rows.some((row) => row.sources.includes('Wikidata') && row.label === 'ལྷ་ས')).toBe(
+        true,
+      );
     } finally {
       global.fetch = originalFetch;
     }

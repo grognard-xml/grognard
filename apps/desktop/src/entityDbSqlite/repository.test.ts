@@ -805,7 +805,7 @@ describe('EntitySqliteRepository', () => {
     await repository.createEntity({ id: 'place-prim-1', kind: 'place' });
     await repository.addName({
       entityId: 'place-prim-1',
-      text: 'Rta\'u rdzong',
+      text: "Rta'u rdzong",
       isPrimary: true,
       origin: 'xml',
     });

@@ -2017,7 +2017,8 @@ export class EntitySqliteRepository {
       'office_id',
     );
     const locationsByEntity = groupRowsByKey(
-      (await this.activeBackend.all(`SELECT id, entity_id, latitude, longitude, origin, source, status
+      (await this.activeBackend
+        .all(`SELECT id, entity_id, latitude, longitude, origin, source, status
            FROM place_locations ORDER BY id`)) as Record<string, unknown>[],
       'entity_id',
     );
@@ -2738,7 +2739,16 @@ export class EntitySqliteRepository {
           `INSERT INTO entity_names
                (entity_id, text, name_type, name_role, language, is_primary, origin, source, status, created_at, updated_at)
              VALUES (?, ?, ?, ?, ?, ?, 'user', NULL, 'active', ?, ?)`,
-          [input.entityId, text, nameType, nameRole, language, nameRole === 'primary' ? 1 : 0, now, now],
+          [
+            input.entityId,
+            text,
+            nameType,
+            nameRole,
+            language,
+            nameRole === 'primary' ? 1 : 0,
+            now,
+            now,
+          ],
         );
         await this.syncPersonNameScalars(input.entityId, text, nameType, now);
         await this.normalizeEntityNameIntegrity(input.entityId, now);
@@ -3600,8 +3610,7 @@ export class EntitySqliteRepository {
           if (row.origin !== 'authority') continue;
           if (
             row.status === 'active' ||
-            (row.status === 'rejected' &&
-              (table === 'entity_dates' || table === 'place_locations'))
+            (row.status === 'rejected' && (table === 'entity_dates' || table === 'place_locations'))
           ) {
             await this.activeBackend.run(`DELETE FROM ${table} WHERE id = ?`, [row.id]);
             removed += 1;

@@ -18,8 +18,7 @@ const GAIJI_DIR = '_gaiji';
 export const gaijiDirForDocument = (documentPath: string): string =>
   assetDirForDocument(documentPath, GAIJI_DIR);
 
-export const relativeGaijiUrl = (fileName: string): string =>
-  relativeAssetUrl(GAIJI_DIR, fileName);
+export const relativeGaijiUrl = (fileName: string): string => relativeAssetUrl(GAIJI_DIR, fileName);
 
 export const resolveKanripoGaijiContext = (
   element: Element | null | undefined,

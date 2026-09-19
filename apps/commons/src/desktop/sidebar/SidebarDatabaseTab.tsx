@@ -4238,9 +4238,7 @@ export const SidebarDatabaseTab = ({ active = false }: SidebarDatabaseTabProps) 
                           color: '#d32f2f',
                           lat: editEntity.location!.lat,
                           lon: editEntity.location!.lon,
-                          sources: editEntity.location!.source
-                            ? [editEntity.location!.source]
-                            : [],
+                          sources: editEntity.location!.source ? [editEntity.location!.source] : [],
                           description: editEntity.names[0] ?? editEntity.id,
                           memberIds: [editEntity.id],
                         })

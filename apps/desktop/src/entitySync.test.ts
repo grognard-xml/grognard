@@ -369,8 +369,9 @@ describe('runSync', () => {
 
     // V2 was never sent, so it must not be marked as synced.
     expect((await listDirtyForSync(repo)).map((d) => d.localId)).toEqual(['person-a']);
-    const centralXml = (await central.pull(0)).changes.find((c) => c.centralId === 'person-a')
-      ?.contentXml;
+    const centralXml = (await central.pull(0)).changes.find(
+      (c) => c.centralId === 'person-a',
+    )?.contentXml;
     expect(centralXml).toContain('V1');
     expect(centralXml).not.toContain('V2');
 
