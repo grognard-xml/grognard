@@ -4,13 +4,17 @@ import type Writer from '../js/Writer';
 import { handleGraphics, refreshGraphicsInBody } from '../js/schema/mappings/utitlities';
 import { assetDirForDocument, joinPath, relativeAssetUrl } from './assetPaths';
 import { blobToUint8Array } from './clipboardImage';
+import { ensureGlyphCharDeclEntry, type GlyphGraphicSpec } from './glyphCharDecl';
 
-export interface GlyphContext {
-  gElement: Element;
-  sourceGraphicElement: Element;
-  normalizedGraphicElement: Element;
-  glyphId: string;
-}
+export type GlyphContext =
+  | {
+      kind: 'legacy';
+      gElement: Element;
+      sourceGraphicElement: Element;
+      normalizedGraphicElement: Element;
+      glyphId: string;
+    }
+  | { kind: 'ref'; gElement: Element; glyphId: string };
 
 const GLYPH_DIR = '_glyphs';
 
@@ -71,6 +75,29 @@ const saveGlyphAssets = async (
   };
 };
 
+/** Full document XML (with header) lives separately from the visual DOM -
+ * see getStoredDocumentXml's doc comment in utitlities.ts for why. Mirrors
+ * the read/write pattern already used elsewhere in this package
+ * (useTeiHeaderRepairPrompt.tsx): update both the `__desktopStoredDocumentXml`
+ * global and the overmind state that also tracks it, since different
+ * consumers read from different ones. */
+const getStoredDocumentXml = (writer: Writer): string | null =>
+  window.__desktopStoredDocumentXml ?? writer.overmindState?.document?.xml ?? null;
+
+const setStoredDocumentXml = (writer: Writer, xml: string): void => {
+  window.__desktopStoredDocumentXml = xml;
+  writer.overmindActions?.document?.updateXMLHeader?.(xml);
+  writer.overmindActions?.document?.setDocumentXml?.(xml);
+};
+
+/** TEI Lite defines neither `<g>` nor `<charDecl>`/`<glyph>` - every other
+ * registered schema (TEI All, TEI Simple Print, jTEI, CBETA) does, with an
+ * identical text-only content model for `<g>` (confirmed by reading each
+ * RNG directly), so `<g ref="#id">` + a `<charDecl>` registration is valid
+ * there without any schema patching. */
+const supportsGlyphCharDecl = (writer: Writer): boolean =>
+  writer.schemaManager.getCurrentSchema()?.mapping !== 'teiLite';
+
 export const insertGlyph = async (
   writer: Writer,
   options: {
@@ -84,39 +111,46 @@ export const insertGlyph = async (
   const bookmark = writer.editor?.selection.getBookmark(1);
   if (!bookmark) return false;
 
-  const gTag = writer.tagger.addStructureTag({
-    action: writer.tagger.ADD,
-    tagName: 'g',
-    attributes: { type: 'glyph', n: options.glyphId },
-    bookmark,
-  });
-  if (!gTag?.id) return false;
+  if (supportsGlyphCharDecl(writer)) {
+    const storedXml = getStoredDocumentXml(writer);
+    if (!storedXml) return false;
+    const updatedXml = ensureGlyphCharDeclEntry(storedXml, options);
+    if (!updatedXml) return false;
 
-  // wrapInner (INSIDE) wraps whatever content the target currently holds -
-  // a second INSIDE call against the same `gTag.id` would wrap the first
-  // graphic itself rather than sitting beside it, nesting one inside the
-  // other instead of creating siblings. Insert the second graphic AFTER
-  // the first (by the first's own new id) to keep them siblings.
-  const sourceGraphic = writer.tagger.addStructureTag({
-    action: writer.tagger.INSIDE,
-    tagName: 'graphic',
-    attributes: { type: 'source', url: options.sourceUrl },
-    bookmark: { tagId: gTag.id },
-  });
-  if (!sourceGraphic?.id) return false;
+    // `<g>`'s content model is text-only on every schema that defines it
+    // (confirmed by reading the RNG directly) - no `<graphic>` children,
+    // just the standard `ref` attribute pointing at the charDecl entry
+    // just written above.
+    const gTag = writer.tagger.addStructureTag({
+      action: writer.tagger.ADD,
+      tagName: 'g',
+      attributes: { type: 'glyph', n: options.glyphId, ref: `#${options.glyphId}` },
+      bookmark,
+    });
+    if (!gTag?.id) return false;
 
-  writer.tagger.addStructureTag({
-    action: writer.tagger.AFTER,
-    tagName: 'graphic',
-    attributes: {
-      type: 'normalized',
-      url: options.svgUrl,
-      mimeType: 'image/svg+xml',
-      width: String(options.svgWidth),
-      height: String(options.svgHeight),
-    },
-    bookmark: { tagId: sourceGraphic.id },
-  });
+    setStoredDocumentXml(writer, updatedXml);
+  } else {
+    // TEI Lite fallback: a bare <graphic> directly in the running text -
+    // the only non-standard-character mechanism it actually offers. No
+    // source-provenance sibling here (the raw PNG still lands in
+    // _glyphs/ on disk; it's just not referenced from the XML) - keeping
+    // that pairing schema-valid on a schema this minimal isn't worth the
+    // added complexity for what's expected to be a rarely-used combination.
+    const glyphGraphic = writer.tagger.addStructureTag({
+      action: writer.tagger.ADD,
+      tagName: 'graphic',
+      attributes: {
+        type: 'glyph',
+        url: options.svgUrl,
+        mimeType: 'image/svg+xml',
+        width: String(options.svgWidth),
+        height: String(options.svgHeight),
+      },
+      bookmark,
+    });
+    if (!glyphGraphic?.id) return false;
+  }
 
   const body = writer.editor?.getBody();
   if (body) {
@@ -133,7 +167,7 @@ export const insertGlyph = async (
  * Common entry point for both paste and drag-and-drop of an image file:
  * vectorize via the Electron main-process pipeline (composite/flatten/
  * despeckle/trace - see apps/desktop/src/glyphVectorize.ts), then insert
- * both the raw source and the cleaned SVG as a `<g type="glyph">`.
+ * the glyph via insertGlyph (see there for the schema-dependent shape).
  */
 export const insertGlyphFromImageFile = async (writer: Writer, file: File): Promise<boolean> => {
   const bytes = await blobToUint8Array(file);
@@ -172,6 +206,12 @@ export const insertGlyphFromRemoteImageUrl = async (
   return insertGlyphFromImageFile(writer, file);
 };
 
+/** Recognizes both the current `<g ref="#id">` shape and the legacy
+ * `<g type="glyph"><graphic>...` shape inserted before this file existed
+ * (still rendered - see isGlyphGraphic in utitlities.ts - just no longer
+ * produced by insertGlyph). Returns null for the TEI Lite bare-`<graphic>`
+ * fallback: with no `<g>`/`<charDecl>` for it to point into, there's no
+ * escape hatch there yet beyond delete-and-repaste. */
 export const resolveGlyphContext = (element: Element | null | undefined): GlyphContext | null => {
   if (!element) return null;
 
@@ -184,18 +224,24 @@ export const resolveGlyphContext = (element: Element | null | undefined): GlyphC
         : null;
   if (!gElement) return null;
 
-  const graphics = Array.from(gElement.querySelectorAll('[_tag="graphic"], [_tag="GRAPHIC"]'));
-  const sourceGraphicElement = graphics.find((el) => el.getAttribute('type') === 'source');
-  const normalizedGraphicElement = graphics.find((el) => el.getAttribute('type') === 'normalized');
-  if (!sourceGraphicElement || !normalizedGraphicElement) return null;
-
   const glyphId = gElement.getAttribute('n') || '';
   if (!glyphId) return null;
 
-  return { gElement, sourceGraphicElement, normalizedGraphicElement, glyphId };
+  const graphics = Array.from(gElement.querySelectorAll('[_tag="graphic"], [_tag="GRAPHIC"]'));
+  const sourceGraphicElement = graphics.find((el) => el.getAttribute('type') === 'source');
+  const normalizedGraphicElement = graphics.find((el) => el.getAttribute('type') === 'normalized');
+  if (sourceGraphicElement && normalizedGraphicElement) {
+    return { kind: 'legacy', gElement, sourceGraphicElement, normalizedGraphicElement, glyphId };
+  }
+
+  if (gElement.getAttribute('ref') === `#${glyphId}`) {
+    return { kind: 'ref', gElement, glyphId };
+  }
+
+  return null;
 };
 
-/** Re-runs vectorization against a fresh image and replaces both the source and normalized graphics in place - the escape hatch for a bad auto-trace. */
+/** Re-runs vectorization against a fresh image and replaces the glyph's graphic(s) in place - the escape hatch for a bad auto-trace. */
 export const replaceGlyphImage = async (
   writer: Writer,
   context: GlyphContext,
@@ -209,20 +255,38 @@ export const replaceGlyphImage = async (
   const saved = await saveGlyphAssets(context.glyphId, bytes, result.svg);
   if (!saved) return false;
 
-  writer.tagger.setAttributesForTag(context.sourceGraphicElement, {
-    ...writer.tagger.getAttributesForTag(context.sourceGraphicElement),
-    url: saved.sourceUrl,
-  });
-  writer.tagger.setAttributesForTag(context.normalizedGraphicElement, {
-    ...writer.tagger.getAttributesForTag(context.normalizedGraphicElement),
-    url: saved.svgUrl,
-    width: String(result.width),
-    height: String(result.height),
-  });
+  if (context.kind === 'legacy') {
+    writer.tagger.setAttributesForTag(context.sourceGraphicElement, {
+      ...writer.tagger.getAttributesForTag(context.sourceGraphicElement),
+      url: saved.sourceUrl,
+    });
+    writer.tagger.setAttributesForTag(context.normalizedGraphicElement, {
+      ...writer.tagger.getAttributesForTag(context.normalizedGraphicElement),
+      url: saved.svgUrl,
+      width: String(result.width),
+      height: String(result.height),
+    });
 
-  const documentFilePath = activeDocumentFilePath();
-  handleGraphics($(context.sourceGraphicElement), { documentFilePath });
-  handleGraphics($(context.normalizedGraphicElement), { documentFilePath });
+    const documentFilePath = activeDocumentFilePath();
+    handleGraphics($(context.sourceGraphicElement), { documentFilePath });
+    handleGraphics($(context.normalizedGraphicElement), { documentFilePath });
+  } else {
+    const storedXml = getStoredDocumentXml(writer);
+    if (!storedXml) return false;
+    const spec: GlyphGraphicSpec = {
+      glyphId: context.glyphId,
+      sourceUrl: saved.sourceUrl,
+      svgUrl: saved.svgUrl,
+      svgWidth: result.width,
+      svgHeight: result.height,
+    };
+    const updatedXml = ensureGlyphCharDeclEntry(storedXml, spec);
+    if (!updatedXml) return false;
+
+    setStoredDocumentXml(writer, updatedXml);
+    handleGraphics($(context.gElement), { documentFilePath: activeDocumentFilePath() });
+  }
+
   writer.editor?.undoManager.add();
   writer.event('contentChanged').publish();
   return true;

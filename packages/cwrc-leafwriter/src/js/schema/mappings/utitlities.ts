@@ -1,6 +1,19 @@
 import $ from 'jquery';
 
 import { fetchResourceText, resolveDocumentAssetUrl } from '../../../utilities/fetchResource';
+import { findGlyphCharDeclEntry } from '../../../utilities/glyphCharDecl';
+
+/** The full document XML (with header) lives separately from the visual
+ * editor's DOM - it's stripped before load and merged back in at save time
+ * (see stripTeiHeaderForVisualEditor/mergeEditorBodyWithStoredHeader in
+ * apps/commons) - so a `<charDecl>` entry can't be found via jQuery on the
+ * body the way everything else in this file works. This mirrors the same
+ * `__desktopStoredDocumentXml` read used elsewhere in this package
+ * (autoTagging/documentContent.ts, useTeiHeaderRepairPrompt.tsx). */
+const getStoredDocumentXml = (): string | null => {
+  if (typeof window === 'undefined') return null;
+  return window.__desktopStoredDocumentXml ?? window.writer?.overmindState?.document?.xml ?? null;
+};
 
 export interface HandleGraphicsOptions {
   documentFilePath?: string | null;
@@ -16,10 +29,26 @@ const isKanripoGaijiGraphic = ($tag: JQuery<Element>): boolean => {
   return $parent.attr('_tag') === 'g' && $parent.attr('type') === 'kanripo';
 };
 
+/** Matches the legacy `<g type="glyph"><graphic type="source|normalized">`
+ * shape (both graphics as children of the wrapper). Schemas that define
+ * `<g>`/`<charDecl>` now use `<g ref="#id">` instead (see
+ * isGlyphRefElement) - this only remains for documents inserted before
+ * that change. */
 const isGlyphGraphic = ($tag: JQuery<Element>): boolean => {
   const $parent = $tag.parent();
   return $parent.attr('_tag') === 'g' && $parent.attr('type') === 'glyph';
 };
+
+/** TEI Lite defines neither `<g>` nor `<charDecl>`/`<glyph>`, so a glyph
+ * there is a bare `<graphic type="glyph">` sitting directly in the running
+ * text - no wrapper, no charDecl entry, no source-provenance sibling. */
+const isBareGlyphGraphic = ($tag: JQuery<Element>): boolean => $tag.attr('type') === 'glyph';
+
+/** The current, schema-clean shape: `<g ref="#id" type="glyph">` in the
+ * running text, with the actual graphics registered once in
+ * `<teiHeader><encodingDesc><charDecl>` - see glyphCharDecl.ts. */
+const isGlyphRefElement = ($tag: JQuery<Element>): boolean =>
+  $tag.attr('_tag') === 'g' && $tag.attr('type') === 'glyph' && Boolean($tag.attr('ref'));
 
 /**
  * Tagger.insert always seeds empty structure tags with `\uFEFF` so TinyMCE
@@ -84,19 +113,28 @@ const applyHiddenGlyphSource = ($tag: JQuery<Element>) => {
  * `currentColor` — force `color: inherit` so the ink tracks surrounding
  * text. Width/height TEI attributes from vectorizeGlyphImage() stay on
  * the element for provenance; they are not used for layout.
+ *
+ * `standalone` is true when `$tag` itself sits directly in the running
+ * text with no separate wrapper to own the line-box baseline - the TEI
+ * Lite bare-graphic fallback, and the new `<g ref="#id">` shape (which,
+ * unlike the legacy dual-graphic shape, has no child element to be a
+ * "wrap" around). Both cases need their own inline-block + baseline
+ * instead of relying on a `.lw-glyph-wrap` ancestor.
  */
-const applyMaskedGlyph = ($tag: JQuery<Element>, url: string) => {
+const applyMaskedGlyph = ($tag: JQuery<Element>, url: string, standalone: boolean) => {
   clearEmptyTagSentinel($tag);
   $tag.addClass('lw-inline-glyph');
   $tag.attr('contenteditable', 'false');
   $tag.attr('data-mce-resize', 'false');
   $tag.css({
     // Match applyEmSizedGraphic: block inside an inline-block wrap so the
-    // wrap owns the line-box baseline and the mask fills a fixed em cell.
-    display: 'block',
+    // wrap owns the line-box baseline and the mask fills a fixed em cell -
+    // unless standalone, in which case this element owns it directly.
+    display: standalone ? 'inline-block' : 'block',
     height: '1em',
     width: '1em',
     lineHeight: '0',
+    verticalAlign: standalone ? 'baseline' : '',
     // Keep ink centered in the 1em cell. (Kanripo's "center bottom" + the
     // same nudge hangs masked glyphs under the line — masks and
     // background-images do not share the same paint box.)
@@ -128,7 +166,7 @@ const applyMaskedGlyph = ($tag: JQuery<Element>, url: string) => {
     $tag.css({ maskImage: `url("${dataUrl}")`, WebkitMaskImage: `url("${dataUrl}")` });
   });
 
-  const $wrap = $tag.parent();
+  const $wrap = standalone ? $() : $tag.parent();
   if ($wrap.attr('_tag') === 'g' && $wrap.attr('type') === 'glyph') {
     clearEmptyTagSentinel($wrap);
     $wrap.addClass('lw-glyph-wrap');
@@ -145,6 +183,29 @@ const applyMaskedGlyph = ($tag: JQuery<Element>, url: string) => {
       color: 'inherit',
     });
   }
+};
+
+/**
+ * Renders a `<g ref="#id" type="glyph">` element: resolves the id against
+ * `<teiHeader><encodingDesc><charDecl>` in the full document XML (not the
+ * visual DOM - see getStoredDocumentXml) and masks `$tag` itself directly,
+ * since there's no separate wrapper/inner-graphic split for this shape.
+ * If the id can't be resolved (bad ref, or the header hasn't loaded yet),
+ * this leaves the element unstyled rather than guessing.
+ */
+const applyGlyphRefElement = ($tag: JQuery<Element>, documentFilePath: string | null) => {
+  const refAttr = $tag.attr('ref') ?? '';
+  const glyphId = refAttr.startsWith('#') ? refAttr.slice(1) : refAttr;
+  if (!glyphId) return;
+
+  const storedXml = getStoredDocumentXml();
+  if (!storedXml) return;
+
+  const entry = findGlyphCharDeclEntry(storedXml, glyphId);
+  if (!entry) return;
+
+  const url = resolveDocumentAssetUrl(entry.svgUrl, documentFilePath);
+  applyMaskedGlyph($tag, url, true);
 };
 
 const applyEmSizedGraphic = ($tag: JQuery<Element>, url: string, heightAttr: string) => {
@@ -189,20 +250,38 @@ const applyEmSizedGraphic = ($tag: JQuery<Element>, url: string, heightAttr: str
 };
 
 export const handleGraphics = ($tag: JQuery<Element>, options: HandleGraphicsOptions = {}) => {
+  const documentFilePath = options.documentFilePath ?? activeDocumentFilePath();
+
+  // `<g ref="#id">` carries no `url` of its own (the graphics live in
+  // charDecl) - resolve and return before the `rawUrl` guard below, which
+  // would otherwise treat it as "nothing to render".
+  if (isGlyphRefElement($tag)) {
+    applyGlyphRefElement($tag, documentFilePath);
+    return;
+  }
+
   const rawUrl = $tag.attr('url');
   if (!rawUrl) return;
 
-  const documentFilePath = options.documentFilePath ?? activeDocumentFilePath();
   const url = resolveDocumentAssetUrl(rawUrl, documentFilePath);
   const heightAttr = ($tag.attr('height') || '').trim();
   const kanripoGaiji = isKanripoGaijiGraphic($tag);
 
   if (isGlyphGraphic($tag)) {
+    // Legacy shape only: both graphics as children of a `<g type="glyph">`
+    // wrapper, which owns the inline-block/baseline (standalone: false).
     if ($tag.attr('type') === 'source') {
       applyHiddenGlyphSource($tag);
     } else {
-      applyMaskedGlyph($tag, url);
+      applyMaskedGlyph($tag, url, false);
     }
+    return;
+  }
+
+  if (isBareGlyphGraphic($tag)) {
+    // TEI Lite fallback: no wrapper, no charDecl - this element owns its
+    // own inline-block/baseline (standalone: true).
+    applyMaskedGlyph($tag, url, true);
     return;
   }
 
@@ -239,6 +318,8 @@ export const refreshGraphicsInBody = (
 ) => {
   if (!body) return;
   $(body)
-    .find('*[_tag="graphic"], *[_tag="GRAPHIC"]')
+    .find(
+      '*[_tag="graphic"], *[_tag="GRAPHIC"], *[_tag="g"][type="glyph"][ref], *[_tag="G"][type="glyph"][ref]',
+    )
     .each((_index, element) => handleGraphics($(element), options));
 };
