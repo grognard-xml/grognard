@@ -937,7 +937,13 @@
       "Tag Thing": "標記事物",
       "Tag Work": "標記作品",
       "Toggle Fullscreen": "切換全螢幕",
-      "Validate": "驗證"
+      "Validate": "驗證",
+      "Structure": "結構",
+      "Structure tooltip": "插入標題、分頁符或換行符，或拆分段落－會放在結構描述實際允許的位置",
+      "Insert Heading": "標題",
+      "Insert Page Break": "分頁符",
+      "Insert Line Break": "換行符",
+      "Split Paragraph": "拆分段落"
     },
     "xpathSearch": {
       "title": "XPath 搜尋",

@@ -13,6 +13,10 @@ import {
   isAiSuggestReady,
 } from '../../autoTagging/llmClientFromSettings';
 import { readPersistedDisambiguationSettings } from '../../autoTagging/disambiguationSettings';
+import {
+  insertStructuralElementAtCursor,
+  splitParagraphAtCursor,
+} from '../../utilities/structuralInsert';
 import { Button } from './Button';
 import { IconButton } from './IconButton';
 import { MenuButton } from './MenuButton';
@@ -319,6 +323,48 @@ export const EditorToolbar = () => {
       onClick: () => openDialog({ type: 'xpathSearch' }),
       title: t('LW.xpathSearch.title'),
       type: 'iconButton',
+    },
+    {
+      group: 'ui',
+      hide: isReadonly,
+      icon: 'structure',
+      title: t('LW.editorToolbar.Structure'),
+      tooltip: t('LW.editorToolbar.Structure tooltip'),
+      type: 'menuButton',
+      menuItems: [
+        {
+          id: 'structure-heading',
+          label: t('LW.editorToolbar.Insert Heading'),
+          onClick: () => {
+            const writer = window.writer;
+            if (writer) insertStructuralElementAtCursor(writer, 'head');
+          },
+        },
+        {
+          id: 'structure-page-break',
+          label: t('LW.editorToolbar.Insert Page Break'),
+          onClick: () => {
+            const writer = window.writer;
+            if (writer) insertStructuralElementAtCursor(writer, 'pb');
+          },
+        },
+        {
+          id: 'structure-line-break',
+          label: t('LW.editorToolbar.Insert Line Break'),
+          onClick: () => {
+            const writer = window.writer;
+            if (writer) insertStructuralElementAtCursor(writer, 'lb');
+          },
+        },
+        {
+          id: 'structure-split-paragraph',
+          label: t('LW.editorToolbar.Split Paragraph'),
+          onClick: () => {
+            const writer = window.writer;
+            if (writer) splitParagraphAtCursor(writer);
+          },
+        },
+      ],
     },
     {
       group: 'ui',

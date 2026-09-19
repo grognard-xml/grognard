@@ -939,7 +939,13 @@
       "Tag Thing": "Tag Thing",
       "Tag Work": "Tag Work",
       "Toggle Fullscreen": "Toggle Fullscreen",
-      "Validate": "Validate"
+      "Validate": "Validate",
+      "Structure": "Structure",
+      "Structure tooltip": "Insert a heading, page break, or line break, or split a paragraph - placed wherever the schema actually allows it",
+      "Insert Heading": "Heading",
+      "Insert Page Break": "Page break",
+      "Insert Line Break": "Line break",
+      "Split Paragraph": "Split paragraph"
     },
     "xpathSearch": {
       "title": "XPath Search",

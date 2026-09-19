@@ -320,7 +320,13 @@
       "Lock Text": "Verrouiller le texte",
       "Lock Text tooltip": "Empêche la saisie et la suppression dans l'éditeur ; le balisage fonctionne toujours (Entrée, Alt+Entrée).",
       "Unlock Text": "Déverrouiller le texte",
-      "Unlock Text tooltip": "Autorise de nouveau la saisie et la suppression dans l'éditeur."
+      "Unlock Text tooltip": "Autorise de nouveau la saisie et la suppression dans l'éditeur.",
+      "Structure": "Structure",
+      "Structure tooltip": "Insérer un titre, un saut de page ou de ligne, ou scinder un paragraphe - placé là où le schéma le permet réellement",
+      "Insert Heading": "Titre",
+      "Insert Page Break": "Saut de page",
+      "Insert Line Break": "Saut de ligne",
+      "Split Paragraph": "Scinder le paragraphe"
     },
     "entity": {
       "_plural": {
