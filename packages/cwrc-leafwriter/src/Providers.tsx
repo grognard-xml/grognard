@@ -27,7 +27,10 @@ const Providers = (props: LeafWriterOptions) => {
   const preferDark = useMediaQuery('(prefers-color-scheme: dark)');
 
   useEffect(() => {
-    if (themeAppearance === 'system') setDarkMode(preferDark);
+    if (themeAppearance === 'system') {
+      setDarkMode(preferDark);
+      window.dispatchEvent(new Event('changeTheme'));
+    }
   }, [preferDark, setDarkMode, themeAppearance]);
 
   return (
