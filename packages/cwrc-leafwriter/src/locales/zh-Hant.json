@@ -945,7 +945,8 @@
       "Insert Line Break": "換行符",
       "Split Paragraph": "拆分段落",
       "Page Number": "頁碼",
-      "Line Number": "行號"
+      "Line Number": "行號",
+      "Heading Text": "標題文字"
     },
     "xpathSearch": {
       "title": "XPath 搜尋",

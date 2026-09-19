@@ -27,6 +27,8 @@ export const SimpleDialog = ({
 
   const [data, setData] = useState<Record<string, any>>({});
 
+  const handleSubmit = () => handleAction('confirm');
+
   const handleShouldCLose = async (action?: string) => {
     if (!onBeforeClose) return true;
     return await onBeforeClose(action);
@@ -75,27 +77,33 @@ export const SimpleDialog = ({
             ? children
             : typeof Body === 'string'
               ? Body
-              : Body && <Body data={data} onChangeData={setData} />}
+              : Body && <Body data={data} onChangeData={setData} onSubmit={handleSubmit} />}
         </DialogContent>
       )}
-      <DialogActions
-        sx={[
-          {
-            justifyContent: 'flex-end',
-            '& :first-of-type': { marginRight: 0 },
-          },
-          actions.length > 1 && {
-            justifyContent: 'space-between',
-            '& :first-of-type': { marginRight: 'auto' },
-          },
-        ]}
-      >
-        {actions.map(({ action, label, variant }, index) => (
-          <Button key={`${index}-${action}`} onClick={() => handleAction(action)} variant={variant}>
-            {label}
-          </Button>
-        ))}
-      </DialogActions>
+      {actions.length > 0 && (
+        <DialogActions
+          sx={[
+            {
+              justifyContent: 'flex-end',
+              '& :first-of-type': { marginRight: 0 },
+            },
+            actions.length > 1 && {
+              justifyContent: 'space-between',
+              '& :first-of-type': { marginRight: 'auto' },
+            },
+          ]}
+        >
+          {actions.map(({ action, label, variant }, index) => (
+            <Button
+              key={`${index}-${action}`}
+              onClick={() => handleAction(action)}
+              variant={variant}
+            >
+              {label}
+            </Button>
+          ))}
+        </DialogActions>
+      )}
     </Dialog>
   );
 };

@@ -336,9 +336,15 @@ export const EditorToolbar = () => {
         {
           id: 'structure-heading',
           label: t('LW.editorToolbar.Insert Heading'),
-          onClick: () => {
+          onClick: async () => {
             const writer = window.writer;
-            if (writer) insertStructuralElementAtCursor(writer, 'head');
+            if (!writer) return;
+            const text = await promptForText(
+              t('LW.editorToolbar.Insert Heading'),
+              t('LW.editorToolbar.Heading Text'),
+            );
+            if (text === null) return;
+            insertStructuralElementAtCursor(writer, 'head', {}, { text });
           },
         },
         {

@@ -309,4 +309,40 @@ describe('insertStructuralElementAtCursor', () => {
     // the split already produced a trailing <p> - no extra one should appear
     expect(children).toEqual(['p', 'head', 'p']);
   });
+
+  it('fills a heading with prefilled text (from the heading-text prompt) instead of an empty sentinel', () => {
+    document.body.innerHTML =
+      '<span id="d1" _tag="div"><span id="p1" _tag="p">Hello World</span></span>';
+    const writer = makeFakeWriter(document.body, {
+      validParents: { head: ['div'] },
+      textContaining: ['head'],
+    });
+    setCursor(writer, document.getElementById('p1')!.firstChild!, 5);
+
+    insertStructuralElementAtCursor(writer, 'head', {}, { text: 'Chapter One' });
+
+    const head = document.querySelector('[_tag="head"]')!;
+    expect(head.textContent).toBe('Chapter One');
+  });
+
+  it('moves the caret into the following paragraph after a prefilled heading, not into the heading itself', () => {
+    document.body.innerHTML =
+      '<span id="d1" _tag="div"><span id="p1" _tag="p">Hello World</span></span>';
+    const writer = makeFakeWriter(document.body, {
+      validParents: { head: ['div'] },
+      textContaining: ['head'],
+    });
+    setCursor(writer, document.getElementById('p1')!.firstChild!, 5);
+
+    insertStructuralElementAtCursor(writer, 'head', {}, { text: 'Chapter One' });
+
+    const head = document.querySelector('[_tag="head"]')!;
+    const followingParagraph = head.nextElementSibling!;
+    expect(followingParagraph.getAttribute('_tag')).toBe('p');
+    const rng = (
+      writer.editor as unknown as { selection: { getRng: () => Range } }
+    ).selection.getRng();
+    expect(rng.startContainer).toBe(followingParagraph);
+    expect(rng.startOffset).toBe(0);
+  });
 });

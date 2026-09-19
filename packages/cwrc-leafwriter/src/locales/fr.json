@@ -328,7 +328,8 @@
       "Insert Line Break": "Saut de ligne",
       "Split Paragraph": "Scinder le paragraphe",
       "Page Number": "Numéro de page",
-      "Line Number": "Numéro de ligne"
+      "Line Number": "Numéro de ligne",
+      "Heading Text": "Texte du titre"
     },
     "entity": {
       "_plural": {

@@ -152,6 +152,7 @@ export const insertStructuralElementAtCursor = (
   writer: Writer,
   tagName: string,
   attributes: Record<string, unknown> = {},
+  options: { text?: string } = {},
 ): boolean => {
   const editor = writer.editor;
   const body = editor?.getBody();
@@ -213,10 +214,16 @@ export const insertStructuralElementAtCursor = (
       if (child.nodeType === Node.TEXT_NODE) newTag.removeChild(child);
     }
     placeCaretAfterElement(writer, newTag);
+  } else if (options.text) {
+    // Text was already collected up front (e.g. the heading-text prompt) -
+    // replace the `\uFEFF` sentinel with it instead of leaving the tag
+    // empty for in-place typing.
+    newTag.textContent = options.text;
   }
-  // Otherwise (e.g. `head`) addStructureTag already leaves the caret inside
-  // the new tag's sentinel content, ready for the user to type its text.
+  // Otherwise (e.g. an empty `head`) addStructureTag already leaves the
+  // caret inside the new tag's sentinel content, ready for the user to type.
 
+  let trailingParagraph: Element | null = null;
   if (
     tagName === 'head' &&
     !newTag.nextElementSibling &&
@@ -228,12 +235,25 @@ export const insertStructuralElementAtCursor = (
     // <p> to split - reads as broken (a section that's just a title with no
     // body). Give it an empty paragraph to write into, same as splitting
     // would have produced if there'd been content after the cursor.
-    writer.tagger.addStructureTag({
+    trailingParagraph = writer.tagger.addStructureTag({
       action: writer.tagger.AFTER,
       tagName: 'p',
       attributes: {},
       bookmark: { tagId: newTag.id },
     });
+  }
+
+  if (tagName === 'head' && options.text) {
+    // The heading's text already came from the prompt, so there's nothing
+    // left to type into it - move on to the paragraph after it (either the
+    // one just created above, or the one the initial split produced).
+    const nextParagraph = trailingParagraph ?? newTag.nextElementSibling;
+    if (nextParagraph) {
+      const rng = editor.dom.createRng();
+      rng.setStart(nextParagraph, 0);
+      rng.collapse(true);
+      editor.selection.setRng(rng);
+    }
   }
 
   writer.event('contentChanged').publish();
