@@ -19,6 +19,7 @@ import {
   getVisualCaretForSourceSync,
   mapVisualCaretToSourceOffset,
 } from '../../utilities/sourceCursorSync';
+import { refreshGraphicsInBody } from '../../js/schema/mappings/utitlities';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export const onInitializeOvermind = ({ state, actions, effects }: Context, _overmind: any) => {
@@ -790,6 +791,15 @@ export const exitSourceMode = async ({ state, actions }: Context): Promise<boole
   // while TinyMCE still holds the pre-source snapshot.
   if (!leavingWithEdits && !visualOutOfSync) {
     actions.ui.setEditorViewMode('visual');
+    // No XML reload on this path — re-apply graphic chrome so insert-time
+    // \uFEFF sentinels (and any stale mask styles) get cleared the same way
+    // a full documentLoaded refresh would.
+    const body = window.writer?.editor?.getBody();
+    if (body) {
+      refreshGraphicsInBody(body, {
+        documentFilePath: window.__leafWriterProject?.getActiveFilePath?.() ?? null,
+      });
+    }
     return true;
   }
 

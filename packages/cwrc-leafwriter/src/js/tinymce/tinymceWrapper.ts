@@ -1,4 +1,5 @@
 import $ from 'jquery';
+import i18next from '../../i18n';
 import { debounce } from 'lodash';
 import 'tinymce/icons/default';
 import 'tinymce/models/dom';
@@ -35,8 +36,14 @@ import {
 } from './pasteSpecial';
 import {
   getClipboardImageFile,
-  handleKanripoGaijiImagePaste,
-} from '../../utilities/kanripoGaijiEditor';
+  getDraggedImageUrl,
+  getDroppedImageFile,
+} from '../../utilities/clipboardImage';
+import {
+  glyphImageUnavailableReason,
+  insertGlyphFromImageFile,
+  insertGlyphFromRemoteImageUrl,
+} from '../../utilities/glyphEditor';
 import { refreshGraphicsInBody } from '../schema/mappings/utitlities';
 import { initEditorZoom } from './editorZoom';
 import { DEFAULT_EDITOR_FONT_SIZE } from '../../overmind/editor/state';
@@ -903,7 +910,41 @@ export const tinymceWrapperInit = function ({
         body.addEventListener(
           'drop',
           (event: DragEvent) => {
-            if (shouldBlockEditorTextInput()) event.preventDefault();
+            if (shouldBlockEditorTextInput()) {
+              event.preventDefault();
+              return;
+            }
+
+            // Dropping an image (a local file from Finder/a PDF viewer, or an
+            // <img> dragged off a web page — the latter carries a remote URL
+            // in dataTransfer, not bytes) is the drag-and-drop counterpart of
+            // pasting one — route it through the same glyph pipeline rather
+            // than letting TinyMCE fall back to inserting a raw, untagged
+            // <img>. Once we recognize this as an image drop, always block
+            // TinyMCE's own handling — either insert a glyph or explain why
+            // we couldn't, never let the raw image through as a fallback.
+            const dataTransfer = event.dataTransfer;
+            const imageFile = dataTransfer ? getDroppedImageFile(dataTransfer) : null;
+            const imageUrl = !imageFile && dataTransfer ? getDraggedImageUrl(dataTransfer) : null;
+            if (imageFile || imageUrl) {
+              event.preventDefault();
+              const reason = glyphImageUnavailableReason();
+              if (reason) {
+                writer.overmindActions.ui.notifyViaSnackbar(i18next.t(reason));
+                return;
+              }
+              const inserting = imageFile
+                ? insertGlyphFromImageFile(writer, imageFile)
+                : insertGlyphFromRemoteImageUrl(writer, imageUrl as string);
+              void inserting.then((inserted) => {
+                if (!inserted) {
+                  writer.overmindActions.ui.notifyViaSnackbar(
+                    i18next.t('LW.Could not insert the glyph image.'),
+                  );
+                  log.warn('Glyph image drop failed after passing all readiness checks.');
+                }
+              });
+            }
           },
           true,
         );
@@ -984,18 +1025,21 @@ export const tinymceWrapperInit = function ({
               clipboard.getData('text/plain') || clipboard.getData('Text') || '',
             );
 
-            const imageFile = getClipboardImageFile(clipboard);
-            if (
-              imageFile &&
-              !text.trim() &&
-              window.electronAPI?.writeBinaryFile &&
-              window.__leafWriterProject?.getActiveFilePath?.()
-            ) {
+            const imageFile = !text.trim() ? getClipboardImageFile(clipboard) : null;
+            if (imageFile) {
               event.preventDefault();
               event.stopImmediatePropagation();
-              void handleKanripoGaijiImagePaste(writer, imageFile).then((inserted) => {
+              const reason = glyphImageUnavailableReason();
+              if (reason) {
+                writer.overmindActions.ui.notifyViaSnackbar(i18next.t(reason));
+                return;
+              }
+              void insertGlyphFromImageFile(writer, imageFile).then((inserted) => {
                 if (!inserted) {
-                  log.warn('Kanripo gaiji paste failed — is the document saved to disk?');
+                  writer.overmindActions.ui.notifyViaSnackbar(
+                    i18next.t('LW.Could not insert the glyph image.'),
+                  );
+                  log.warn('Glyph image paste failed after passing all readiness checks.');
                 }
               });
               return;

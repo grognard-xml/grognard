@@ -2,6 +2,10 @@ import $ from 'jquery';
 
 import type Writer from '../js/Writer';
 import { handleGraphics, refreshGraphicsInBody } from '../js/schema/mappings/utitlities';
+import { assetDirForDocument, joinPath, relativeAssetUrl } from './assetPaths';
+import { blobToUint8Array, getClipboardImageFile, pickImageFile } from './clipboardImage';
+
+export { blobToUint8Array, getClipboardImageFile, pickImageFile };
 
 export interface KanripoGaijiContext {
   gElement: Element;
@@ -9,19 +13,13 @@ export interface KanripoGaijiContext {
   gaijiId: string;
 }
 
-const joinPath = (...parts: string[]): string =>
-  parts.filter(Boolean).join('/').replace(/\\/g, '/').replace(/\/+/g, '/');
-
-const parentDir = (filePath: string): string => {
-  const normalized = filePath.replace(/\\/g, '/');
-  const slash = Math.max(normalized.lastIndexOf('/'), filePath.lastIndexOf('\\'));
-  return slash >= 0 ? filePath.slice(0, slash) : filePath;
-};
+const GAIJI_DIR = '_gaiji';
 
 export const gaijiDirForDocument = (documentPath: string): string =>
-  joinPath(parentDir(documentPath), '_gaiji');
+  assetDirForDocument(documentPath, GAIJI_DIR);
 
-export const relativeGaijiUrl = (fileName: string): string => `_gaiji/${fileName}`;
+export const relativeGaijiUrl = (fileName: string): string =>
+  relativeAssetUrl(GAIJI_DIR, fileName);
 
 export const resolveKanripoGaijiContext = (
   element: Element | null | undefined,
@@ -47,20 +45,6 @@ export const resolveKanripoGaijiContext = (
   if (!gaijiId) return null;
 
   return { gElement, graphicElement, gaijiId };
-};
-
-export const getClipboardImageFile = (clipboard: DataTransfer): File | null => {
-  for (const item of Array.from(clipboard.items)) {
-    if (item.kind === 'file' && item.type.startsWith('image/')) {
-      return item.getAsFile();
-    }
-  }
-  return null;
-};
-
-export const blobToUint8Array = async (blob: Blob): Promise<Uint8Array> => {
-  const buffer = await blob.arrayBuffer();
-  return new Uint8Array(buffer);
 };
 
 export const generatePastedGaijiId = (): string => `KR-paste-${Date.now().toString(36)}`;
@@ -182,12 +166,3 @@ export const replaceKanripoGaijiImage = async (
   writer.event('contentChanged').publish();
   return true;
 };
-
-export const pickImageFile = (): Promise<File | null> =>
-  new Promise((resolve) => {
-    const input = document.createElement('input');
-    input.type = 'file';
-    input.accept = 'image/png,image/jpeg,image/webp,image/gif';
-    input.onchange = () => resolve(input.files?.[0] ?? null);
-    input.click();
-  });

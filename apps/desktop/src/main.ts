@@ -54,6 +54,7 @@ import {
   type EntityGlossSuggestPayload,
   type EntityGlossSuggestResult,
 } from './aiEntityGlossLlm';
+import { vectorizeGlyphImage, type VectorizeGlyphOptions } from './glyphVectorize';
 import {
   applyTranslationSpellcheck,
   attachTranslationSpellcheckContextMenu,
@@ -2598,6 +2599,31 @@ const registerIpcHandlers = () => {
   ipcMain.handle('writeBinaryFile', async (_event, filePath: string, bytes: Uint8Array) => {
     await assertRendererWritePath(filePath);
     await fs.writeFile(filePath, Buffer.from(bytes));
+  });
+
+  ipcMain.handle(
+    'vectorizeGlyphImage',
+    async (_event, bytes: Uint8Array, options?: VectorizeGlyphOptions) =>
+      vectorizeGlyphImage(bytes, options),
+  );
+
+  // Dragging an image from a web page carries its remote URL, not file
+  // bytes (dataTransfer.files is empty for a cross-origin drag source) — the
+  // renderer's own fetch() would hit that page's CORS policy, but the main
+  // process's net.fetch uses Chromium's network stack directly and isn't
+  // subject to it, the same way a normal browser's "Save Image As" isn't.
+  ipcMain.handle('fetchRemoteImageBytes', async (_event, url: string) => {
+    try {
+      const parsed = new URL(url);
+      if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return null;
+      const response = await net.fetch(url);
+      if (!response.ok) return null;
+      const contentType = response.headers.get('content-type') ?? '';
+      if (!contentType.startsWith('image/')) return null;
+      return new Uint8Array(await response.arrayBuffer());
+    } catch {
+      return null;
+    }
   });
 
   ipcMain.handle('pathExists', async (_event, filePath: string) => {

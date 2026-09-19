@@ -51,6 +51,8 @@ export default defineConfig({
   noExternal: [
     'mammoth',
     'jszip',
+    'jimp',
+    'potrace',
     '@xmldom/xmldom',
     'electron-updater',
     'pmtiles',
@@ -68,4 +70,18 @@ export default defineConfig({
   ],
   splitting: false,
   sourcemap: true,
+  // jimp ships both a real CJS build (`main`) and a separate ESM rewrite
+  // (`module`) that re-exports the class under `.default` instead of being
+  // the class itself. Esbuild's default resolution let `potrace`'s own
+  // internal `require('jimp')` pick up the `module` build while our own
+  // `import Jimp from 'jimp'` picked up `main` - two different runtime
+  // values for "Jimp" in the same bundle, so potrace's internal
+  // `instanceof Jimp` check crashed with "Right-hand side of 'instanceof'
+  // is not callable" the moment vectorizeGlyphImage() ran. Preferring
+  // `main` is also just correct here regardless of jimp specifically: this
+  // bundle only ever runs in Node/Electron's main process, and a package's
+  // `module` build assumes a browser bundler's semantics, not Node's.
+  esbuildOptions(options) {
+    options.mainFields = ['main', 'module'];
+  },
 });

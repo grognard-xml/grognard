@@ -470,7 +470,9 @@ export const tei: SchemaMappingProps = {
       if ($tag.attr('_tag') === 'graphic') handleGraphics($tag);
     },
     documentLoaded: (_success, body) => {
-      refreshGraphicsInBody(body);
+      refreshGraphicsInBody(body, {
+        documentFilePath: window.__leafWriterProject?.getActiveFilePath?.() ?? null,
+      });
     },
   },
 };

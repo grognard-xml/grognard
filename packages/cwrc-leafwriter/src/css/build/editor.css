@@ -519,6 +519,57 @@ distinguishable at a glance. */
   transform: translateY(0.12em);
 }
 
+/* Pasted/vectorized glyphs: 1em character cell, recolors with surrounding text.
+   Schema CSS (tei.css `graphic { color: gray; content: "{url}" }`) is rewritten
+   onto *[_tag="graphic"] and would otherwise gray the CSS-mask ink / inflate
+   show-tags chrome — same suppressions Kanripo needs. */
+.showTags *[_tag='g'][type='glyph']:before,
+.showTags *[_tag='g'][type='glyph']:after,
+.showTags *[_tag='g'][type='glyph'] *[_tag='graphic']:before,
+.showTags *[_tag='g'][type='glyph'] *[_tag='graphic']:after {
+  content: none !important;
+  display: none !important;
+}
+
+*[_tag='g'][type='glyph'].lw-glyph-wrap,
+.lw-glyph-wrap {
+  display: inline-block;
+  vertical-align: baseline;
+  line-height: 0;
+  width: 1em;
+  height: 1em;
+  padding: 0;
+  margin: 0;
+  font-size: inherit;
+  color: inherit !important;
+}
+
+*[_tag='g'][type='glyph'] *[_tag='graphic'][type='source'],
+.lw-glyph-source {
+  display: none !important;
+}
+
+.lw-inline-glyph,
+*[_tag='graphic'].lw-inline-glyph {
+  display: block;
+  width: 1em;
+  height: 1em;
+  line-height: 0;
+  margin: 0;
+  padding: 0;
+  transform: translateY(0.12em);
+  color: inherit !important;
+  /* Kill tei.css's content:"{url}" rewrite if a browser honours it on elements. */
+  content: none !important;
+  background-color: currentColor;
+  -webkit-mask-size: contain;
+  mask-size: contain;
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+  -webkit-mask-position: center;
+  mask-position: center;
+}
+
 /* Entity chrome fights inline commentary */
 .noteWrapper .entity.note,
 .noteWrapper .entity.citation,

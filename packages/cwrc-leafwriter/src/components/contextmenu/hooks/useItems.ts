@@ -11,9 +11,10 @@ import type { Action } from '../../../js/tagger';
 import { useActions, useAppState } from '../../../overmind';
 import type { EntityType } from '../../../types';
 import { log } from '../../../utilities';
+import { pickImageFile } from '../../../utilities/clipboardImage';
+import { replaceGlyphImage, resolveGlyphContext } from '../../../utilities/glyphEditor';
 import {
   graphicHeightEm,
-  pickImageFile,
   replaceKanripoGaijiImage,
   resolveKanripoGaijiContext,
   updateKanripoGaijiHeight,
@@ -446,6 +447,24 @@ export const useItems = (ctx: State) => {
           );
           if (!replaced) {
             notifyViaSnackbar(t('LW.Could not save the new gaiji image.'));
+          }
+        },
+      });
+      items.push({ type: 'divider', name: 'divider' });
+    }
+
+    const glyph = ctx.element ? resolveGlyphContext(ctx.element) : null;
+    if (glyph && !ctx.isEntity) {
+      items.push({
+        type: 'action',
+        name: t('LW.Replace glyph image'),
+        icon: 'edit',
+        onClick: async () => {
+          const file = await pickImageFile();
+          if (!file) return;
+          const replaced = await replaceGlyphImage(writer, glyph, file);
+          if (!replaced) {
+            notifyViaSnackbar(t('LW.Could not save the new glyph image.'));
           }
         },
       });

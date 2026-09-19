@@ -808,6 +808,11 @@ declare global {
     readFileAutoEncoding?: (filePath: string) => Promise<{ encoding: string; text: string }>;
     writeFile?: (filePath: string, content: string) => Promise<void>;
     writeBinaryFile?: (filePath: string, bytes: Uint8Array) => Promise<void>;
+    vectorizeGlyphImage?: (
+      bytes: Uint8Array,
+      options?: { threshold?: number; minBlobPixels?: number; marginPixels?: number },
+    ) => Promise<{ svg: string; threshold: number; width: number; height: number }>;
+    fetchRemoteImageBytes?: (url: string) => Promise<Uint8Array | null>;
     ensureDirectory?: (dirPath: string) => Promise<void>;
     readDirectory?: (
       dirPath: string,

@@ -285,6 +285,11 @@ export interface ElectronAPI {
   writeClipboardRich: (flavors: { text: string; html?: string; rtf?: string }) => Promise<void>;
   writeFile: (filePath: string, content: string) => Promise<void>;
   writeBinaryFile: (filePath: string, bytes: Uint8Array) => Promise<void>;
+  vectorizeGlyphImage: (
+    bytes: Uint8Array,
+    options?: { threshold?: number; minBlobPixels?: number; marginPixels?: number },
+  ) => Promise<{ svg: string; threshold: number; width: number; height: number }>;
+  fetchRemoteImageBytes: (url: string) => Promise<Uint8Array | null>;
   pathExists: (filePath: string) => Promise<boolean>;
   statFile: (filePath: string) => Promise<FileStat>;
   syncWatchedFiles: (paths: string[]) => Promise<void>;
@@ -1028,6 +1033,11 @@ const electronAPI: ElectronAPI = {
     ipcRenderer.invoke('writeFile', filePath, content),
   writeBinaryFile: (filePath: string, bytes: Uint8Array) =>
     ipcRenderer.invoke('writeBinaryFile', filePath, bytes),
+  vectorizeGlyphImage: (
+    bytes: Uint8Array,
+    options?: { threshold?: number; minBlobPixels?: number; marginPixels?: number },
+  ) => ipcRenderer.invoke('vectorizeGlyphImage', bytes, options),
+  fetchRemoteImageBytes: (url: string) => ipcRenderer.invoke('fetchRemoteImageBytes', url),
   pathExists: (filePath: string) => ipcRenderer.invoke('pathExists', filePath),
   statFile: (filePath: string) => ipcRenderer.invoke('statFile', filePath),
   syncWatchedFiles: (paths: string[]) => ipcRenderer.invoke('syncWatchedFiles', paths),
