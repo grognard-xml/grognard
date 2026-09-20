@@ -129,6 +129,22 @@ export const insertTranslationGlyphFromRemoteImageUrl = async (
   return insertTranslationGlyphFromImageFile(translationPath, file, range);
 };
 
+/** An image dragged from another in-app or in-page view (not a real OS
+ * file, not a remote URL) can carry its content as a self-contained
+ * `data:image/...` URI in the dragged HTML - see `getDraggedImageDataUrl`.
+ * No network/IPC fetch needed: `fetch()` resolves `data:` URIs directly,
+ * same-origin-exempt, so this never hits `fetchRemoteImageBytes`'s
+ * http(s)-only restriction the way a genuine remote URL would. */
+export const insertTranslationGlyphFromDataUrl = async (
+  translationPath: string,
+  dataUrl: string,
+  range: Range,
+): Promise<boolean> => {
+  const blob = await fetch(dataUrl).then((response) => response.blob());
+  const file = new File([blob], 'dropped-image', { type: blob.type || 'image/png' });
+  return insertTranslationGlyphFromImageFile(translationPath, file, range);
+};
+
 /**
  * Marks every glyph under `root` non-editable (so it behaves as an atomic
  * click-to-select, Backspace-to-delete unit, same reasoning as this

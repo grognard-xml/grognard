@@ -178,6 +178,7 @@ import {
 } from './translationUnitCards';
 import {
   GLYPH_SELECTOR,
+  insertTranslationGlyphFromDataUrl,
   insertTranslationGlyphFromImageFile,
   insertTranslationGlyphFromRemoteImageUrl,
   prepareAtomicGlyphFields,
@@ -185,8 +186,10 @@ import {
 } from './translationGlyphs';
 import {
   getClipboardImageFile,
+  getDraggedImageDataUrl,
   getDraggedImageUrl,
   getDroppedImageFile,
+  hasUnreadableDraggedImage,
 } from '../utilities/clipboardImage';
 import { isAiUiFeatureEnabled } from '../autoTagging/aiUiFeatures';
 import {
@@ -3246,11 +3249,10 @@ export const TranslationPane = () => {
   const handleTranslationImageDrop = async (
     currentTarget: HTMLElement,
     range: Range,
-    imageFile: File | null,
-    imageUrl: string | null,
+    source: { file: File } | { url: string } | { dataUrl: string } | null,
     onInserted?: () => void,
   ): Promise<boolean> => {
-    if (!imageFile && !imageUrl) return false;
+    if (!source) return false;
 
     const reason = translationGlyphImageUnavailableReason(translationPath);
     if (reason) {
@@ -3258,17 +3260,28 @@ export const TranslationPane = () => {
       return true;
     }
 
-    const inserted = imageFile
-      ? await insertTranslationGlyphFromImageFile(translationPath!, imageFile, range)
-      : await insertTranslationGlyphFromRemoteImageUrl(translationPath!, imageUrl!, range);
-    if (!inserted) {
-      notifyViaSnackbar(t('LW.translationPane.glyphInsertFailed'));
-      return true;
-    }
+    try {
+      const inserted =
+        'file' in source
+          ? await insertTranslationGlyphFromImageFile(translationPath!, source.file, range)
+          : 'dataUrl' in source
+            ? await insertTranslationGlyphFromDataUrl(translationPath!, source.dataUrl, range)
+            : await insertTranslationGlyphFromRemoteImageUrl(translationPath!, source.url, range);
+      if (!inserted) {
+        notifyViaSnackbar(t('LW.translationPane.glyphInsertFailed'));
+        return true;
+      }
 
-    prepareAtomicGlyphFields(currentTarget, translationPath);
-    refreshFootnotes();
-    onInserted?.();
+      prepareAtomicGlyphFields(currentTarget, translationPath);
+      refreshFootnotes();
+      onInserted?.();
+    } catch (error) {
+      // Surface the failure rather than a silent no-op (previously: an
+      // unhandled rejection here just vanished, and pasting/dropping a
+      // glyph image appeared to do nothing at all).
+      console.warn('[translation] glyph image insert failed', error);
+      notifyViaSnackbar(t('LW.translationPane.glyphInsertFailed'));
+    }
     return true;
   };
 
@@ -3292,8 +3305,7 @@ export const TranslationPane = () => {
       void handleTranslationImageDrop(
         currentTarget,
         range,
-        imageFile,
-        null,
+        { file: imageFile },
         options.onImageInserted,
       );
       return;
@@ -3319,27 +3331,49 @@ export const TranslationPane = () => {
     refreshFootnotes();
   };
 
-  /** Dropping an image (a local file, or one dragged off a web page - the
-   * latter carries a remote URL, not bytes) is the drag-and-drop
-   * counterpart to pasting one. There's no existing drop handling at all in
-   * this pane to extend - this adds it, image-only, mirroring the main
-   * editor's own drop handler; a dropped non-image falls through to the
-   * browser's default contentEditable drop behaviour, same as before this
-   * existed. */
+  /** Dropping an image is the drag-and-drop counterpart to pasting one.
+   * There's no existing drop handling at all in this pane to extend - this
+   * adds it, image-only, mirroring the main editor's own drop handler. A
+   * drag can carry an image three different ways depending on its source -
+   * a real OS file, a self-contained `data:` URI (another in-app/in-page
+   * image), or a remote URL (dragged off a live web page) - tried in that
+   * order. If none of those can be read but the drag still looks like an
+   * image (an `<img>` present in the dragged HTML with an unreadable src,
+   * e.g. a local `file://` path with no OS-provided `File` object), this
+   * still blocks the browser's default handling and reports a clear
+   * failure rather than letting an unvectorized, full-size image slip
+   * through as a fallback - a dropped non-image falls through to the
+   * browser's default contentEditable drop behaviour untouched, same as
+   * before this existed. */
   const handleTranslationDrop = (event: DragEvent<HTMLElement>, onInserted?: () => void) => {
     const dataTransfer = event.dataTransfer;
     if (!dataTransfer) return;
 
     const imageFile = getDroppedImageFile(dataTransfer);
-    const imageUrl = !imageFile ? getDraggedImageUrl(dataTransfer) : null;
-    if (!imageFile && !imageUrl) return;
+    const dataUrl = !imageFile ? getDraggedImageDataUrl(dataTransfer) : null;
+    const imageUrl = !imageFile && !dataUrl ? getDraggedImageUrl(dataTransfer) : null;
+    const unreadable =
+      !imageFile && !dataUrl && !imageUrl && hasUnreadableDraggedImage(dataTransfer);
+    if (!imageFile && !dataUrl && !imageUrl && !unreadable) return;
 
     event.preventDefault();
+    if (unreadable) {
+      notifyViaSnackbar(t('LW.translationPane.glyphInsertFailed'));
+      return;
+    }
+
     const range = document.caretRangeFromPoint?.(event.clientX, event.clientY) ?? null;
     if (!range || !event.currentTarget.contains(range.commonAncestorContainer)) return;
 
+    const source = imageFile
+      ? { file: imageFile }
+      : dataUrl
+        ? { dataUrl }
+        : imageUrl
+          ? { url: imageUrl }
+          : null;
     const currentTarget = event.currentTarget;
-    void handleTranslationImageDrop(currentTarget, range, imageFile, imageUrl, onInserted);
+    void handleTranslationImageDrop(currentTarget, range, source, onInserted);
   };
 
   const protectCitationField = (event: SyntheticEvent<HTMLElement>) => {
