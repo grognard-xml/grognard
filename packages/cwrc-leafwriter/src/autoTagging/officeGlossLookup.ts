@@ -104,6 +104,12 @@ export function lookupFrenchOfficeGloss(
 /**
  * Write English/French roleName glosses onto an office entity (entity_translations).
  * Skips placeholders; addTranslation dedupes identical text+language.
+ *
+ * When no authority-sourced gloss is supplied (e.g. a freeform "create new" office
+ * with no CBDB/Norbert pack match), falls back to the same place+suffix procedural
+ * template used for pack-matched candidates and bulk backfill — so any office entity
+ * minted anywhere in the app, not just via an authority candidate, still gets a
+ * gloss when its name fits the template (太守/刺史/令).
  */
 export async function persistOfficeTranslationNames(
   store: EntityStore,
@@ -113,10 +119,32 @@ export async function persistOfficeTranslationNames(
     translationFr?: string | null;
     enSource?: string | null;
     frSource?: string | null;
+    /** Office's primary Chinese name, used for the procedural fallback. */
+    primaryName?: string | null;
   },
 ): Promise<number> {
   let added = 0;
-  const en = cleanPublishableOfficeGloss(glosses.translation);
+  let translation = glosses.translation;
+  let translationFr = glosses.translationFr;
+  let enSource = glosses.enSource;
+  let frSource = glosses.frSource;
+  if (
+    (!cleanPublishableOfficeGloss(translation) || !cleanPublishableOfficeGloss(translationFr)) &&
+    glosses.primaryName?.trim()
+  ) {
+    const procedural = tryProceduralOfficeTranslation(glosses.primaryName);
+    if (procedural) {
+      if (!cleanPublishableOfficeGloss(translation)) {
+        translation = procedural.en;
+        enSource = enSource ?? HUCKBOT_PROCEDURAL_SOURCE;
+      }
+      if (!cleanPublishableOfficeGloss(translationFr)) {
+        translationFr = procedural.fr;
+        frSource = frSource ?? MAXIRICCI_PROCEDURAL_SOURCE;
+      }
+    }
+  }
+  const en = cleanPublishableOfficeGloss(translation);
   if (en) {
     await store.sqliteAddName({
       entityId,
@@ -124,11 +152,11 @@ export async function persistOfficeTranslationNames(
       nameType: 'translation',
       language: 'en',
       origin: 'authority',
-      source: glosses.enSource ?? 'Huckbot5000',
+      source: enSource ?? 'Huckbot5000',
     });
     added += 1;
   }
-  const fr = cleanPublishableOfficeGloss(glosses.translationFr);
+  const fr = cleanPublishableOfficeGloss(translationFr);
   if (fr) {
     await store.sqliteAddName({
       entityId,
@@ -136,7 +164,7 @@ export async function persistOfficeTranslationNames(
       nameType: 'translation',
       language: 'fr',
       origin: 'authority',
-      source: glosses.frSource ?? 'MaxiRicci7000',
+      source: frSource ?? 'MaxiRicci7000',
     });
     added += 1;
   }

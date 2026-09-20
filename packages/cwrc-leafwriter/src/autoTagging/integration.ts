@@ -2003,6 +2003,7 @@ export class AutoTaggingSession {
           candidate.authorityIds?.[0]?.type ??
           'Huckbot5000',
         frSource: candidate.authorityMetadata?.translationFrSource ?? 'MaxiRicci7000',
+        primaryName: mintName,
       });
     }
 

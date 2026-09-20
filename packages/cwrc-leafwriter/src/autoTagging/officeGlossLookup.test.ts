@@ -9,8 +9,10 @@ import {
   HUCKBOT_PROCEDURAL_SOURCE,
   MAXIRICCI_PROCEDURAL_SOURCE,
   officeGlossLookupKeys,
+  persistOfficeTranslationNames,
 } from './officeGlossLookup';
 import type { AuthorityCandidate } from './authority';
+import type { EntityStore } from './entityStore';
 
 describe('officeGlossLookup', () => {
   const glossNdjson = [
@@ -229,5 +231,66 @@ describe('officeGlossLookup', () => {
     expect(
       applyHuckbotGlossToCandidate(candidate, new Map()).metadata?.translation,
     ).toBeUndefined();
+  });
+
+  describe('persistOfficeTranslationNames', () => {
+    function fakeStore() {
+      const added: { text: string; nameType?: string; language?: string; source?: string }[] = [];
+      const store = {
+        sqliteAddName: jest.fn(async (input: (typeof added)[number]) => {
+          added.push(input);
+        }),
+      } as unknown as EntityStore;
+      return { store, added };
+    }
+
+    it('falls back to the procedural template for a freeform office with no authority gloss', async () => {
+      const { store, added } = fakeStore();
+      const count = await persistOfficeTranslationNames(store, 'office-1', {
+        primaryName: '豫章太守',
+      });
+      expect(count).toBe(2);
+      expect(added).toEqual([
+        expect.objectContaining({
+          text: 'Commandery Governor of Yuzhang',
+          language: 'en',
+          source: HUCKBOT_PROCEDURAL_SOURCE,
+        }),
+        expect.objectContaining({
+          text: 'gouverneur de commanderie de Yuzhang',
+          language: 'fr',
+          source: MAXIRICCI_PROCEDURAL_SOURCE,
+        }),
+      ]);
+    });
+
+    it('prefers an authority-sourced gloss over the procedural fallback', async () => {
+      const { store, added } = fakeStore();
+      const count = await persistOfficeTranslationNames(store, 'office-1', {
+        translation: 'Governor from pack',
+        enSource: 'CBDB',
+        primaryName: '豫章太守',
+      });
+      expect(count).toBe(2);
+      expect(added[0]).toEqual(
+        expect.objectContaining({ text: 'Governor from pack', language: 'en', source: 'CBDB' }),
+      );
+      expect(added[1]).toEqual(
+        expect.objectContaining({
+          text: 'gouverneur de commanderie de Yuzhang',
+          language: 'fr',
+          source: MAXIRICCI_PROCEDURAL_SOURCE,
+        }),
+      );
+    });
+
+    it('adds nothing when the name matches no pattern and no gloss is supplied', async () => {
+      const { store, added } = fakeStore();
+      const count = await persistOfficeTranslationNames(store, 'office-1', {
+        primaryName: '尚書令',
+      });
+      expect(count).toBe(0);
+      expect(added).toEqual([]);
+    });
   });
 });

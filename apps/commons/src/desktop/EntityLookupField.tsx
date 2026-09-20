@@ -397,6 +397,7 @@ export const EntityLookupField = ({
             merged.authorityIds?.[0]?.type ??
             'Huckbot5000',
           frSource: merged.authorityMetadata?.translationFrSource ?? 'MaxiRicci7000',
+          primaryName: merged.projectLangName ?? merged.label,
         });
       }
       await autoSyncEntityToCentral(null, resolvedId);
