@@ -10,13 +10,23 @@ import type { AuthorityPackContent } from './packLoader';
 import { authorityPackLines } from './packLoader';
 import type { AuthorityPackId } from './packPaths';
 import { tryProceduralOfficeTranslation } from './proceduralOfficeGloss';
+import {
+  buildParentOfIndex,
+  tryParentOfTranslation,
+  type ParentOfIndex,
+} from './proceduralParentOfGloss';
+
+export type { ParentOfIndex } from './proceduralParentOfGloss';
 
 export const HUCKBOT_PROCEDURAL_SOURCE = 'Huckbot5000 (procedural)';
 export const MAXIRICCI_PROCEDURAL_SOURCE = 'MaxiRicci7000 (procedural)';
+export const HUCKBOT_PARENTOF_SOURCE = 'Huckbot5000 (parentOf)';
+export const MAXIRICCI_PARENTOF_SOURCE = 'MaxiRicci7000 (parentOf)';
 
 export const HUCKBOT_TRANSLATIONS_PACK_ID: AuthorityPackId = 'huckbot5000-translations';
 export const HUCKBOT_INSIDERS_PACK_ID: AuthorityPackId = 'huckbot5000-insiders';
 export const MAXIRICCI_TRANSLATIONS_PACK_ID: AuthorityPackId = 'maxiricci7000-translations';
+export const NORBERT_OFFICE_RELATIONS_PACK_ID: AuthorityPackId = 'norbert-office-relations';
 
 export type OfficeGlossIndex = Map<string, string>;
 
@@ -203,6 +213,27 @@ export function buildHuckbotGlossIndex(content: AuthorityPackContent): OfficeGlo
   return index;
 }
 
+/** Build zh → English gloss (first wins) from the Huckbot translations NDJSON — used to
+ *  resolve a parentOf compound's "remainder" office by name, not officeId. */
+export function buildHuckbotZhGlossIndex(content: AuthorityPackContent): Map<string, string> {
+  const index = new Map<string, string>();
+  for (const line of authorityPackLines(content)) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    let row: GlossRow;
+    try {
+      row = JSON.parse(trimmed) as GlossRow;
+    } catch {
+      continue;
+    }
+    const gloss = row.translation?.trim();
+    const zh = normalizeZh(row.zh);
+    if (!gloss || !zh) continue;
+    if (!index.has(zh)) index.set(zh, gloss);
+  }
+  return index;
+}
+
 /** Build French gloss indexes from MaxiRicci7000 translations NDJSON. */
 export function buildMaxiRicciGlossIndex(content: AuthorityPackContent): FrenchOfficeGlossIndex {
   const byOfficeId = new Map<string, string>();
@@ -369,6 +400,49 @@ export function applyMaxiRicciGlossToCandidate(
   };
 }
 
+/**
+ * Fill any still-missing `translation`/`translationFr` via the Norbert
+ * parentOf procedural template (太子/公主/親王 compounds), given the remainder
+ * office's own gloss (pack- or zh-indexed, falling back to the place+suffix
+ * template). Never overwrites an existing gloss in either language — runs
+ * after {@link applyHuckbotGlossToCandidate}/{@link applyMaxiRicciGlossToCandidate}
+ * as the last procedural tier.
+ */
+export function applyParentOfGlossToCandidate(
+  candidate: AuthorityCandidate,
+  parentOfIndex: ParentOfIndex,
+  enZhGlosses: Map<string, string>,
+  frZhGlosses: Map<string, string>,
+): AuthorityCandidate {
+  if (candidate.kind !== 'office') return candidate;
+  const hasEn = Boolean(cleanPublishableOfficeGloss(candidate.metadata?.translation));
+  const hasFr = Boolean(cleanPublishableOfficeGloss(candidate.metadata?.translationFr));
+  if (hasEn && hasFr) return candidate;
+
+  const resolved = tryParentOfTranslation(candidate.primaryName, parentOfIndex, (remainder) => ({
+    en:
+      cleanPublishableOfficeGloss(enZhGlosses.get(remainder)) ??
+      tryProceduralOfficeTranslation(remainder)?.en,
+    fr:
+      cleanPublishableOfficeGloss(frZhGlosses.get(remainder)) ??
+      tryProceduralOfficeTranslation(remainder)?.fr,
+  }));
+  if (!resolved) return candidate;
+
+  const dynasty = candidate.metadata?.dynasty;
+  const metadata = { ...candidate.metadata };
+  if (!hasEn && resolved.en) {
+    metadata.translation = resolved.en;
+    metadata.translationSource = HUCKBOT_PARENTOF_SOURCE;
+    metadata.description = formatOfficeClue(candidate.primaryName, resolved.en, dynasty);
+  }
+  if (!hasFr && resolved.fr) {
+    metadata.translationFr = resolved.fr;
+    metadata.translationFrSource = MAXIRICCI_PARENTOF_SOURCE;
+  }
+  return { ...candidate, metadata };
+}
+
 /** Same fill for lookup `PackRow` shapes (authority-pack-lookup). */
 export function applyHuckbotGlossToPackRow<
   T extends {
@@ -471,8 +545,52 @@ export function applyMaxiRicciGlossToPackRow<
   };
 }
 
+/** Same parentOf fill as {@link applyParentOfGlossToCandidate}, for lookup `PackRow` shapes. */
+export function applyParentOfGlossToPackRow<
+  T extends {
+    primaryName?: string;
+    authorityId?: string;
+    metadata?: AuthorityCandidate['metadata'];
+  },
+>(
+  row: T,
+  parentOfIndex: ParentOfIndex,
+  enZhGlosses: Map<string, string>,
+  frZhGlosses: Map<string, string>,
+): T {
+  const hasEn = Boolean(cleanPublishableOfficeGloss(row.metadata?.translation));
+  const hasFr = Boolean(cleanPublishableOfficeGloss(row.metadata?.translationFr));
+  if (hasEn && hasFr) return row;
+
+  const name = row.primaryName?.trim() || '';
+  const resolved = tryParentOfTranslation(name, parentOfIndex, (remainder) => ({
+    en:
+      cleanPublishableOfficeGloss(enZhGlosses.get(remainder)) ??
+      tryProceduralOfficeTranslation(remainder)?.en,
+    fr:
+      cleanPublishableOfficeGloss(frZhGlosses.get(remainder)) ??
+      tryProceduralOfficeTranslation(remainder)?.fr,
+  }));
+  if (!resolved) return row;
+
+  const dynasty = row.metadata?.dynasty;
+  const metadata = { ...row.metadata };
+  if (!hasEn && resolved.en) {
+    metadata.translation = resolved.en;
+    metadata.translationSource = HUCKBOT_PARENTOF_SOURCE;
+    metadata.description = formatOfficeClue(name, resolved.en, dynasty);
+  }
+  if (!hasFr && resolved.fr) {
+    metadata.translationFr = resolved.fr;
+    metadata.translationFrSource = MAXIRICCI_PARENTOF_SOURCE;
+  }
+  return { ...row, metadata };
+}
+
 let glossIndexPromise: Promise<OfficeGlossIndex> | null = null;
 let frenchGlossIndexPromise: Promise<FrenchOfficeGlossIndex> | null = null;
+let parentOfIndexPromise: Promise<ParentOfIndex> | null = null;
+let huckbotZhGlossIndexPromise: Promise<Map<string, string>> | null = null;
 
 type PackReader = (packId: AuthorityPackId) => Promise<AuthorityPackContent>;
 
@@ -508,16 +626,42 @@ export function loadMaxiRicciGlossIndex(readPack: PackReader): Promise<FrenchOff
   return frenchGlossIndexPromise;
 }
 
+/** Session-cached Norbert parentOf index. Missing pack → empty map (older installs). */
+export function loadParentOfIndex(readPack: PackReader): Promise<ParentOfIndex> {
+  if (!parentOfIndexPromise) {
+    parentOfIndexPromise = readPack(NORBERT_OFFICE_RELATIONS_PACK_ID)
+      .then((content) => buildParentOfIndex(content))
+      .catch(() => new Map() as ParentOfIndex);
+  }
+  return parentOfIndexPromise;
+}
+
+/** Session-cached zh → English gloss index, for parentOf remainder resolution. */
+export function loadHuckbotZhGlossIndex(readPack: PackReader): Promise<Map<string, string>> {
+  if (!huckbotZhGlossIndexPromise) {
+    huckbotZhGlossIndexPromise = readPack(HUCKBOT_TRANSLATIONS_PACK_ID)
+      .then((content) => buildHuckbotZhGlossIndex(content))
+      .catch(() => new Map<string, string>());
+  }
+  return huckbotZhGlossIndexPromise;
+}
+
 /** Drop cached gloss indexes (call with pack-content cache clears after reinstall). */
 export function clearHuckbotGlossIndexCache(): void {
   glossIndexPromise = null;
+  huckbotZhGlossIndexPromise = null;
 }
 
 export function clearMaxiRicciGlossIndexCache(): void {
   frenchGlossIndexPromise = null;
 }
 
+export function clearParentOfIndexCache(): void {
+  parentOfIndexPromise = null;
+}
+
 export function clearOfficeGlossIndexCaches(): void {
   clearHuckbotGlossIndexCache();
   clearMaxiRicciGlossIndexCache();
+  clearParentOfIndexCache();
 }

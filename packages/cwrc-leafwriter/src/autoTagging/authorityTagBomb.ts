@@ -20,8 +20,11 @@ import {
 import {
   applyHuckbotGlossToCandidate,
   applyMaxiRicciGlossToCandidate,
+  applyParentOfGlossToCandidate,
   loadHuckbotGlossIndex,
+  loadHuckbotZhGlossIndex,
   loadMaxiRicciGlossIndex,
+  loadParentOfIndex,
 } from './officeGlossLookup';
 
 /** CBDB before DILA so overlap merge prefers CBDB metadata as the base. CHGIS before DILA for place dates. */
@@ -166,6 +169,10 @@ export async function runAuthorityTagBombOnDocument(
   const frenchOfficeGlosses = needsOfficeGlosses
     ? await loadMaxiRicciGlossIndex(readPackFile)
     : { byOfficeId: new Map(), byZhDynasty: new Map(), byZh: new Map() };
+  const parentOfIndex = needsOfficeGlosses ? await loadParentOfIndex(readPackFile) : new Map();
+  const huckbotZhGlosses = needsOfficeGlosses
+    ? await loadHuckbotZhGlossIndex(readPackFile)
+    : new Map();
 
   for (const packId of sortPackIds(filePackIds)) {
     options.onProgress?.(`Loading ${packId}…`);
@@ -175,7 +182,13 @@ export async function runAuthorityTagBombOnDocument(
     const content = await readPackFile(packId, dateFilter);
     for (const candidate of iterateAuthorityNdjson(content)) {
       const withEn = applyHuckbotGlossToCandidate(candidate, officeGlosses);
-      const withGloss = applyMaxiRicciGlossToCandidate(withEn, frenchOfficeGlosses);
+      const withFr = applyMaxiRicciGlossToCandidate(withEn, frenchOfficeGlosses);
+      const withGloss = applyParentOfGlossToCandidate(
+        withFr,
+        parentOfIndex,
+        huckbotZhGlosses,
+        frenchOfficeGlosses.byZh,
+      );
       const runtimeCandidates =
         packId === 'norbert-wiki-nt'
           ? expandNorbertWikiNtCandidate(withGloss, norbertNamesByAuthorityId)

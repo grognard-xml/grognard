@@ -2,15 +2,21 @@ import {
   applyHuckbotGlossToCandidate,
   applyHuckbotGlossToPackRow,
   applyMaxiRicciGlossToCandidate,
+  applyParentOfGlossToCandidate,
+  applyParentOfGlossToPackRow,
   buildHuckbotGlossIndex,
+  buildHuckbotZhGlossIndex,
   buildMaxiRicciGlossIndex,
   cleanPublishableOfficeGloss,
   formatOfficeClue,
+  HUCKBOT_PARENTOF_SOURCE,
   HUCKBOT_PROCEDURAL_SOURCE,
+  MAXIRICCI_PARENTOF_SOURCE,
   MAXIRICCI_PROCEDURAL_SOURCE,
   officeGlossLookupKeys,
   persistOfficeTranslationNames,
 } from './officeGlossLookup';
+import { buildParentOfIndex } from './proceduralParentOfGloss';
 import type { AuthorityCandidate } from './authority';
 import type { EntityStore } from './entityStore';
 
@@ -231,6 +237,64 @@ describe('officeGlossLookup', () => {
     expect(
       applyHuckbotGlossToCandidate(candidate, new Map()).metadata?.translation,
     ).toBeUndefined();
+  });
+
+  describe('parentOf procedural fallback', () => {
+    const relationsNdjson = JSON.stringify({
+      type: 'parentOf',
+      id: 'norbert:parent:1:2',
+      evidence: { labels: ['太子', '太子右庶子'] },
+    });
+    const enZhIndex = new Map([['右庶子', 'Right Serviceman']]);
+    const frZhIndex = new Map([['右庶子', 'serviteur de droite']]);
+
+    it('fills a candidate compound office via the Norbert parentOf edge', () => {
+      const parentOfIndex = buildParentOfIndex(relationsNdjson);
+      const candidate: AuthorityCandidate = {
+        source: 'NORBERT',
+        authorityId: '2',
+        kind: 'office',
+        primaryName: '太子右庶子',
+        searchStrings: ['太子右庶子'],
+        metadata: {},
+      };
+      const result = applyParentOfGlossToCandidate(candidate, parentOfIndex, enZhIndex, frZhIndex);
+      expect(result.metadata?.translation).toBe('Right Serviceman of the Heir Apparent');
+      expect(result.metadata?.translationSource).toBe(HUCKBOT_PARENTOF_SOURCE);
+      expect(result.metadata?.translationFr).toBe("serviteur de droite de l'héritier du trône");
+      expect(result.metadata?.translationFrSource).toBe(MAXIRICCI_PARENTOF_SOURCE);
+    });
+
+    it('does not overwrite an existing translation', () => {
+      const parentOfIndex = buildParentOfIndex(relationsNdjson);
+      const candidate: AuthorityCandidate = {
+        source: 'NORBERT',
+        authorityId: '2',
+        kind: 'office',
+        primaryName: '太子右庶子',
+        searchStrings: ['太子右庶子'],
+        metadata: { translation: 'Already present' },
+      };
+      const result = applyParentOfGlossToCandidate(candidate, parentOfIndex, enZhIndex, frZhIndex);
+      expect(result.metadata?.translation).toBe('Already present');
+      expect(result.metadata?.translationFr).toBe("serviteur de droite de l'héritier du trône");
+    });
+
+    it('same fill for pack-row shapes', () => {
+      const parentOfIndex = buildParentOfIndex(relationsNdjson);
+      const row = applyParentOfGlossToPackRow(
+        { authorityId: '2', primaryName: '太子右庶子', metadata: {} },
+        parentOfIndex,
+        enZhIndex,
+        frZhIndex,
+      );
+      expect(row.metadata?.translation).toBe('Right Serviceman of the Heir Apparent');
+    });
+
+    it('builds a zh-keyed English gloss index from Huckbot translations NDJSON', () => {
+      const index = buildHuckbotZhGlossIndex(glossNdjson);
+      expect(index.get('太守')).toBe('Governor');
+    });
   });
 
   describe('persistOfficeTranslationNames', () => {

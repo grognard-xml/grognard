@@ -38,6 +38,8 @@ export type AuthorityPackId =
   | 'norbert-persons'
   | 'norbert-person-wrappers'
   | 'norbert-offices'
+  /** Norbert office parentOf edges (sidecar — compound-office procedural gloss input). */
+  | 'norbert-office-relations'
   | 'norbert-wiki-nt'
   /** Precompiled Norbert ↔ CBDB/DILA/Wikidata person links. */
   | 'norbert-concordance'
@@ -357,6 +359,14 @@ export const AUTHORITY_PACKS: AuthorityPackSpec[] = [
     source: 'norbert',
     relativePath: 'norbert/offices.ndjson',
     defaultTag: 'roleName',
+  },
+  {
+    id: 'norbert-office-relations',
+    label: 'Norbert office parentOf edges',
+    source: 'norbert',
+    relativePath: 'norbert/office-relations.ndjson',
+    // Sidecar only — never a seed pack for tag-bomb matching.
+    defaultTag: '',
   },
   {
     id: 'huckbot5000-translations',

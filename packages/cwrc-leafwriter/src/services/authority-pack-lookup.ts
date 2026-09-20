@@ -26,11 +26,15 @@ import { clearAuthorityPackEnrichmentCaches } from '../autoTagging/nameBackfill'
 import {
   applyHuckbotGlossToPackRow,
   applyMaxiRicciGlossToPackRow,
+  applyParentOfGlossToPackRow,
   clearOfficeGlossIndexCaches,
   loadHuckbotGlossIndex,
+  loadHuckbotZhGlossIndex,
   loadMaxiRicciGlossIndex,
+  loadParentOfIndex,
   type FrenchOfficeGlossIndex,
   type OfficeGlossIndex,
+  type ParentOfIndex,
 } from '../autoTagging/officeGlossLookup';
 import { normalizeBdrcId } from '../autoTagging/bdrcIds';
 
@@ -266,6 +270,8 @@ export function searchPackContent(
   limit: number = MAX_RESULTS,
   officeGlosses?: OfficeGlossIndex,
   frenchOfficeGlosses?: FrenchOfficeGlossIndex,
+  parentOfIndex?: ParentOfIndex,
+  enZhGlosses?: Map<string, string>,
 ): AuthorityLookupResult[] {
   return searchPackRows(
     content,
@@ -275,6 +281,8 @@ export function searchPackContent(
     limit,
     officeGlosses,
     frenchOfficeGlosses,
+    parentOfIndex,
+    enZhGlosses,
   ).map((match) => match.result);
 }
 
@@ -297,6 +305,8 @@ export function searchPackRows(
   limit: number = MAX_RESULTS,
   officeGlosses?: OfficeGlossIndex,
   frenchOfficeGlosses?: FrenchOfficeGlossIndex,
+  parentOfIndex?: ParentOfIndex,
+  enZhGlosses?: Map<string, string>,
 ): PackSearchMatch[] {
   const trimmed = query.trim();
   if (!trimmed) return [];
@@ -338,6 +348,14 @@ export function searchPackRows(
     }
     if (entityType === 'office' && frenchOfficeGlosses) {
       row = applyMaxiRicciGlossToPackRow(row, source, frenchOfficeGlosses);
+    }
+    if (entityType === 'office' && parentOfIndex?.size) {
+      row = applyParentOfGlossToPackRow(
+        row,
+        parentOfIndex,
+        enZhGlosses ?? new Map(),
+        frenchOfficeGlosses?.byZh ?? new Map(),
+      );
     }
 
     const strings = row.searchStrings?.length ? row.searchStrings : [primaryName];
@@ -525,6 +543,10 @@ function makeSearch(spec: (typeof SERVICES)[number]) {
       entityType === 'office' ? await loadHuckbotGlossIndex(readPackCached) : undefined;
     const frenchOfficeGlosses =
       entityType === 'office' ? await loadMaxiRicciGlossIndex(readPackCached) : undefined;
+    const parentOfIndex =
+      entityType === 'office' ? await loadParentOfIndex(readPackCached) : undefined;
+    const enZhGlosses =
+      entityType === 'office' ? await loadHuckbotZhGlossIndex(readPackCached) : undefined;
     return searchPackContent(
       content,
       spec.source,
@@ -533,6 +555,8 @@ function makeSearch(spec: (typeof SERVICES)[number]) {
       undefined,
       officeGlosses,
       frenchOfficeGlosses,
+      parentOfIndex,
+      enZhGlosses,
     );
   };
 }

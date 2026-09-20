@@ -43,14 +43,19 @@ import {
 } from './nameBackfill';
 import {
   cleanPublishableOfficeGloss,
+  HUCKBOT_PARENTOF_SOURCE,
   HUCKBOT_PROCEDURAL_SOURCE,
   loadHuckbotGlossIndex,
+  loadHuckbotZhGlossIndex,
   loadMaxiRicciGlossIndex,
+  loadParentOfIndex,
   lookupEnglishOfficeGloss,
   lookupFrenchOfficeGloss,
+  MAXIRICCI_PARENTOF_SOURCE,
   MAXIRICCI_PROCEDURAL_SOURCE,
   persistOfficeTranslationNames,
 } from './officeGlossLookup';
+import { tryParentOfTranslation } from './proceduralParentOfGloss';
 import { tryProceduralOfficeTranslation } from './proceduralOfficeGloss';
 import { suggestPersonNameSplit, suggestPersonRomanization } from '../plugins/personNameDefaults';
 import { autoRomanize, autoRomanizeForKind, latnLangFor } from '../utilities/romanize';
@@ -534,6 +539,10 @@ export async function backfillEntitiesSqlite(
       const maxiGlosses = readPackFile
         ? await loadMaxiRicciGlossIndex(readPackFile)
         : { byOfficeId: new Map(), byZhDynasty: new Map(), byZh: new Map() };
+      const parentOfIndex = readPackFile ? await loadParentOfIndex(readPackFile) : new Map();
+      const huckbotZhGlosses = readPackFile
+        ? await loadHuckbotZhGlossIndex(readPackFile)
+        : new Map();
       for (const summary of officeSummaries) {
         if (signal?.aborted) {
           cancelled = true;
@@ -629,6 +638,26 @@ export async function backfillEntitiesSqlite(
             if (!translationFr) {
               translationFr = procedural.fr;
               frSource = MAXIRICCI_PROCEDURAL_SOURCE;
+            }
+          }
+        }
+        if ((!translation || !translationFr) && primary) {
+          const parentOf = tryParentOfTranslation(primary, parentOfIndex, (remainder) => ({
+            en:
+              cleanPublishableOfficeGloss(huckbotZhGlosses.get(remainder)) ??
+              tryProceduralOfficeTranslation(remainder)?.en,
+            fr:
+              cleanPublishableOfficeGloss(maxiGlosses.byZh.get(remainder)) ??
+              tryProceduralOfficeTranslation(remainder)?.fr,
+          }));
+          if (parentOf) {
+            if (!translation && parentOf.en) {
+              translation = parentOf.en;
+              enSource = HUCKBOT_PARENTOF_SOURCE;
+            }
+            if (!translationFr && parentOf.fr) {
+              translationFr = parentOf.fr;
+              frSource = MAXIRICCI_PARENTOF_SOURCE;
             }
           }
         }
