@@ -147,6 +147,24 @@ export interface SqliteEntityPanelSummary extends SqliteEntitySummary {
   workType: string | null;
   /** place kind only: the currently accepted coordinate + its source, if any. */
   location: { lat: number; lon: number; source: string | null } | null;
+  /** place kind only: the currently accepted administrative level + its source, if any. */
+  adminLevel: { level: string; source: string | null } | null;
+  /**
+   * place kind only (Phase 5): explicit storage-mode decision, or null for an
+   * ordinary mention-level place entity that was never run through the
+   * persisted-cluster/origin-place importer.
+   */
+  storageMode: 'coordinates' | 'id' | null;
+  /**
+   * place kind only (Phase 5): one entry per authority association, each
+   * carrying its own date ranges verbatim (never unioned across sources —
+   * see mergedPeriodDisplay on the renderer side for the presentational join).
+   */
+  sourceEntries: {
+    source: string;
+    authId: string;
+    dates: { from: number | null; to: number | null; label: string | null }[];
+  }[];
   /** thing kind only: user-defined sub-category id from Project Settings (entity_metadata key='subtype'). */
   subtype: string | null;
   /** Vernacular glosses (fr/en/…); not searched as names. */
@@ -450,6 +468,23 @@ export interface AuthorityBackfillPatch {
   } | null;
   /** Place kind only: authority-origin coordinates, one entry per source. */
   geo?: { source: string; lat: number; lon: number }[];
+  /** Place kind only: authority-origin administrative-level candidates, one entry per source. */
+  adminLevels?: { source: string; level: string }[];
+  /**
+   * Place kind only (Phase 5, docs/placename-geo-disambiguation-planning.md):
+   * one entry per authority association, each carrying its own date ranges
+   * (kept distinct per source, never unioned — e.g. CBDB's `0–260, 501–504,
+   * 704–` stays three rows, not one collapsed span). Attaches the authority
+   * (as an ordinary `entity_authorities` row, same as `attachAuthority`) if
+   * not already present, then replaces its full date-range set.
+   */
+  sourceEntries?: {
+    source: string;
+    authId: string;
+    dates?: { from?: number | null; to?: number | null; label?: string | null }[];
+  }[];
+  /** Place kind only: explicit storage-mode decision (§Decisions 2026-07-26). Never inferred implicitly. */
+  storageMode?: 'coordinates' | 'id' | null;
   now?: string;
 }
 
@@ -485,6 +520,7 @@ const ASSERTION_OWNER: Record<string, string> = {
   person_offices: 'person_id',
   work_authors: 'work_id',
   place_locations: 'entity_id',
+  place_admin_levels: 'entity_id',
 };
 
 function nowIso(): string {
@@ -587,6 +623,9 @@ function assemblePanelSummary(
     descriptionRows: Record<string, unknown>[];
     classificationRows: Record<string, unknown>[];
     locationRows: Record<string, unknown>[];
+    adminLevelRows: Record<string, unknown>[];
+    place: { storage_mode: string | null } | undefined;
+    sourceEntryDateRows: Record<string, unknown>[];
     subtype: string | null;
   },
   allRejections: SqliteConcordanceRejection[],
@@ -704,6 +743,18 @@ function assemblePanelSummary(
       origin: location.origin as SqliteValueOrigin,
       source: (location.source as string | null) ?? null,
       status: location.status as SqliteValueStatus,
+      ref: null,
+    });
+  }
+  for (const row of bags.adminLevelRows) {
+    addAssertion({
+      key: `place_admin_levels:${row.id}`,
+      element: 'note',
+      value: String(row.level),
+      origin: row.origin as SqliteValueOrigin,
+      source: (row.source as string | null) ?? null,
+      status: row.status as SqliteValueStatus,
+      noteType: 'adminLevel',
       ref: null,
     });
   }
@@ -864,6 +915,40 @@ function assemblePanelSummary(
         source: (preferredLocation.source as string | null) ?? null,
       }
     : null;
+  const activeAdminLevels = bags.adminLevelRows.filter((row) => row.status === 'active');
+  const preferredAdminLevel =
+    activeAdminLevels.find((row) => row.origin === 'user') ?? activeAdminLevels[0];
+  const adminLevel = preferredAdminLevel
+    ? {
+        level: String(preferredAdminLevel.level),
+        source: (preferredAdminLevel.source as string | null) ?? null,
+      }
+    : null;
+  const storageMode = (bags.place?.storage_mode as 'coordinates' | 'id' | null | undefined) ?? null;
+  const datesByAuthorityId = new Map<
+    number,
+    { from: number | null; to: number | null; label: string | null }[]
+  >();
+  for (const row of bags.sourceEntryDateRows) {
+    const authorityId = Number(row.authority_id);
+    const list = datesByAuthorityId.get(authorityId) ?? [];
+    list.push({
+      from: (row.from_year as number | null) ?? null,
+      to: (row.to_year as number | null) ?? null,
+      label: (row.label as string | null) ?? null,
+    });
+    datesByAuthorityId.set(authorityId, list);
+  }
+  const sourceEntries =
+    entity.kind === 'place'
+      ? bags.allAuthorities
+          .filter((row) => row.status === 'active')
+          .map((row) => ({
+            source: String(row.authority_type),
+            authId: String(row.authority_value),
+            dates: datesByAuthorityId.get(Number(row.id)) ?? [],
+          }))
+      : [];
   return {
     ...entity,
     // Merge glosses into names so the entity editor / sqliteSummary keep working
@@ -879,6 +964,9 @@ function assemblePanelSummary(
     endYear: entity.kind === 'work' ? (workDate?.endYear ?? null) : fallbackEndYear,
     workDate,
     location: entity.kind === 'place' ? location : null,
+    adminLevel: entity.kind === 'place' ? adminLevel : null,
+    storageMode: entity.kind === 'place' ? storageMode : null,
+    sourceEntries,
     workType: bags.work?.work_type ?? (entity.kind === 'work' ? 'book' : null),
     subtype: entity.kind === 'thing' ? bags.subtype : null,
     classification,
@@ -1830,6 +1918,22 @@ export class EntitySqliteRepository {
              FROM place_locations WHERE entity_id = ? ORDER BY id`,
           [id],
         )) as Record<string, unknown>[],
+        adminLevelRows: (await this.activeBackend.all(
+          `SELECT id, level, origin, source, status
+             FROM place_admin_levels WHERE entity_id = ? ORDER BY id`,
+          [id],
+        )) as Record<string, unknown>[],
+        place: (await this.activeBackend.get(
+          'SELECT storage_mode FROM place_storage_mode WHERE entity_id = ?',
+          [id],
+        )) as { storage_mode: string | null } | undefined,
+        sourceEntryDateRows: (await this.activeBackend.all(
+          `SELECT pad.id, pad.authority_id, pad.from_year, pad.to_year, pad.label
+             FROM place_authority_dates pad
+             JOIN entity_authorities ea ON ea.id = pad.authority_id
+             WHERE ea.entity_id = ? ORDER BY pad.authority_id, pad.id`,
+          [id],
+        )) as Record<string, unknown>[],
         nationalityRows: (await this.activeBackend.all(
           `SELECT id, label, reference, origin, source, status
              FROM person_nationalities WHERE person_id = ? ORDER BY id`,
@@ -2022,6 +2126,30 @@ export class EntitySqliteRepository {
            FROM place_locations ORDER BY id`)) as Record<string, unknown>[],
       'entity_id',
     );
+    const adminLevelsByEntity = groupRowsByKey(
+      (await this.activeBackend.all(`SELECT id, entity_id, level, origin, source, status
+           FROM place_admin_levels ORDER BY id`)) as Record<string, unknown>[],
+      'entity_id',
+    );
+    const placeScalarByEntity = new Map(
+      (
+        (await this.activeBackend.all(
+          'SELECT entity_id, storage_mode FROM place_storage_mode',
+        )) as Record<string, unknown>[]
+      ).map((row) => [
+        String(row.entity_id),
+        { storage_mode: (row.storage_mode as string | null) ?? null },
+      ]),
+    );
+    const sourceEntryDatesByEntity = groupRowsByKey(
+      (await this.activeBackend.all(
+        `SELECT pad.id, ea.entity_id AS entity_id, pad.authority_id, pad.from_year, pad.to_year, pad.label
+           FROM place_authority_dates pad
+           JOIN entity_authorities ea ON ea.id = pad.authority_id
+           ORDER BY pad.authority_id, pad.id`,
+      )) as Record<string, unknown>[],
+      'entity_id',
+    );
 
     const empty: Record<string, unknown>[] = [];
     return entityRows.map((row) => {
@@ -2047,6 +2175,9 @@ export class EntitySqliteRepository {
           work: worksByEntity.get(id),
           dates: datesByEntity.get(id) ?? empty,
           locationRows: locationsByEntity.get(id) ?? empty,
+          adminLevelRows: adminLevelsByEntity.get(id) ?? empty,
+          place: placeScalarByEntity.get(id),
+          sourceEntryDateRows: sourceEntryDatesByEntity.get(id) ?? empty,
           nationalityRows: nationalityByPerson.get(id) ?? empty,
           originRows: originByPerson.get(id) ?? empty,
           officeRows: officeByPerson.get(id) ?? empty,
@@ -3593,6 +3724,12 @@ export class EntitySqliteRepository {
       }
 
       const sourcePrefix = `${type}:`;
+      // Two source-string conventions coexist: most tables stamp "TYPE:value"
+      // (checked against this authority's specific value below); place_locations,
+      // entity_dates, and place_admin_levels stamp a bare "TYPE" (no value —
+      // authority-origin coordinates/dates/admin-levels aren't per-idno-value).
+      // A bare match purges on type alone; the previous prefix-only check never
+      // matched these three tables' rows, so they never got purged here.
       const purgeBySource = async (table: string, ownerCol: string) => {
         const rows = (await this.activeBackend.all(
           `SELECT id, origin, source, status FROM ${table} WHERE ${ownerCol} = ?`,
@@ -3604,13 +3741,20 @@ export class EntitySqliteRepository {
           status: string;
         }[];
         for (const row of rows) {
-          if (!row.source?.startsWith(sourcePrefix)) continue;
-          const sourceValue = row.source.slice(sourcePrefix.length);
-          if (normalizeAuthorityValue(type, sourceValue) !== normalized) continue;
+          if (!row.source) continue;
+          const isBareMatch = row.source.trim().toUpperCase() === type.toUpperCase();
+          if (!isBareMatch) {
+            if (!row.source.startsWith(sourcePrefix)) continue;
+            const sourceValue = row.source.slice(sourcePrefix.length);
+            if (normalizeAuthorityValue(type, sourceValue) !== normalized) continue;
+          }
           if (row.origin !== 'authority') continue;
           if (
             row.status === 'active' ||
-            (row.status === 'rejected' && (table === 'entity_dates' || table === 'place_locations'))
+            (row.status === 'rejected' &&
+              (table === 'entity_dates' ||
+                table === 'place_locations' ||
+                table === 'place_admin_levels'))
           ) {
             await this.activeBackend.run(`DELETE FROM ${table} WHERE id = ?`, [row.id]);
             removed += 1;
@@ -3625,6 +3769,7 @@ export class EntitySqliteRepository {
       await purgeBySource('person_offices', 'person_id');
       await purgeBySource('work_authors', 'work_id');
       await purgeBySource('place_locations', 'entity_id');
+      await purgeBySource('place_admin_levels', 'entity_id');
 
       await this.activeBackend.run(
         `DELETE FROM authority_caches
@@ -3705,6 +3850,62 @@ export class EntitySqliteRepository {
         [now, parsed.rowId],
       );
       await this.syncPlaceLocationScalars(entityId, Number(row.latitude), Number(row.longitude));
+      await this.bumpEntity(entityId, now);
+      return true;
+    });
+  }
+
+  async acceptAdminLevelAssertion(entityId: string, key: string, now = nowIso()): Promise<boolean> {
+    const parsed = parseAssertionKey(key);
+    if (!parsed || parsed.kind !== 'row' || parsed.table !== 'place_admin_levels') return false;
+    return this.transaction(async () => {
+      const row = (await this.activeBackend.get('SELECT * FROM place_admin_levels WHERE id = ?', [
+        parsed.rowId,
+      ])) as Record<string, unknown> | undefined;
+      if (!row || String(row.entity_id) !== entityId) return false;
+      const others = (await this.activeBackend.all(
+        `SELECT id FROM place_admin_levels
+           WHERE entity_id = ? AND origin = 'user' AND id != ?`,
+        [entityId, parsed.rowId],
+      )) as { id: number }[];
+      for (const other of others) {
+        await this.activeBackend.run('DELETE FROM place_admin_levels WHERE id = ?', [other.id]);
+      }
+      await this.activeBackend.run(
+        `UPDATE place_admin_levels
+           SET origin = 'user', source = NULL, status = 'active', updated_at = ?
+           WHERE id = ?`,
+        [now, parsed.rowId],
+      );
+      await this.bumpEntity(entityId, now);
+      return true;
+    });
+  }
+
+  /**
+   * Point one existing `person_origins` row at a project place entity
+   * (Phase 5 origin-place import: `ref` is set to `#<place-entity-id>` after
+   * `importOriginPlace` mints/links the place, so the origin string gains a
+   * durable target without changing its label/source/dates).
+   */
+  async setOriginReference(
+    entityId: string,
+    key: string,
+    reference: string,
+    now = nowIso(),
+  ): Promise<boolean> {
+    const parsed = parseAssertionKey(key);
+    if (!parsed || parsed.kind !== 'row' || parsed.table !== 'person_origins') return false;
+    return this.transaction(async () => {
+      const row = (await this.activeBackend.get(
+        'SELECT person_id FROM person_origins WHERE id = ?',
+        [parsed.rowId],
+      )) as { person_id: string } | undefined;
+      if (!row || row.person_id !== entityId) return false;
+      await this.activeBackend.run(
+        'UPDATE person_origins SET reference = ?, updated_at = ? WHERE id = ?',
+        [reference, now, parsed.rowId],
+      );
       await this.bumpEntity(entityId, now);
       return true;
     });
@@ -4008,6 +4209,8 @@ export class EntitySqliteRepository {
       ['work_authors', 'work_id'],
       ['office_classifications', 'office_id'],
       ['place_locations', 'entity_id'],
+      ['place_admin_levels', 'entity_id'],
+      ['place_storage_mode', 'entity_id'],
     ];
     for (const [table, ownerCol] of tables) {
       try {
@@ -4072,13 +4275,24 @@ export class EntitySqliteRepository {
       dateIdMap.set(oldId, Number(result.lastInsertRowid));
     }
 
+    // Built alongside the copy (like dateIdMap) so place_authority_dates rows,
+    // which reference an entity_authorities row by id, can be remapped below.
+    const authorityIdMap = new Map<number, number>();
+    for (const row of await sourceRows('entity_authorities', 'entity_id')) {
+      if (String(row.authority_type) === CENTRAL_AUTHORITY_TYPE) continue;
+      const oldId = Number(row.id);
+      const next: Record<string, unknown> = { ...row, entity_id: targetId };
+      delete next.id;
+      const columns = Object.keys(next);
+      const result = await this.activeBackend.run(
+        `INSERT INTO entity_authorities (${columns.join(', ')})
+           VALUES (${columns.map(() => '?').join(', ')})`,
+        [...columns.map((column) => next[column] as string | number | null | bigint)],
+      );
+      authorityIdMap.set(oldId, Number(result.lastInsertRowid));
+    }
+
     await insertRows('entity_names', 'entity_id', await sourceRows('entity_names', 'entity_id'));
-    await insertRows(
-      'entity_authorities',
-      'entity_id',
-      await sourceRows('entity_authorities', 'entity_id'),
-      async (row) => (String(row.authority_type) === CENTRAL_AUTHORITY_TYPE ? null : row),
-    );
     await insertRows(
       'entity_metadata',
       'entity_id',
@@ -4178,6 +4392,28 @@ export class EntitySqliteRepository {
       'entity_id',
       await sourceRows('place_locations', 'entity_id'),
     );
+    await insertRows(
+      'place_admin_levels',
+      'entity_id',
+      await sourceRows('place_admin_levels', 'entity_id'),
+    );
+    for (const row of (await source.backend.all(
+      `SELECT pad.* FROM place_authority_dates pad
+         JOIN entity_authorities ea ON ea.id = pad.authority_id
+         WHERE ea.entity_id = ?`,
+      [sourceId],
+    )) as Record<string, unknown>[]) {
+      const newAuthorityId = authorityIdMap.get(Number(row.authority_id));
+      if (newAuthorityId == null) continue;
+      const next: Record<string, unknown> = { ...row, authority_id: newAuthorityId };
+      delete next.id;
+      const columns = Object.keys(next);
+      await this.activeBackend.run(
+        `INSERT INTO place_authority_dates (${columns.join(', ')})
+           VALUES (${columns.map(() => '?').join(', ')})`,
+        [...columns.map((column) => next[column] as string | number | null | bigint)],
+      );
+    }
 
     const kind = (await this.getEntity(targetId))?.kind;
     if (kind === 'person') {
@@ -4200,6 +4436,17 @@ export class EntitySqliteRepository {
       if (place && place.latitude != null && place.longitude != null) {
         await this.syncPlaceLocationScalars(targetId, place.latitude, place.longitude);
       }
+      const storageMode = (await source.backend.get(
+        'SELECT storage_mode FROM place_storage_mode WHERE entity_id = ?',
+        [sourceId],
+      )) as { storage_mode: string } | undefined;
+      if (storageMode) {
+        await this.activeBackend.run(
+          `INSERT INTO place_storage_mode (entity_id, storage_mode) VALUES (?, ?)
+             ON CONFLICT(entity_id) DO UPDATE SET storage_mode = excluded.storage_mode`,
+          [targetId, storageMode.storage_mode],
+        );
+      }
     }
 
     // Rebuild audit tables from copied provenance/status (same as XML import).
@@ -4215,6 +4462,7 @@ export class EntitySqliteRepository {
       ['office_classifications', 'office_id'],
       ['entity_metadata', 'entity_id'],
       ['place_locations', 'entity_id'],
+      ['place_admin_levels', 'entity_id'],
     ] as const) {
       await this.activeBackend.run(
         `INSERT OR IGNORE INTO entity_tombstones (entity_id, table_name, row_id, reason, created_at)
@@ -4364,6 +4612,95 @@ export class EntitySqliteRepository {
              VALUES (?, ?, ?, 'authority', ?, 'active', ?, ?)`,
           [patch.entityId, lat, lon, normalizedSource, now, now],
         );
+        changed = true;
+      };
+
+      const upsertAuthorityAdminLevel = async (source: string, level: string) => {
+        const normalizedSource = source.trim().toUpperCase();
+        const normalizedLevel = level.trim();
+        if (!normalizedLevel) return;
+        const existing = (await this.activeBackend.all(
+          `SELECT id, level FROM place_admin_levels
+             WHERE entity_id = ? AND origin = 'authority' AND UPPER(COALESCE(source, '')) = ?
+             ORDER BY id`,
+          [patch.entityId, normalizedSource],
+        )) as { id: number; level: string }[];
+        if (existing.some((row) => row.level === normalizedLevel)) return;
+        for (const row of existing) {
+          await this.activeBackend.run('DELETE FROM place_admin_levels WHERE id = ?', [row.id]);
+        }
+        await this.activeBackend.run(
+          `INSERT INTO place_admin_levels
+               (entity_id, level, origin, source, status, created_at, updated_at)
+             VALUES (?, ?, 'authority', ?, 'active', ?, ?)`,
+          [patch.entityId, normalizedLevel, normalizedSource, now, now],
+        );
+        changed = true;
+      };
+
+      const upsertSourceEntry = async (
+        source: string,
+        authId: string,
+        dates: { from?: number | null; to?: number | null; label?: string | null }[] | undefined,
+      ) => {
+        const type = canonicalizeAuthorityType(source);
+        const value = authId.trim();
+        if (!type || !value) return;
+        const normalized = normalizeAuthorityValue(type, value);
+        const rows = (await this.activeBackend.all(
+          `SELECT id, authority_value FROM entity_authorities
+             WHERE entity_id = ? AND lower(authority_type) = lower(?)`,
+          [patch.entityId, type],
+        )) as { id: number; authority_value: string }[];
+        let authorityRowId = rows.find(
+          (row) => normalizeAuthorityValue(type, row.authority_value) === normalized,
+        )?.id;
+        if (authorityRowId == null) {
+          await this.activeBackend.run(
+            `INSERT INTO entity_authorities
+                 (entity_id, authority_type, authority_value, origin, source, status, created_at, updated_at)
+               VALUES (?, ?, ?, 'authority', ?, 'active', ?, ?)`,
+            [patch.entityId, type, value, type, now, now],
+          );
+          const inserted = (await this.activeBackend.get(
+            `SELECT id FROM entity_authorities
+               WHERE entity_id = ? AND authority_type = ? AND authority_value = ?`,
+            [patch.entityId, type, value],
+          )) as { id: number } | undefined;
+          authorityRowId = inserted?.id;
+          changed = true;
+        }
+        if (authorityRowId == null) return;
+        const existingDates = (await this.activeBackend.all(
+          `SELECT from_year, to_year, label FROM place_authority_dates
+             WHERE authority_id = ? ORDER BY id`,
+          [authorityRowId],
+        )) as { from_year: number | null; to_year: number | null; label: string | null }[];
+        const wanted = (dates ?? []).map((d) => ({
+          from: d.from ?? null,
+          to: d.to ?? null,
+          label: d.label?.trim() || null,
+        }));
+        const sameSet =
+          existingDates.length === wanted.length &&
+          existingDates.every(
+            (row, index) =>
+              row.from_year === wanted[index]!.from &&
+              row.to_year === wanted[index]!.to &&
+              row.label === wanted[index]!.label,
+          );
+        if (sameSet) return;
+        await this.activeBackend.run('DELETE FROM place_authority_dates WHERE authority_id = ?', [
+          authorityRowId,
+        ]);
+        for (const d of wanted) {
+          await this.activeBackend.run(
+            `INSERT INTO place_authority_dates
+                 (authority_id, from_year, to_year, label, created_at, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?)`,
+            [authorityRowId, d.from, d.to, d.label, now, now],
+          );
+        }
         changed = true;
       };
 
@@ -4732,6 +5069,29 @@ export class EntitySqliteRepository {
 
       for (const point of patch.geo ?? []) {
         await upsertAuthorityGeo(point.source, point.lat, point.lon);
+      }
+
+      for (const level of patch.adminLevels ?? []) {
+        await upsertAuthorityAdminLevel(level.source, level.level);
+      }
+
+      for (const entry of patch.sourceEntries ?? []) {
+        await upsertSourceEntry(entry.source, entry.authId, entry.dates);
+      }
+
+      if (patch.storageMode !== undefined) {
+        if (patch.storageMode === null) {
+          await this.activeBackend.run('DELETE FROM place_storage_mode WHERE entity_id = ?', [
+            patch.entityId,
+          ]);
+        } else {
+          await this.activeBackend.run(
+            `INSERT INTO place_storage_mode (entity_id, storage_mode) VALUES (?, ?)
+               ON CONFLICT(entity_id) DO UPDATE SET storage_mode = excluded.storage_mode`,
+            [patch.entityId, patch.storageMode],
+          );
+        }
+        changed = true;
       }
 
       for (const value of patch.nationalities ?? []) {

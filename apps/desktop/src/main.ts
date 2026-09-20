@@ -261,6 +261,8 @@ import {
   acceptEntitySqliteDateAssertion,
   acceptEntitySqliteGeoAssertion,
   acceptEntitySqliteDescriptionAssertion,
+  acceptEntitySqliteAdminLevelAssertion,
+  setEntitySqliteOriginReference,
   addEntitySqliteName,
   addEntitySqliteNationality,
   addEntitySqliteNobleTitle,
@@ -2404,6 +2406,28 @@ const registerIpcHandlers = () => {
       await assertRendererReadPath(request.databasePath);
       await assertRendererWritePath(request.databasePath);
       return acceptEntitySqliteDescriptionAssertion(request);
+    },
+  );
+  ipcMain.handle(
+    'entitySqlite:acceptAdminLevelAssertion',
+    async (
+      _event,
+      request: import('./entityDbSqlite/readService').EntitySqliteAssertionRequest,
+    ) => {
+      await assertRendererReadPath(request.databasePath);
+      await assertRendererWritePath(request.databasePath);
+      return acceptEntitySqliteAdminLevelAssertion(request);
+    },
+  );
+  ipcMain.handle(
+    'entitySqlite:setOriginReference',
+    async (
+      _event,
+      request: import('./entityDbSqlite/readService').EntitySqliteSetOriginReferenceRequest,
+    ) => {
+      await assertRendererReadPath(request.databasePath);
+      await assertRendererWritePath(request.databasePath);
+      return setEntitySqliteOriginReference(request);
     },
   );
   ipcMain.handle(

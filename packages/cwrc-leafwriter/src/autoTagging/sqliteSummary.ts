@@ -21,6 +21,9 @@ export interface SqlitePanelSummaryLike {
   workDate: EntitySummary['workDate'];
   workType: EntitySummary['workType'];
   location?: EntitySummary['location'];
+  adminLevel?: EntitySummary['adminLevel'];
+  storageMode?: EntitySummary['storageMode'];
+  sourceEntries?: EntitySummary['sourceEntries'];
   nationalities: string[];
   placesOfOrigin: string[];
   roles: string[];
@@ -54,6 +57,9 @@ export function entitySummaryFromSqlite(snapshot: SqlitePanelSummaryLike): Entit
     workDate: snapshot.workDate,
     workType: snapshot.workType,
     location: snapshot.location ?? null,
+    adminLevel: snapshot.adminLevel ?? null,
+    storageMode: snapshot.storageMode ?? null,
+    sourceEntries: snapshot.sourceEntries ?? [],
     nationalities: snapshot.nationalities,
     placesOfOrigin: snapshot.placesOfOrigin,
     authors: snapshot.authors.filter((author) => author.status === 'active'),

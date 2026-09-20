@@ -8,7 +8,7 @@
 
 import type { EntityDbBackend } from './backend';
 
-export const ENTITY_DB_SCHEMA_VERSION = 12;
+export const ENTITY_DB_SCHEMA_VERSION = 14;
 
 const migration1 = `
 CREATE TABLE IF NOT EXISTS entities (
@@ -564,6 +564,94 @@ CREATE TABLE IF NOT EXISTS place_locations (
 CREATE INDEX IF NOT EXISTS place_locations_entity_idx ON place_locations(entity_id);
 `;
 
+/**
+ * Persisted place-cluster support (Phase 5,
+ * docs/placename-geo-disambiguation-planning.md): a storage-mode marker plus
+ * two new repeatable-assertion tables, following the exact `place_locations`
+ * shape (candidate rows, one accepted per entity/authority, provenance via
+ * origin/source/status).
+ *
+ * `place_admin_levels` is a single-value-per-source candidate table, exactly
+ * like `place_locations` — the entity's "current" admin level is whichever
+ * row is accepted (origin='user'), else the first active row, matching
+ * `activeGeo`/`activeDescription`'s selection rule on the XML side.
+ *
+ * `place_authority_dates` is new structurally: nothing in the schema before
+ * this hung a one-to-many child table off an `entity_authorities` row
+ * (see investigation notes — `person_offices.start_date_id`/`end_date_id`
+ * is a dead 2-slot FK pair, not a working precedent). Each row is one date
+ * range asserted by the authority association it belongs to; `ON DELETE
+ * CASCADE` means detaching that authority (an existing, unmodified code
+ * path — `decoupleAuthority` hard-deletes the `entity_authorities` row)
+ * removes its date ranges for free, satisfying Phase 5's delinking
+ * requirement without new deletion logic.
+ *
+ * `place_storage_mode` is a new one-row-per-entity table rather than an
+ * `ALTER TABLE places ADD COLUMN` — every existing migration that adds a
+ * scalar field this way is safe to replay (tests rewind `user_version` and
+ * re-run later migrations against an already-fully-migrated database, e.g.
+ * "migration 8 retags legacy Latn translations"), but `ADD COLUMN` is not:
+ * SQLite has no `ADD COLUMN IF NOT EXISTS`, so replaying it against a
+ * `places` table that already has the column throws "duplicate column
+ * name". A standalone `CREATE TABLE IF NOT EXISTS` sidesteps that entirely.
+ * Storage mode has no per-source candidates (unlike geo/admin-level, it's
+ * an explicit importer decision, not an assertion to accept-among-many), so
+ * a single scalar row, keyed by entity id, is enough.
+ */
+const migration13 = `
+CREATE TABLE IF NOT EXISTS place_storage_mode (
+  entity_id TEXT PRIMARY KEY REFERENCES entities(id) ON DELETE CASCADE,
+  storage_mode TEXT NOT NULL CHECK (storage_mode IN ('coordinates', 'id'))
+);
+
+CREATE TABLE IF NOT EXISTS place_admin_levels (
+  id INTEGER PRIMARY KEY,
+  entity_id TEXT NOT NULL REFERENCES entities(id) ON DELETE CASCADE,
+  level TEXT NOT NULL CHECK (length(trim(level)) > 0),
+  origin TEXT NOT NULL DEFAULT 'user' CHECK (origin IN ('user', 'authority', 'xml')),
+  source TEXT,
+  status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'rejected', 'withdrawn')),
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS place_admin_levels_entity_idx ON place_admin_levels(entity_id);
+
+CREATE TABLE IF NOT EXISTS place_authority_dates (
+  id INTEGER PRIMARY KEY,
+  authority_id INTEGER NOT NULL REFERENCES entity_authorities(id) ON DELETE CASCADE,
+  from_year INTEGER,
+  to_year INTEGER,
+  label TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS place_authority_dates_authority_idx ON place_authority_dates(authority_id);
+`;
+
+/**
+ * Fixes a bug in this feature's own development, not a data migration:
+ * migration13 briefly shipped (locally, mid-development) with `ALTER TABLE
+ * places ADD COLUMN storage_mode/admin_level` instead of the
+ * `place_storage_mode` table it now creates. Migrations are append-only —
+ * once a database records a version as applied, that version's SQL never
+ * reruns — so a database that already advanced to version 13 under the old
+ * wording never got `place_storage_mode` created, even after the migration13
+ * source was corrected. This migration creates it unconditionally
+ * (`IF NOT EXISTS`): a no-op for any database that got it from the corrected
+ * migration13, and the actual fix for one that didn't. The stray
+ * `places.storage_mode`/`places.admin_level` columns an old-migration13
+ * database may carry are harmless dead columns, left in place rather than
+ * risking a DROP COLUMN against a SQLite version that may not support it.
+ */
+const migration14 = `
+CREATE TABLE IF NOT EXISTS place_storage_mode (
+  entity_id TEXT PRIMARY KEY REFERENCES entities(id) ON DELETE CASCADE,
+  storage_mode TEXT NOT NULL CHECK (storage_mode IN ('coordinates', 'id'))
+);
+`;
+
 /** Exported for tests that need to seed a database at a specific pre-migration schema version. */
 export const migrations: Record<number, string> = {
   1: migration1,
@@ -578,6 +666,8 @@ export const migrations: Record<number, string> = {
   10: migration10,
   11: migration11,
   12: migration12,
+  13: migration13,
+  14: migration14,
 };
 
 /**

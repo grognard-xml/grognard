@@ -6,6 +6,7 @@ import {
   listEntityAssertions,
   getFamilyName,
   getGivenName,
+  setEntityDescription,
   setFamilyName,
   setGivenName,
   setRomanizedName,
@@ -85,6 +86,12 @@ const wireSqliteLookupWrites = (store: EntityStore, fs: FakeFs) => {
   jest.spyOn(store, 'sqliteSetUserDate').mockImplementation(async ({ entityId, part, year }) => {
     const doc = await store.loadEntities();
     setUserEntityDate(doc, entityId, part, year);
+    await store.saveEntities(doc, { allowSqliteFullReimport: true });
+  });
+
+  jest.spyOn(store, 'sqliteUpdateDescription').mockImplementation(async (entityId, description) => {
+    const doc = await store.loadEntities();
+    setEntityDescription(doc, entityId, description ?? '');
     await store.saveEntities(doc, { allowSqliteFullReimport: true });
   });
 
@@ -435,6 +442,26 @@ describe('planLookupResolution / applyLookupResolution', () => {
     // Phase B: linking an existing person also pulls pack short forms
     expect(getFamilyName(after, id)).toBe('沈');
     expect(getGivenName(after, id)).toBe('攸之');
+    // Phase 4: no description existed, so the merged per-authority period
+    // line (§4 of the geo-disambiguation plan) seeds it non-destructively.
+    const summary = await store.sqliteEntitySummary(id);
+    expect(summary?.description).toBe('CBDB: 420–478');
+  });
+
+  it('never overwrites an existing description with the merged period line', async () => {
+    const { store } = makeStore();
+    const doc = await store.loadEntities();
+    const { id } = addEntity(doc, 'person', {
+      name: '沈攸之',
+      description: "curator's own note",
+      authorityIds: [{ type: 'Wikidata', value: 'Q712570' }],
+    });
+    await store.saveEntities(doc, { allowSqliteFullReimport: true });
+
+    await applyLookupResolution(input(), { store, packIds, readPackFile });
+
+    const summary = await store.sqliteEntitySummary(id);
+    expect(summary?.description).toBe("curator's own note");
   });
 
   it('hydrates authority dates when linking an existing DILA entity', async () => {

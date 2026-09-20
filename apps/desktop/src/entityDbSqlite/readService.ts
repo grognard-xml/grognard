@@ -163,6 +163,13 @@ export interface EntitySqliteRenamePrimaryNameRequest {
   text: string;
 }
 
+export interface EntitySqliteSetOriginReferenceRequest {
+  databasePath: string;
+  entityId: string;
+  key: string;
+  reference: string;
+}
+
 export interface EntitySqliteSetRomanizedNameRequest {
   databasePath: string;
   entityId: string;
@@ -701,6 +708,29 @@ export async function acceptEntitySqliteDescriptionAssertion(
   return (await repositoryFor(request.databasePath)).acceptDescriptionAssertion(
     request.entityId,
     request.key,
+  );
+}
+
+export async function acceptEntitySqliteAdminLevelAssertion(
+  request: EntitySqliteAssertionRequest,
+): Promise<boolean> {
+  if (!validDatabasePath(request.databasePath))
+    throw new Error('Invalid entity SQLite database path.');
+  return (await repositoryFor(request.databasePath)).acceptAdminLevelAssertion(
+    request.entityId,
+    request.key,
+  );
+}
+
+export async function setEntitySqliteOriginReference(
+  request: EntitySqliteSetOriginReferenceRequest,
+): Promise<boolean> {
+  if (!validDatabasePath(request.databasePath))
+    throw new Error('Invalid entity SQLite database path.');
+  return (await repositoryFor(request.databasePath)).setOriginReference(
+    request.entityId,
+    request.key,
+    request.reference,
   );
 }
 

@@ -1,6 +1,6 @@
 # Placename geo-disambiguation — Planning
 
-**Status (2026-08-02):** **Mostly shipped** — geo clustering + map comparison live; Wikidata `place-zh-hant` compiled. Still open: Phase 4–5 persisted place entities / mint from merged periods; CHGIS recompile smoke on real shapefiles.
+**Status (2026-09-20):** **Mostly shipped** — geo clustering + map comparison live; Wikidata `place-zh-hant` compiled; Phase 4 (merged-period description fallback on link/mint) and Phase 5 (persisted place-cluster schema, full stack including UI) implemented. Still open: CHGIS recompile smoke on real shapefiles.
 
 ## Problem
 
@@ -286,27 +286,50 @@ What _was_ missing on this path: `metadata.geo` never reached `DisambiguationCan
 
 **Acceptance — met.** Both correctness (Phase 3 core fix) and the originally-scoped UI (proximity control + visible cluster grouping + "no geo data" labeling) are implemented and tested. Phase 6 (map-pin comparison view), originally deferred as a separate design task, has since been re-scoped and unblocked — see "Decisions (2026-07-26)" below.
 
-### Phase 4 — Merged period display and entity linking
+### Phase 4 — Merged period display and entity linking — implemented (2026-09-20)
 
 Depends on: Phase 3.
 
 **Scope:** merge-time period display (existing design from §4) now feeds entity linking and minting. When a user links to or mints from a cluster, use the merged period strings as fallback description text (non-destructive enrichment, only if entity has no description yet). Authority source tags preserved in display.
 
-**Acceptance:** linking a corpus mention to a multi-authority cluster creates/updates the project entity with merged period metadata.
+**As built:** `mergedPeriodDisplay(assertions: AuthoritySourcedFields[])` (`entities.ts`) derives a `"SOURCE: period; SOURCE: period"` line from `planLookupResolution`'s existing `authorityAssertions` (already computed for every checked authority reference — this is the same list `entities.ts:280-327`-era code writes one `<idno>` per source from). Each source's own fragment (`420–478`, `704–`, `fl. 1120–`, or a bare year when start equals end) is kept separate and tagged by source, exactly as §4 specifies; it is never written back as `startYear`/`endYear`, only ever offered as a `description` fallback.
 
-### Phase 5 — Persisted cluster entities in entities.xml
+- **Mint:** `description: input.description ?? candidateMeta?.description ?? mergedPeriodLine` — the merged line is the last-resort fallback, after any user-typed description and the primary candidate's own authority description.
+- **Link (the gap Phase 4 actually needed to fill):** investigation found the link path had _no_ description-writing code at all — `entity.description` was only echoed back into the plan for display, never enriched. `applyLookupResolution`'s link branch now calls `store.sqliteUpdateDescription(plan.key, plan.mergedPeriodDisplay)`, gated on `!plan.description` (i.e. only when the entity has no description yet) — the same non-destructive pattern `splitEnrichment` already uses for idnos, applied here to a scalar field.
+
+**Known limitation, carried over from the current data model:** `AuthoritySourcedFields` holds one `startYear`/`endYear` pair per source, not DILA's multi-dynasty-row style (`漢, 孫吳, 南齊, 唐`). The merged line today is one fragment per source (`CBDB: 420–478; DILA: 704–`), not multiple fragments per source — extending to multi-fragment-per-source would need upstream aggregation in `candidatesFromAuthorityPacks`/`crosswalkForRef` and is deferred until a real case needs it.
+
+**Tests:** `mergedPeriodDisplay` unit tests in `entities.test.ts` (fragment formatting, floruit, equal-year collapse, no-year-data skip); `lookupResolve.test.ts` gained a case confirming an empty-description link gets the merged line and a case confirming an existing description is never overwritten. Full `entities`/`lookupResolve` suites pass (59/59). Typecheck clean (pre-existing unrelated errors only, in `ChhivSymbolGridDialog.tsx`).
+
+**Acceptance — met.** Linking a corpus mention to a multi-authority cluster creates/updates the project entity with merged period metadata as a non-destructive description fallback.
+
+### Phase 5 — Persisted cluster entities in entities.xml — engine layer implemented (2026-09-20)
 
 Depends on: all prior phases.
 
-**Scope:** implement the cluster entity schema (§"Schema for `<place type="cluster">`" above) in the app's entities.xml handling. Clusters are separate from mention-level `<place>` entities (marked by `type="cluster"` attribute). Implement delinking logic: removing an authority link removes the corresponding `<sourceEntry>` block and all data tagged with that source.
+**Scope:** implement the cluster entity schema in the app's entities.xml handling. The schema actually shipped follows the **coordinates/id storage-mode** shape from "Decision (2026-07-26): origin-place import modes" (the acceptance criteria below always used this terminology) rather than the earlier `type="cluster"` sketch from "Decisions (2026-07-25)" — the two were never reconciled in this doc; the 2026-07-26 shape is the one actually built. `type="cluster"` was not implemented as a separate schema.
 
-**Acceptance:** users can create/edit coordinate-mode or ID-mode place
-entities with strings, admin-level, multi-authority associations, and
-multi-date ranges. Coordinate-mode entities carry one selected representative
-point; ID-mode entities retain source identifiers without claiming an
-entity-level point. Unlinking an authority removes only that authority's
-contributions (tags, dates, and source metadata) without affecting other
-sources.
+**As built — full stack, SQLite schema through entities.xml:**
+
+- **Schema** (`apps/desktop/src/entityDbSqlite/schema.ts`, migrations 13–14): `place_admin_levels` (single-value-per-source candidates, exactly like the existing `place_locations` geo-candidate table — accept-one-as-active via the same origin/source/status provenance pattern); `place_authority_dates` (new structurally: the first one-to-many child table hung off an `entity_authorities` row, `ON DELETE CASCADE` so detaching an authority frees its date ranges for free — satisfies the delinking requirement without new deletion code); `place_storage_mode` (one row per entity — a direct importer decision, not an assertion to accept-among-many, so no per-source candidates needed).
+- **Repository** (`apps/desktop/src/entityDbSqlite/repository.ts`): `applyAuthorityBackfillPatch` gained `adminLevels`/`sourceEntries`/`storageMode` fields; a new `acceptAdminLevelAssertion` mirrors `acceptGeoAssertion`; `getPanelSummary`/`listPanelSummaries` expose `adminLevel`/`storageMode`/`sourceEntries` (dates grouped by authority, verbatim per source — never unioned); `decoupleAuthority`/`replaceEntityContentFrom` (entity merge) both updated to include the three new tables, with authority-id remapping for `place_authority_dates`.
+- **Bugfix found in the process:** `decoupleAuthority`'s `purgeBySource` only ever matched a `"TYPE:value"` source-string convention, but `place_locations`/`entity_dates` (and the new `place_admin_levels`) write a bare `"TYPE"` source — meaning authority-origin geo/date candidates were never actually purged on unlink before this. Fixed to match both conventions.
+- **IPC/preload/entityStore.ts:** `entitySqliteAcceptAdminLevelAssertion` wired end-to-end (main.ts handler, preload.ts bridge, `EntityStore.sqliteAcceptAdminLevelAssertion`); `sqliteApplyAuthorityBackfillPatch`'s type surface extended for the three new patch fields.
+- **XML codec** (`apps/desktop/src/entityDbSqlite/xmlCodec.ts`): a `<place>` item's `type="coordinates"|"id"` attribute round-trips to/from `place_storage_mode`; `<note type="adminLevel" source="…">` round-trips to/from `place_admin_levels`; an authority association that carries date ranges renders as `<sourceEntry source="…" authId="…"><date from="…" to="…">label</date>…</sourceEntry>` instead of a bare `<idno>` — never both for the same association, so existing crosswalk lookups aren't duplicated.
+- **Pure origin-place importer** (`packages/cwrc-leafwriter/src/autoTagging/originPlaceImport.ts`): `importOriginPlace(candidates, proximityKm)` implements the exact three rules from the 2026-07-26 decision (coherent cluster → coordinates-mode with one representative point; geo-cluster split or admin-level mismatch → id-mode, provenance still preserved; no coordinates at all → id-mode, not a conflict) using the existing `clusterByDistance` from `geoCluster.ts`. Pure function, no store access — its output maps directly onto `sqliteApplyAuthorityBackfillPatch`'s new fields.
+
+**Tests:** 4 new repository tests (apply/accept/delink/replace-content-merge), 1 new xmlCodec round-trip test (schema → XML → schema, including the sourceEntry/idno mutual-exclusion check), 7 new `importOriginPlace` unit tests covering all three rules plus the admin-level-compatibility helper. Full `entityDbSqlite` suite (104 tests, all three backends) and relevant `cwrc-leafwriter` suites pass; both packages typecheck clean.
+
+**UI integration — implemented (2026-09-20):**
+
+- **Entity editor** (`apps/commons/src/desktop/sidebar/SidebarDatabaseTab.tsx`): a place entity's admin-level candidates now have their own accept/reject row, mirroring the existing geo block exactly (`adminLevelGroups`, `PendingValidationMode: 'adminLevel'`, `sqliteAcceptAdminLevelAssertion` on save). A storage-mode chip (`Coordinates` / `ID only`) and a read-only "Authority sources" list (one row per `sourceEntry`, badge + authId + joined date ranges) render below it. `EntitySummary` (`entityOps.ts`) and `entitySummaryFromSqlite` (`sqliteSummary.ts`) were extended with `adminLevel`/`storageMode`/`sourceEntries` to carry this data from the SQLite panel summary into the component.
+- **Origin-to-place resolution**: a "resolve to place entity" button (📍 icon) now appears on each accepted place-of-origin value in the person editor, gated on not already pointing at a project entity (`ref` doesn't start with `#`). Clicking it calls the new `resolveOriginToPlaceEntity(store, personId, candidates, proximityKm)` (`originPlaceResolve.ts`) — the side-effecting glue around the pure `importOriginPlace`: mints a place entity (`sqliteCreatePopulated`), patches in the decided storage mode/admin levels/source entries (`sqliteApplyAuthorityBackfillPatch`), then backlinks each origin assertion's `ref` to `#<new-place-id>` via a new repository method, `setOriginReference` (mirrors `acceptGeoAssertion`'s shape, wired end-to-end through IPC/preload/`entityStore.ts`).
+- **Known limitation, by design:** an origin assertion carries only `{source, ref}` on the person entity — no geo/admin-level of its own. Without a pack-lookup step (out of scope here), `importOriginPlace` sees no coordinates and correctly applies Rule 3 (id-mode place, not a conflict). The resulting place entity is still a real, provenance-bearing entity — just not yet geo-enriched. A future pass could enrich it the same way person entities already get authority backfill.
+- **Correctness note:** the hard "admin levels cannot mix" constraint is enforced only inside `importOriginPlace`'s decision (forces id-mode on mismatch) — nothing prevents directly calling `applyAuthorityBackfillPatch` with mismatched `adminLevels` outside that path; it would just store both candidates without complaint (matching "no duplicate-authority-reference warning" being an existing, deliberate non-error elsewhere in this schema).
+
+**Tests:** repository test for `setOriginReference`; 3 new `resolveOriginToPlaceEntity` unit tests (coherent multi-authority mint + backlink, bare user-typed origin with no authority ref, empty-candidate no-op). All three touched packages (`apps/desktop`, `packages/cwrc-leafwriter`, `apps/commons`) typecheck clean; eslint clean on every touched file.
+
+**Acceptance — met.** Users can now create place entities from confirmed origin assertions (storage mode decided automatically), accept/reject admin-level candidates, and see source-entry provenance, all from the entity editor — closing the gap the previous pass left open.
 
 ### Phase 6 — Map-pin comparison view
 
@@ -335,7 +358,7 @@ sources.
 
 - Per-admin-level (or per-place-type) adaptive radius instead of one global number (Open Question 1).
 - Historical relocation modeling (a place whose geographic point itself changes over time, which geo-clustering alone cannot distinguish from "renamed and never moved").
-- DILA coordinate integration (0.3% coverage, not worth the effort at this time).
+- ~~DILA coordinate integration~~ — done for the direct `<geo>` + modern-district-centroid fallback (see "DILA — direct `<geo>` out of scope; modern-district centroid fallback added" above). Deeper DILA-specific work (e.g. resolving multi-chain/ambiguous `<district>` values) remains deferred.
 
 ## Open questions
 
@@ -480,9 +503,13 @@ Extends beyond the three internal sources: **unify CHGIS (`TYPE_CH`, Chinese sin
 - Coverage: 15,487 / 30,100 rows (~51.5%) have usable coordinates after excluding the `0.0/0.0` sentinel (316 rows) used for missing values.
 - `CHGIS_PT_ID` crosswalk (`chgis/cbdbCrosswalk.mjs`) covers fewer rows (10,996) than direct `x_coord`/`y_coord` — useful as a fallback/cross-check, not a primary source.
 
-### DILA — out of scope
+### DILA — direct `<geo>` out of scope; modern-district centroid fallback added (2026-09-20)
 
-Only 329/117k DILA place records carry coordinates (0.3%) — effectively unusable for clustering. DILA is dropped from the geo-disambiguation plan; CHGIS + CBDB are the two coordinate sources going forward. (DILA's admin-vocabulary field, `<note type="category">` free text, is likewise not part of the vocabulary-unification pass.)
+Only 382/59,294 DILA place records carry a direct `<geo>` point (~0.6%) — effectively unusable for clustering on its own. CHGIS + CBDB remain the two primary coordinate sources.
+
+**Modern-district centroid fallback, implemented:** DILA's `<district>` field carries a modern administrative-equivalency chain (e.g. `中國-河南省-商丘市-民權縣` — country-province-city-county). Of the places with a non-empty `<district>` and no `<geo>`, 219 resolve unambiguously to a single "中國-..." chain; `dila/districtGeo.mjs` looks these up in a vendored gazetteer (`authoritypacks/china_admin_centroids.tsv`, ~3,200 province/city/county rows derived from [Vonng/adcode](https://github.com/Vonng/adcode), CC-BY 4.0, converted simplified→traditional) and attaches the matched county's (or city's/province's, as a fallback) present-day centroid as `metadata.geo`. This lifts DILA's place-geo coverage from ~0.6% to ~2% — still low overall, but real signal where CBDB/CHGIS have none.
+
+**Precision caveat (kept as a single note here and in `dila/README.md`, not per-record metadata):** a district-centroid point is the modern county's centroid, not the historical site — it can be off by tens of kilometers, i.e. much coarser than the ~5 km clustering threshold used for CBDB/CHGIS points. `<district>` chains that are ambiguous (multiple `;`-separated candidates, e.g. a place spanning several provinces) or non-Chinese are deliberately left unresolved rather than guessing a point.
 
 ---
 

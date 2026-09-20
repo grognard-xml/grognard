@@ -9,6 +9,7 @@ import {
   getEntityChanged,
   isEntityDatabase,
   GROGNARD_AUTOTAG_RESP,
+  mergedPeriodDisplay,
   mintEntityId,
   nextEntityId,
   parseEntities,
@@ -395,6 +396,37 @@ describe('addEntity', () => {
     expect(el.getElementsByTagName('birth')).toHaveLength(1);
     expect(el.getElementsByTagName('death')).toHaveLength(1);
     expect(el.getElementsByTagName('nationality')).toHaveLength(1);
+  });
+});
+
+describe('mergedPeriodDisplay', () => {
+  it('formats one fragment per source, joined by "; "', () => {
+    expect(
+      mergedPeriodDisplay([
+        { source: 'CBDB', startYear: 420, endYear: 478 },
+        { source: 'DILA', startYear: 704 },
+      ]),
+    ).toBe('CBDB: 420–478; DILA: 704–');
+  });
+
+  it('marks floruit ranges with "fl."', () => {
+    expect(mergedPeriodDisplay([{ source: 'CBDB', startYear: 1120, asFloruit: true }])).toBe(
+      'CBDB: fl. 1120–',
+    );
+  });
+
+  it('collapses an equal start/end to a single year', () => {
+    expect(mergedPeriodDisplay([{ source: 'DILA', startYear: 704, endYear: 704 }])).toBe(
+      'DILA: 704',
+    );
+  });
+
+  it('skips sources with no year data and returns undefined when none remain', () => {
+    expect(
+      mergedPeriodDisplay([{ source: 'CBDB', nationality: [{ canonicalId: 'x', label: 'Song' }] }]),
+    ).toBeUndefined();
+    expect(mergedPeriodDisplay(undefined)).toBeUndefined();
+    expect(mergedPeriodDisplay([])).toBeUndefined();
   });
 });
 

@@ -210,6 +210,17 @@ declare global {
       entityId: string;
       key: string;
     }) => Promise<boolean>;
+    entitySqliteAcceptAdminLevelAssertion?: (request: {
+      databasePath: string;
+      entityId: string;
+      key: string;
+    }) => Promise<boolean>;
+    entitySqliteSetOriginReference?: (request: {
+      databasePath: string;
+      entityId: string;
+      key: string;
+      reference: string;
+    }) => Promise<boolean>;
     entitySqliteRenamePrimaryName?: (request: {
       databasePath: string;
       entityId: string;

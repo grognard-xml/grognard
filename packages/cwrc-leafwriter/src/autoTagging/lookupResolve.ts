@@ -16,6 +16,7 @@ import { LOOKUP_TYPE_TO_KIND } from '../services/entity-database-lookup';
 import { autoSyncEntityToCentral } from './autoSync';
 import {
   ENTITY_KINDS,
+  mergedPeriodDisplay,
   type AuthorityId,
   type AuthoritySourcedFields,
   type EntityKind,
@@ -384,6 +385,8 @@ export type LookupResolutionPlan =
       nationality?: { id: string; canonicalId: string; label: string; sourceIds?: string[] }[];
       /** Per-authority raw values, when more than one checked reference resolved via the packs. */
       authorityAssertions?: AuthoritySourcedFields[];
+      /** "SOURCE: period; SOURCE: period" derived from authorityAssertions — never a stored fact, only a description fallback (§4). */
+      mergedPeriodDisplay?: string;
       /** Pack short forms to attach when linking an existing person. */
       typedNames?: TypedName[];
       familyName?: string;
@@ -583,6 +586,7 @@ export async function planLookupResolution(
             assertion.origin?.length,
         )
     : undefined;
+  const mergedPeriodLine = mergedPeriodDisplay(authorityAssertions);
 
   const directIds = await collectEntityIdsByAuthorities(
     deps.store,
@@ -612,6 +616,7 @@ export async function planLookupResolution(
       endYear: candidateMeta?.endYear,
       nationality: candidateMeta?.nationality,
       authorityAssertions,
+      mergedPeriodDisplay: mergedPeriodLine,
       geo: kind === 'place' ? candidateMeta?.geo : undefined,
       ...packPerson,
     };
@@ -644,6 +649,7 @@ export async function planLookupResolution(
       endYear: candidateMeta?.endYear,
       nationality: candidateMeta?.nationality,
       authorityAssertions,
+      mergedPeriodDisplay: mergedPeriodLine,
       geo: kind === 'place' ? candidateMeta?.geo : undefined,
       ...packPerson,
     };
@@ -692,7 +698,7 @@ export async function planLookupResolution(
     action: 'mint',
     entityName,
     idnos,
-    description: input.description ?? candidateMeta?.description,
+    description: input.description ?? candidateMeta?.description ?? mergedPeriodLine,
     startYear: candidateMeta?.startYear,
     endYear: candidateMeta?.endYear,
     authoritySource: candidateMeta?.source,
@@ -788,6 +794,12 @@ export async function applyLookupResolution(
         givenName: plan.givenName,
         geo: plan.geo,
       });
+    }
+    // Non-destructive enrichment (mirrors splitEnrichment's "only add what's
+    // missing" pattern): the merged period line seeds description only when
+    // the entity has none yet, matching §4's mint-time behavior for links too.
+    if (!plan.description && plan.mergedPeriodDisplay) {
+      await deps.store.sqliteUpdateDescription(plan.key, plan.mergedPeriodDisplay);
     }
     for (const typed of plan.typedNames ?? []) {
       await deps.store.sqliteAddName({

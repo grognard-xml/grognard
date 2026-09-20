@@ -278,6 +278,17 @@ export interface EntityFileApi {
     entityId: string;
     key: string;
   }) => Promise<boolean>;
+  entitySqliteAcceptAdminLevelAssertion?: (input: {
+    databasePath: string;
+    entityId: string;
+    key: string;
+  }) => Promise<boolean>;
+  entitySqliteSetOriginReference?: (input: {
+    databasePath: string;
+    entityId: string;
+    key: string;
+    reference: string;
+  }) => Promise<boolean>;
   entitySqliteRenamePrimaryName?: (input: {
     databasePath: string;
     entityId: string;
@@ -429,6 +440,13 @@ export interface EntityFileApi {
       endYear?: number | null;
     } | null;
     geo?: { source: string; lat: number; lon: number }[];
+    adminLevels?: { source: string; level: string }[];
+    sourceEntries?: {
+      source: string;
+      authId: string;
+      dates?: { from?: number | null; to?: number | null; label?: string | null }[];
+    }[];
+    storageMode?: 'coordinates' | 'id' | null;
   }) => Promise<{ changed: boolean; namesAdded: number }>;
   entitySqliteReconcileXmlExtractedData?: (input: {
     databasePath: string;
@@ -1062,6 +1080,31 @@ export class EntityStore {
     });
   }
 
+  async sqliteAcceptAdminLevelAssertion(entityId: string, key: string): Promise<boolean> {
+    if (!this.api.entitySqliteAcceptAdminLevelAssertion)
+      throw new Error('SQLite admin-level acceptance is unavailable.');
+    return this.api.entitySqliteAcceptAdminLevelAssertion({
+      databasePath: this.sqlitePath,
+      entityId,
+      key,
+    });
+  }
+
+  async sqliteSetOriginReference(
+    entityId: string,
+    key: string,
+    reference: string,
+  ): Promise<boolean> {
+    if (!this.api.entitySqliteSetOriginReference)
+      throw new Error('SQLite origin-reference update is unavailable.');
+    return this.api.entitySqliteSetOriginReference({
+      databasePath: this.sqlitePath,
+      entityId,
+      key,
+      reference,
+    });
+  }
+
   async sqliteRenamePrimaryName(entityId: string, text: string): Promise<boolean> {
     if (!this.api.entitySqliteRenamePrimaryName)
       throw new Error('SQLite primary-name rename is unavailable.');
@@ -1264,6 +1307,13 @@ export class EntityStore {
       endYear?: number | null;
     } | null;
     geo?: { source: string; lat: number; lon: number }[];
+    adminLevels?: { source: string; level: string }[];
+    sourceEntries?: {
+      source: string;
+      authId: string;
+      dates?: { from?: number | null; to?: number | null; label?: string | null }[];
+    }[];
+    storageMode?: 'coordinates' | 'id' | null;
   }): Promise<{ changed: boolean; namesAdded: number }> {
     if (!this.api.entitySqliteApplyAuthorityBackfillPatch)
       throw new Error('SQLite authority backfill is unavailable.');
@@ -1763,6 +1813,12 @@ export function desktopEntityFileApi(): EntityFileApi | null {
       : undefined,
     entitySqliteAcceptDescriptionAssertion: rawApi.entitySqliteAcceptDescriptionAssertion
       ? (input) => rawApi.entitySqliteAcceptDescriptionAssertion!(input)
+      : undefined,
+    entitySqliteAcceptAdminLevelAssertion: rawApi.entitySqliteAcceptAdminLevelAssertion
+      ? (input) => rawApi.entitySqliteAcceptAdminLevelAssertion!(input)
+      : undefined,
+    entitySqliteSetOriginReference: rawApi.entitySqliteSetOriginReference
+      ? (input) => rawApi.entitySqliteSetOriginReference!(input)
       : undefined,
     entitySqliteRenamePrimaryName: rawApi.entitySqliteRenamePrimaryName
       ? (input) => rawApi.entitySqliteRenamePrimaryName!(input)

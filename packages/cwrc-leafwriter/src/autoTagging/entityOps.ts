@@ -99,6 +99,16 @@ export interface EntitySummary {
   workDate: WorkDateSummary | null;
   /** Place kind only: the currently accepted coordinate + its source, if any. */
   location?: { lat: number; lon: number; source: string | null } | null;
+  /** Place kind only: the currently accepted administrative level + its source, if any. */
+  adminLevel?: { level: string; source: string | null } | null;
+  /** Place kind only (Phase 5): explicit storage-mode decision, or null for an ordinary mention-level place. */
+  storageMode?: 'coordinates' | 'id' | null;
+  /** Place kind only (Phase 5): one entry per authority association, each with its own verbatim date ranges. */
+  sourceEntries?: {
+    source: string;
+    authId: string;
+    dates: { from: number | null; to: number | null; label: string | null }[];
+  }[];
   /** 'book' | 'chapter' | 'poem' | 'painting' | 'object'. Work kind only; null for the
    * XML-interchange path (summarizeEntity) until work_type is wired into XML round-trip. */
   workType: string | null;

@@ -2008,4 +2008,229 @@ describe('entity_relations repository methods', () => {
 
     await repository.close();
   });
+
+  it('replaceEntityContentFrom carries admin-level, source-entry dates, and storage mode across, remapping authority ids', async () => {
+    const source = await EntitySqliteRepository.open();
+    const target = await EntitySqliteRepository.open();
+    await source.createEntity({ id: 'place-src', kind: 'place' });
+    await target.createEntity({ id: 'place-dst', kind: 'place' });
+    await source.applyAuthorityBackfillPatch({
+      entityId: 'place-src',
+      storageMode: 'coordinates',
+      adminLevels: [{ source: 'CBDB', level: 'xian' }],
+      sourceEntries: [
+        {
+          source: 'CBDB',
+          authId: 'c_addr_123',
+          dates: [
+            { from: 0, to: 260 },
+            { from: 704, to: null },
+          ],
+        },
+      ],
+    });
+
+    expect(await target.replaceEntityContentFrom(source, 'place-src', 'place-dst')).toBe(true);
+
+    const summary = await target.getPanelSummary('place-dst');
+    expect(summary?.storageMode).toBe('coordinates');
+    expect(summary?.adminLevel).toEqual({ level: 'xian', source: 'CBDB' });
+    expect(summary?.sourceEntries).toEqual([
+      {
+        source: 'CBDB',
+        authId: 'c_addr_123',
+        dates: [
+          { from: 0, to: 260, label: null },
+          { from: 704, to: null, label: null },
+        ],
+      },
+    ]);
+
+    await source.close();
+    await target.close();
+  });
+});
+
+describe('Phase 5: origin-place reference linking', () => {
+  it('setOriginReference points an existing person_origins row at a place entity', async () => {
+    const repository = await EntitySqliteRepository.open();
+    await repository.createEntity({ id: 'person-origin-1', kind: 'person' });
+    await repository.addOrigin({
+      entityId: 'person-origin-1',
+      label: '鄱陽',
+      source: 'CBDB',
+      ref: 'c_addr_123',
+    });
+    await repository.createEntity({ id: 'place-xyz', kind: 'place' });
+
+    const key = (await repository.getPanelSummary('person-origin-1'))!.assertions.find(
+      (assertion) => assertion.element === 'placeName',
+    )!.key;
+
+    expect(await repository.setOriginReference('person-origin-1', key, '#place-xyz')).toBe(true);
+    expect(
+      await repository.backend.get('SELECT reference FROM person_origins WHERE id = ?', [
+        Number(key.split(':')[1]),
+      ]),
+    ).toEqual({ reference: '#place-xyz' });
+
+    // Refuses to touch a row belonging to a different entity.
+    expect(await repository.setOriginReference('some-other-person', key, '#place-xyz')).toBe(false);
+
+    await repository.close();
+  });
+});
+
+describe('Phase 5: persisted place clusters (admin level, source-entry dates, storage mode)', () => {
+  it('applies storage mode, admin-level candidates, and per-source date ranges via applyAuthorityBackfillPatch', async () => {
+    const repository = await EntitySqliteRepository.open();
+    await repository.createEntity({ id: 'place-cluster-1', kind: 'place' });
+
+    const result = await repository.applyAuthorityBackfillPatch({
+      entityId: 'place-cluster-1',
+      storageMode: 'coordinates',
+      geo: [{ source: 'CBDB', lat: 32.05, lon: 118.78 }],
+      adminLevels: [{ source: 'CBDB', level: 'xian' }],
+      sourceEntries: [
+        {
+          source: 'CBDB',
+          authId: 'c_addr_123',
+          dates: [
+            { from: 0, to: 260 },
+            { from: 501, to: 504 },
+            { from: 704, to: null, label: null },
+          ],
+        },
+        { source: 'CHGIS', authId: 'sys_456', dates: [{ from: 1000, to: 1400, label: 'Song' }] },
+      ],
+    });
+    expect(result.changed).toBe(true);
+
+    const summary = await repository.getPanelSummary('place-cluster-1');
+    expect(summary?.storageMode).toBe('coordinates');
+    expect(summary?.adminLevel).toEqual({ level: 'xian', source: 'CBDB' });
+    expect(summary?.sourceEntries).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          source: 'CBDB',
+          authId: 'c_addr_123',
+          dates: [
+            { from: 0, to: 260, label: null },
+            { from: 501, to: 504, label: null },
+            { from: 704, to: null, label: null },
+          ],
+        }),
+        expect.objectContaining({
+          source: 'CHGIS',
+          authId: 'sys_456',
+          dates: [{ from: 1000, to: 1400, label: 'Song' }],
+        }),
+      ]),
+    );
+    // Attaching a source entry also writes an ordinary idno, so existing
+    // crosswalk lookups (collectEntityIdsByAuthorities) keep finding it.
+    expect(summary?.authorities).toEqual(
+      expect.arrayContaining([
+        { type: 'CBDB', value: 'c_addr_123' },
+        { type: 'CHGIS', value: 'sys_456' },
+      ]),
+    );
+
+    // Re-applying the identical patch is a no-op, not a duplicate insert.
+    const second = await repository.applyAuthorityBackfillPatch({
+      entityId: 'place-cluster-1',
+      sourceEntries: [
+        {
+          source: 'CBDB',
+          authId: 'c_addr_123',
+          dates: [
+            { from: 0, to: 260 },
+            { from: 501, to: 504 },
+            { from: 704, to: null },
+          ],
+        },
+      ],
+      adminLevels: [{ source: 'CBDB', level: 'xian' }],
+    });
+    expect(second.changed).toBe(false);
+    expect(
+      (await repository.getPanelSummary('place-cluster-1'))?.sourceEntries.find(
+        (entry) => entry.source === 'CBDB',
+      )?.dates,
+    ).toHaveLength(3);
+
+    await repository.close();
+  });
+
+  it("accepts an admin-level candidate as the entity's own, replacing any prior user pick", async () => {
+    const repository = await EntitySqliteRepository.open();
+    await repository.createEntity({ id: 'place-cluster-2', kind: 'place' });
+    await repository.applyAuthorityBackfillPatch({
+      entityId: 'place-cluster-2',
+      adminLevels: [
+        { source: 'CBDB', level: 'xian' },
+        { source: 'CHGIS', level: 'zhou' },
+      ],
+    });
+    const candidates = (await repository.getPanelSummary('place-cluster-2'))!.assertions.filter(
+      (assertion) => assertion.noteType === 'adminLevel',
+    );
+    expect(candidates).toHaveLength(2);
+    const chgisKey = candidates.find((c) => c.source === 'CHGIS')!.key;
+
+    expect(await repository.acceptAdminLevelAssertion('place-cluster-2', chgisKey)).toBe(true);
+    const summary = await repository.getPanelSummary('place-cluster-2');
+    // Accepted candidate is promoted to origin='user' and wins selection…
+    expect(summary?.adminLevel).toEqual({ level: 'zhou', source: null });
+    // …the other authority candidate (CBDB) is left in place, still visible/rejectable.
+    expect(
+      await repository.backend.get('SELECT COUNT(*) AS count FROM place_admin_levels'),
+    ).toEqual({ count: 2 });
+
+    await repository.close();
+  });
+
+  it("delinking an authority removes only that authority's admin-level and date contributions", async () => {
+    const repository = await EntitySqliteRepository.open();
+    await repository.createEntity({ id: 'place-cluster-3', kind: 'place' });
+    await repository.applyAuthorityBackfillPatch({
+      entityId: 'place-cluster-3',
+      adminLevels: [
+        { source: 'CBDB', level: 'xian' },
+        { source: 'CHGIS', level: 'xian' },
+      ],
+      sourceEntries: [
+        { source: 'CBDB', authId: 'c_addr_123', dates: [{ from: 0, to: 260 }] },
+        { source: 'CHGIS', authId: 'sys_456', dates: [{ from: 1000, to: 1400, label: 'Song' }] },
+      ],
+    });
+
+    const removed = await repository.decoupleAuthority({
+      entityId: 'place-cluster-3',
+      type: 'CBDB',
+      value: 'c_addr_123',
+    });
+    expect(removed).toBeGreaterThan(0);
+
+    const summary = await repository.getPanelSummary('place-cluster-3');
+    // CBDB's admin-level candidate and its authority row (+ cascaded dates) are gone…
+    expect(summary?.sourceEntries).toEqual([
+      { source: 'CHGIS', authId: 'sys_456', dates: [{ from: 1000, to: 1400, label: 'Song' }] },
+    ]);
+    // …CHGIS's own admin-level candidate is untouched.
+    expect(
+      await repository.backend.all(
+        `SELECT source FROM place_admin_levels WHERE entity_id = ? ORDER BY source`,
+        ['place-cluster-3'],
+      ),
+    ).toEqual([{ source: 'CHGIS' }]);
+    expect(
+      await repository.backend.get(
+        'SELECT COUNT(*) AS count FROM place_authority_dates pad JOIN entity_authorities ea ON ea.id = pad.authority_id WHERE ea.entity_id = ?',
+        ['place-cluster-3'],
+      ),
+    ).toEqual({ count: 1 });
+
+    await repository.close();
+  });
 });

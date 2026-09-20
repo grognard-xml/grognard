@@ -642,15 +642,25 @@ Investigated [issue #53](https://github.com/grognard-xml/grognard/issues/53) (a 
 
 Added regression tests for both (`repository.test.ts`, `lookupResolve.test.ts`).
 
-### Place entity database UI
+### Placename geo-disambiguation Phase 4–5 ([issue #30](https://github.com/grognard-xml/grognard/issues/30))
 
-The entity database viewer treated every entity kind the same regardless of whether the fields made sense for it, and place entities had no coordinate data at all despite the disambiguation panel already computing geo clusters for them (`docs/placename-geo-disambiguation-planning.md`'s Phase 5):
+Phases 4–5 of [`docs/placename-geo-disambiguation-planning.md`](docs/placename-geo-disambiguation-planning.md): mint/link from merged authority periods, and persist place entities with a `coordinates`/`id` storage mode (not a separate `type="cluster"` schema).
+
+**Phase 4 — merged period description on link/mint:**
+
+- Linking or minting a place (or any entity) from a multi-authority cluster now derives a `"SOURCE: period; SOURCE: period"` display line from each authority's own year/floruit fragment (`mergedPeriodDisplay`) and uses it as a non-destructive description fallback — only when the entity has no description yet, matching the existing enrichment pattern for idnos. Never written back as `startYear`/`endYear`.
+
+**Phase 5 — persisted place entities (coordinates/id):**
+
+- Place entities can carry a persisted latitude/longitude, following the exact same multi-source, accept/reject pattern already used for a person's birth/death dates: a `place_locations` sqlite table records one row per authority source with `origin`/`source`/`status` provenance, one accepted row wins per entity, and the winning coordinate is mirrored onto `places.latitude`/`places.longitude`. Coordinates round-trip through `entities.xml` as `<geo>` elements. Accepting a geo-bearing CBDB/CHGIS/Wikidata place candidate in the disambiguation panel (or Lookup) now persists a coordinate assertion the same way accepting a birth/death year already does; per-entity refresh can backfill coordinates from already-linked authorities.
+- New companion tables: `place_storage_mode` (`coordinates` vs `id` per entity), `place_admin_levels` (accept-one-as-active admin-level candidates), and `place_authority_dates` (per-authority date ranges, deleted with the authority on unlink). XML round-trips `type="coordinates"|"id"`, `<note type="adminLevel">`, and `<sourceEntry>` wrappers (mutually exclusive with bare `<idno>` for the same association).
+- Origin-place import (`importOriginPlace` / `resolveOriginToPlaceEntity`): a person's confirmed place-of-origin can mint a project place entity whose storage mode follows the three rules in the planning doc (coherent geo cluster → coordinates; geo/admin conflict or no coordinates → id), then backlinks the origin assertions to `#<place-id>`. The entity editor shows a map-pin action on unresolved origin values, plus admin-level accept/reject, a storage-mode chip, and a read-only authority-sources list.
+
+**Kind-aware database UI (same pass):**
 
 - "Noble titles" and "Roles" no longer show for place entities in Database mode's compare/detail card (`EntityCompareCard`) — they were already correctly person-only in the Editor-mode sidebar, but the standalone Database window's card had no kind check at all.
-- Removed the "Relations" panel (`EntityRelationsEditor`) from the Editor mode's Database Viewer entirely. It had been unconditional for every entity kind since it was introduced; there was no prior scrub to restore.
-- Place entities can now carry a persisted latitude/longitude, following the exact same multi-source, accept/reject pattern already used for a person's birth/death dates: a new `place_locations` sqlite table (schema migration 12) records one row per authority source with `origin`/`source`/`status` provenance, one accepted row wins per entity, and the winning coordinate is mirrored onto the (previously unused) `places.latitude`/`places.longitude` columns. Coordinates round-trip through `entities.xml` as `<geo>` elements, same provenance-attribute convention as `<birth>`/`<death>`. Accepting a geo-bearing CBDB/CHGIS/Wikidata place candidate in the disambiguation panel now persists a coordinate assertion the same way accepting a birth/death year already does.
-- Both the Editor-mode sidebar and the Database mode card show the accepted coordinate with its source badge; the sidebar additionally lists pending authority-sourced coordinates with accept/reject controls, and rejected ones with restore, mirroring the existing dates UI exactly.
-- Added a map icon next to the coordinates in both views, reusing the disambiguation panel's `PlaceComparisonMap` (confirmed to render correctly with a single pin) to open a map centered on the entity's location.
+- Removed the "Relations" panel (`EntityRelationsEditor`) from the Editor mode's Database Viewer entirely.
+- Both the Editor-mode sidebar and the Database mode card show the accepted coordinate with its source badge; the sidebar lists pending/rejected coordinates with accept/reject/restore. A map icon reuses the disambiguation panel's `PlaceComparisonMap` for a single-pin view.
 
 ### Kanripo import normalisation
 

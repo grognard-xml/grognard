@@ -163,6 +163,41 @@ export interface AuthoritySourcedFields {
   description?: string;
 }
 
+/** One authority's date fragment, e.g. "260–504", "704–", "fl. 1120". */
+function periodFragment(assertion: AuthoritySourcedFields): string | undefined {
+  const { startYear, endYear, asFloruit } = assertion;
+  if (startYear == null && endYear == null) return undefined;
+  const range =
+    startYear != null && endYear != null && startYear !== endYear
+      ? `${startYear}–${endYear}`
+      : startYear != null && endYear != null
+        ? `${startYear}`
+        : startYear != null
+          ? `${startYear}–`
+          : `–${endYear}`;
+  return asFloruit ? `fl. ${range}` : range;
+}
+
+/**
+ * Derive a "SOURCE: period; SOURCE: period" display line from per-authority
+ * assertions (§4 of docs/placename-geo-disambiguation-planning.md) — each
+ * source's own period fragment is kept verbatim and tagged by source, never
+ * unioned into one fact. Purely presentational: never written back as
+ * `startYear`/`endYear`, only ever offered as a fallback `description`.
+ */
+export function mergedPeriodDisplay(
+  assertions: AuthoritySourcedFields[] | undefined,
+): string | undefined {
+  if (!assertions?.length) return undefined;
+  const parts = assertions
+    .map((assertion) => {
+      const fragment = periodFragment(assertion);
+      return fragment ? `${assertion.source}: ${fragment}` : undefined;
+    })
+    .filter((part): part is string => Boolean(part));
+  return parts.length ? parts.join('; ') : undefined;
+}
+
 /** Format a signed year as an ISO/W3C `@when` year, e.g. -155 -> "-0155", 1990 -> "1990". */
 export function isoYearString(year: number): string {
   const abs = String(Math.abs(year)).padStart(4, '0');

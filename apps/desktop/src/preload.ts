@@ -661,6 +661,12 @@ export interface ElectronAPI {
   entitySqliteAcceptDescriptionAssertion: (
     request: import('./entityDbSqlite/readService').EntitySqliteAssertionRequest,
   ) => Promise<boolean>;
+  entitySqliteAcceptAdminLevelAssertion: (
+    request: import('./entityDbSqlite/readService').EntitySqliteAssertionRequest,
+  ) => Promise<boolean>;
+  entitySqliteSetOriginReference: (
+    request: import('./entityDbSqlite/readService').EntitySqliteSetOriginReferenceRequest,
+  ) => Promise<boolean>;
   entitySqliteRenamePrimaryName: (
     request: import('./entityDbSqlite/readService').EntitySqliteRenamePrimaryNameRequest,
   ) => Promise<boolean>;
@@ -1231,6 +1237,10 @@ const electronAPI: ElectronAPI = {
     ipcRenderer.invoke('entitySqlite:acceptGeoAssertion', request),
   entitySqliteAcceptDescriptionAssertion: (request) =>
     ipcRenderer.invoke('entitySqlite:acceptDescriptionAssertion', request),
+  entitySqliteAcceptAdminLevelAssertion: (request) =>
+    ipcRenderer.invoke('entitySqlite:acceptAdminLevelAssertion', request),
+  entitySqliteSetOriginReference: (request) =>
+    ipcRenderer.invoke('entitySqlite:setOriginReference', request),
   entitySqliteRenamePrimaryName: (request) =>
     ipcRenderer.invoke('entitySqlite:renamePrimaryName', request),
   entitySqliteSetRomanizedName: (request) =>

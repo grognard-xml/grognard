@@ -316,6 +316,19 @@ export async function importEntitiesXml(
             );
           }
         }
+        // Place kind only (Phase 5): `type="coordinates"|"id"` on the item
+        // itself is a storage-mode decision, not a generic attribute — kept
+        // out of entity_attributes (skipped above) and given its own table.
+        if (kind === 'place') {
+          const storageMode = attr(item, 'type');
+          if (storageMode === 'coordinates' || storageMode === 'id') {
+            await db.run(
+              `INSERT INTO place_storage_mode (entity_id, storage_mode) VALUES (?, ?)
+                 ON CONFLICT(entity_id) DO UPDATE SET storage_mode = excluded.storage_mode`,
+              [id, storageMode],
+            );
+          }
+        }
         report.entitiesImported += 1;
 
         let fragmentOrdinal = 0;
@@ -323,7 +336,10 @@ export async function importEntitiesXml(
         for (const child of childElements(item)) {
           const childName = localName(child);
           const childText = text(child);
-          const p = provenance(child, childName === 'idno' ? 'authority' : 'xml');
+          const p = provenance(
+            child,
+            childName === 'idno' || childName === 'sourceEntry' ? 'authority' : 'xml',
+          );
           const childNow = now;
           const isName = childName === ENTITY_KINDS[kind].name;
           if (isName && childText) {
@@ -394,6 +410,50 @@ export async function importEntitiesXml(
                 [id, childText, userId, childNow, childNow],
               );
             }
+            continue;
+          }
+          if (childName === 'sourceEntry' && kind === 'place') {
+            const source = child.getAttribute('source') || 'unknown';
+            const authId = child.getAttribute('authId') || '';
+            const result = await db.run(
+              `INSERT INTO entity_authorities
+                (entity_id, authority_type, authority_value, origin, source, status, created_at, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+              [id, source, authId, p.origin, p.source, p.status, childNow, childNow],
+            );
+            const authorityId = Number(result.lastInsertRowid);
+            for (const dateEl of childElements(child)) {
+              if (localName(dateEl) !== 'date') continue;
+              const fromRaw = dateEl.getAttribute('from');
+              const toRaw = dateEl.getAttribute('to');
+              await db.run(
+                `INSERT INTO place_authority_dates
+                    (authority_id, from_year, to_year, label, created_at, updated_at)
+                  VALUES (?, ?, ?, ?, ?, ?)`,
+                [
+                  authorityId,
+                  fromRaw ? Number(fromRaw) : null,
+                  toRaw ? Number(toRaw) : null,
+                  text(dateEl) || null,
+                  childNow,
+                  childNow,
+                ],
+              );
+            }
+            report.authoritiesImported += 1;
+            continue;
+          }
+          if (
+            childName === 'note' &&
+            kind === 'place' &&
+            child.getAttribute('type') === 'adminLevel'
+          ) {
+            await db.run(
+              `INSERT INTO place_admin_levels
+                  (entity_id, level, origin, source, status, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?)`,
+              [id, childText, p.origin, p.source, p.status, childNow, childNow],
+            );
             continue;
           }
           if (childName === 'idno' && child.getAttribute('type') !== 'grognard-entity-database') {
@@ -911,6 +971,36 @@ async function entityXml(db: EntityDbBackend, entity: Record<string, unknown>): 
     `SELECT * FROM entity_authorities WHERE entity_id = ? ORDER BY id`,
     id,
   )) {
+    // Place kind only (Phase 5): an authority association that carries its
+    // own date ranges is a `sourceEntry`, not a bare `idno` — never both, so
+    // a `<sourceEntry>` fully replaces the `<idno>` it would otherwise get.
+    const dateRows =
+      kind === 'place'
+        ? await rows(
+            db,
+            `SELECT * FROM place_authority_dates WHERE authority_id = ? ORDER BY id`,
+            Number(row.id),
+          )
+        : [];
+    if (kind === 'place' && dateRows.length > 0) {
+      const attrs = [
+        ` source="${attrEscape(String(row.authority_type))}"`,
+        ` authId="${attrEscape(String(row.authority_value))}"`,
+        row.origin !== 'authority' ? ` origin="${attrEscape(String(row.origin))}"` : '',
+        row.status !== 'active' ? ` status="${attrEscape(String(row.status))}"` : '',
+      ].join('');
+      const dateParts = dateRows
+        .map((date) => {
+          const dateAttrs = [
+            date.from_year != null ? ` from="${String(date.from_year)}"` : '',
+            date.to_year != null ? ` to="${String(date.to_year)}"` : '',
+          ].join('');
+          return `<date${dateAttrs}>${date.label ? xmlEscape(String(date.label)) : ''}</date>`;
+        })
+        .join('');
+      parts.push(`<sourceEntry${attrs}>${dateParts}</sourceEntry>`);
+      continue;
+    }
     const attrs = [
       ` type="${attrEscape(String(row.authority_type))}"`,
       row.origin !== 'authority' ? ` origin="${attrEscape(String(row.origin))}"` : '',
@@ -918,6 +1008,20 @@ async function entityXml(db: EntityDbBackend, entity: Record<string, unknown>): 
       row.status !== 'active' ? ` status="${attrEscape(String(row.status))}"` : '',
     ].join('');
     parts.push(`<idno${attrs}>${xmlEscape(String(row.authority_value))}</idno>`);
+  }
+  if (kind === 'place') {
+    for (const row of await rows(
+      db,
+      `SELECT * FROM place_admin_levels WHERE entity_id = ? ORDER BY id`,
+      id,
+    )) {
+      const attrs = [
+        row.origin !== 'user' ? ` origin="${attrEscape(String(row.origin))}"` : '',
+        row.source ? ` source="${attrEscape(String(row.source))}"` : '',
+        row.status !== 'active' ? ` status="${attrEscape(String(row.status))}"` : '',
+      ].join('');
+      parts.push(`<note type="adminLevel"${attrs}>${xmlEscape(String(row.level))}</note>`);
+    }
   }
   for (const row of await rows(
     db,
@@ -1150,7 +1254,18 @@ async function entityXml(db: EntityDbBackend, entity: Record<string, unknown>): 
     parts.push(String(row.xml));
   const changed = String(entity.updated_at);
   parts.push(`<note type="grognard-changed" when="${attrEscape(changed)}"/>`);
-  return `<${ENTITY_KINDS[kind].item} xml:id="${attrEscape(id)}"${entityAttrs}>${parts.join('')}</${ENTITY_KINDS[kind].item}>`;
+  // Place kind only (Phase 5): storage-mode decision, written as the item's
+  // own `type` attribute — a persisted place cluster's `type="coordinates"`
+  // or `type="id"`, never present on an ordinary mention-level place entity.
+  let itemTypeAttr = '';
+  if (kind === 'place') {
+    const storageMode = (await db.get(
+      'SELECT storage_mode FROM place_storage_mode WHERE entity_id = ?',
+      [id],
+    )) as { storage_mode: string } | undefined;
+    if (storageMode) itemTypeAttr = ` type="${attrEscape(storageMode.storage_mode)}"`;
+  }
+  return `<${ENTITY_KINDS[kind].item} xml:id="${attrEscape(id)}"${itemTypeAttr}${entityAttrs}>${parts.join('')}</${ENTITY_KINDS[kind].item}>`;
 }
 
 const CENTRAL_MAPPING_TYPE = 'grognard-central';

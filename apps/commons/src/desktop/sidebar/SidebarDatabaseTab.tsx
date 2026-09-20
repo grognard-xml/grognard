@@ -106,6 +106,8 @@ import {
   type EntityStore,
 } from '../../../../../packages/cwrc-leafwriter/src/autoTagging/entityStore';
 import { readOrMintUserStableId } from '../../../../../packages/cwrc-leafwriter/src/autoTagging/userStableId';
+import { resolveOriginToPlaceEntity } from '../../../../../packages/cwrc-leafwriter/src/autoTagging/originPlaceResolve';
+import { DEFAULT_PLACE_PROXIMITY_KM } from '../../../../../packages/cwrc-leafwriter/src/autoTagging/authorityOverlap';
 import {
   loadOpenWarnings,
   resolveWarning,
@@ -422,7 +424,7 @@ interface SidebarDatabaseTabProps {
   active?: boolean;
 }
 
-type PendingValidationMode = 'assertion' | 'date' | 'description' | 'geo';
+type PendingValidationMode = 'assertion' | 'date' | 'description' | 'geo' | 'adminLevel';
 interface PendingValidation {
   key: string;
   mode: PendingValidationMode;
@@ -1805,6 +1807,41 @@ export const SidebarDatabaseTab = ({ active = false }: SidebarDatabaseTabProps) 
     [runSqliteEntityMutation],
   );
 
+  /**
+   * Mint (or, once minted, could later link to) a project place entity from
+   * this person's confirmed place-of-origin assertions sharing one displayed
+   * string, and point those origin rows at it (Phase 5 origin-place import,
+   * docs/placename-geo-disambiguation-planning.md). The storage-mode
+   * decision itself is `importOriginPlace` — this is only the UI trigger.
+   */
+  const resolveOriginToPlace = useCallback(
+    (entityId: string, value: string, matchingAssertions: EntityAssertionSummary[]) => {
+      const candidates = matchingAssertions
+        .filter((assertion) => assertion.status === 'active')
+        .map((assertion) => ({
+          key: assertion.key,
+          text: value,
+          source: assertion.source ?? 'user',
+          authorityRef: assertion.ref && !assertion.ref.startsWith('#') ? assertion.ref : undefined,
+        }));
+      void (async () => {
+        await runSqliteEntityMutation(
+          entityId,
+          t('LWC.desktop.sidebar.database.resolving_origin_to_place'),
+          async (targetStore) => {
+            await resolveOriginToPlaceEntity(
+              targetStore,
+              entityId,
+              candidates,
+              DEFAULT_PLACE_PROXIMITY_KM,
+            );
+          },
+        );
+      })();
+    },
+    [runSqliteEntityMutation, t],
+  );
+
   /** Merge button: <2 selected extends the search with an alternation, ≥2 opens the merge dialog. */
   const handleMergeClick = () => {
     const ids = pruneToKnownEntityIds(selected, entities);
@@ -2198,6 +2235,8 @@ export const SidebarDatabaseTab = ({ active = false }: SidebarDatabaseTabProps) 
             await targetStore.sqliteAcceptGeoAssertion(id, validation.key);
           } else if (validation.mode === 'description') {
             await targetStore.sqliteAcceptDescriptionAssertion(id, validation.key);
+          } else if (validation.mode === 'adminLevel') {
+            await targetStore.sqliteAcceptAdminLevelAssertion(id, validation.key);
           } else {
             await targetStore.sqliteValidateAssertion(id, validation.key);
           }
@@ -2324,6 +2363,7 @@ export const SidebarDatabaseTab = ({ active = false }: SidebarDatabaseTabProps) 
     originGridRows,
     descriptionGroups,
     geoGroups,
+    adminLevelGroups,
     nameRows,
     roleRows,
   } = useMemo(() => {
@@ -2565,6 +2605,8 @@ export const SidebarDatabaseTab = ({ active = false }: SidebarDatabaseTabProps) 
       groups: FieldAssertionGroups;
       /** Canonical grouping/display key for an assertion (e.g. dynasty-id crosswalk); keyed on raw value by default. */
       keyOf?: (assertion: EntityAssertionSummary) => string;
+      /** Person kind's place-of-origin field only: offers a "resolve to place entity" action per accepted value. */
+      resolvableToPlace?: boolean;
     }): GridRow[] => {
       const keyOf = field.keyOf ?? ((assertion: EntityAssertionSummary) => assertion.value);
       const lines: (Omit<GridRow, 'key' | 'label'> & { key: string })[] = [];
@@ -2585,6 +2627,12 @@ export const SidebarDatabaseTab = ({ active = false }: SidebarDatabaseTabProps) 
             assertion.status === 'active' &&
             keyOf(assertion) === value,
         );
+        const matchingAssertions = field.assertions.filter(
+          (assertion) => assertion.status === 'active' && keyOf(assertion) === value,
+        );
+        const alreadyResolved = matchingAssertions.some((assertion) =>
+          assertion.ref?.startsWith('#'),
+        );
         lines.push({
           key: `${field.label}:${value}`,
           value,
@@ -2594,6 +2642,17 @@ export const SidebarDatabaseTab = ({ active = false }: SidebarDatabaseTabProps) 
                 <SourceBadges label={databaseView === 'central' ? 'CEDB' : 'PEDB'} />
               )}
               {sources.length > 0 && <SourceBadges label={sources.join('+')} />}
+              {field.resolvableToPlace && !alreadyResolved && matchingAssertions.length > 0 && (
+                <Tooltip title={t('LWC.desktop.sidebar.database.resolve_origin_to_place')}>
+                  <IconButton
+                    size="small"
+                    sx={neutralActionButtonSx}
+                    onClick={() => resolveOriginToPlace(editEntity!.id, value, matchingAssertions)}
+                  >
+                    <RoomIcon fontSize="small" />
+                  </IconButton>
+                </Tooltip>
+              )}
               {authorityKeys.length > 0 && !hasUserAssertion && (
                 <Tooltip
                   title={`${t('LWC.desktop.sidebar.database.validate_data')}: ${field.label}`}
@@ -2712,6 +2771,7 @@ export const SidebarDatabaseTab = ({ active = false }: SidebarDatabaseTabProps) 
             values: editEntity.placesOfOrigin,
             assertions: originAssertions,
             groups: originGroups,
+            resolvableToPlace: true,
           })
         : [];
 
@@ -2734,6 +2794,18 @@ export const SidebarDatabaseTab = ({ active = false }: SidebarDatabaseTabProps) 
       new Set(
         editEntity?.location ? [`${editEntity.location.lat} ${editEntity.location.lon}`] : [],
       ),
+      showRejected,
+    );
+
+    const adminLevelAssertions =
+      editEntity?.kind === 'place'
+        ? editEntity.assertions.filter(
+            (assertion) => assertion.element === 'note' && assertion.noteType === 'adminLevel',
+          )
+        : [];
+    const adminLevelGroups = groupFieldAssertions(
+      adminLevelAssertions,
+      new Set(editEntity?.adminLevel ? [editEntity.adminLevel.level] : []),
       showRejected,
     );
 
@@ -2847,6 +2919,7 @@ export const SidebarDatabaseTab = ({ active = false }: SidebarDatabaseTabProps) 
       originGridRows,
       descriptionGroups,
       geoGroups,
+      adminLevelGroups,
       nameRows,
       roleRows,
     };
@@ -4332,6 +4405,144 @@ export const SidebarDatabaseTab = ({ active = false }: SidebarDatabaseTabProps) 
                 </Tooltip>
               </Stack>
             ))}
+          {editEntity?.kind === 'place' && (
+            <Stack direction="row" spacing={0.5} alignItems="center" sx={{ mb: 0.5, mt: 1 }}>
+              <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                {t('LWC.desktop.sidebar.database.admin_level_heading')}
+              </Typography>
+              <Typography
+                variant="body2"
+                color={editEntity.adminLevel ? undefined : 'text.disabled'}
+              >
+                {editEntity.adminLevel ? editEntity.adminLevel.level : '—'}
+              </Typography>
+              {editEntity.adminLevel && (
+                <SourceBadges label={editEntity.adminLevel.source ?? 'authority'} />
+              )}
+            </Stack>
+          )}
+          {editEntity?.kind === 'place' &&
+            adminLevelGroups.pending.map((assertion) => (
+              <Stack
+                key={assertion.key}
+                direction="row"
+                spacing={0.5}
+                alignItems="center"
+                sx={{ mt: 0.5 }}
+              >
+                <Typography
+                  variant="body2"
+                  sx={{ flex: 1, minWidth: 0 }}
+                  noWrap
+                  title={assertion.value}
+                >
+                  {assertion.value}
+                </Typography>
+                <SourceBadges label={assertion.source?.split(':')[0] ?? 'authority'} />
+                <Tooltip title={t('LWC.desktop.sidebar.database.accept_data')}>
+                  <IconButton
+                    size="small"
+                    sx={neutralActionButtonSx}
+                    onClick={() => queueValidation([assertion.key], 'adminLevel')}
+                  >
+                    <CheckIcon fontSize="small" />
+                  </IconButton>
+                </Tooltip>
+                <Tooltip title={t('LWC.desktop.sidebar.database.reject_data')}>
+                  <IconButton
+                    size="small"
+                    sx={neutralActionButtonSx}
+                    onClick={() =>
+                      rejectAssertionKeys(
+                        editEntity.id,
+                        [assertion.key],
+                        t('LWC.desktop.sidebar.database.rejecting_data'),
+                      )
+                    }
+                  >
+                    <ClearIcon fontSize="small" />
+                  </IconButton>
+                </Tooltip>
+              </Stack>
+            ))}
+          {editEntity?.kind === 'place' &&
+            showRejected &&
+            adminLevelGroups.rejected.map((assertion) => (
+              <Stack
+                key={assertion.key}
+                direction="row"
+                spacing={0.5}
+                alignItems="center"
+                sx={{ mt: 0.5 }}
+              >
+                <Typography
+                  variant="body2"
+                  sx={{ flex: 1, minWidth: 0 }}
+                  noWrap
+                  title={assertion.value}
+                  color="text.disabled"
+                >
+                  {assertion.value}
+                </Typography>
+                <SourceBadges label={assertion.source?.split(':')[0] ?? 'authority'} />
+                <Tooltip title={t('LWC.desktop.sidebar.database.restore_data')}>
+                  <IconButton
+                    size="small"
+                    sx={neutralActionButtonSx}
+                    onClick={() =>
+                      restoreAssertionKeys(
+                        editEntity.id,
+                        [assertion.key],
+                        t('LWC.desktop.sidebar.database.restoring_data'),
+                      )
+                    }
+                  >
+                    <UndoIcon fontSize="small" />
+                  </IconButton>
+                </Tooltip>
+              </Stack>
+            ))}
+          {editEntity?.kind === 'place' && editEntity.storageMode && (
+            <Stack direction="row" spacing={0.5} alignItems="center" sx={{ mb: 0.5, mt: 1 }}>
+              <Chip
+                size="small"
+                variant="outlined"
+                label={t(
+                  editEntity.storageMode === 'coordinates'
+                    ? 'LWC.desktop.sidebar.database.storage_mode_coordinates'
+                    : 'LWC.desktop.sidebar.database.storage_mode_id',
+                )}
+              />
+            </Stack>
+          )}
+          {editEntity?.kind === 'place' && (editEntity.sourceEntries?.length ?? 0) > 0 && (
+            <Stack spacing={0.5} sx={{ mt: 1 }}>
+              <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                {t('LWC.desktop.sidebar.database.source_entries_heading')}
+              </Typography>
+              {editEntity.sourceEntries!.map((entry) => (
+                <Stack
+                  key={`${entry.source}:${entry.authId}`}
+                  direction="row"
+                  spacing={0.5}
+                  alignItems="center"
+                  flexWrap="wrap"
+                >
+                  <SourceBadges label={entry.source} />
+                  <Typography variant="body2" color="text.secondary" noWrap title={entry.authId}>
+                    {entry.authId}
+                  </Typography>
+                  {entry.dates.length > 0 && (
+                    <Typography variant="body2" color="text.secondary">
+                      {entry.dates
+                        .map((date) => date.label ?? `${date.from ?? ''}–${date.to ?? ''}`)
+                        .join('; ')}
+                    </Typography>
+                  )}
+                </Stack>
+              ))}
+            </Stack>
+          )}
           <EntityDescriptionEditor
             initialValue={editDescriptionSeed}
             label={t('LWC.desktop.sidebar.database.one_line_description')}

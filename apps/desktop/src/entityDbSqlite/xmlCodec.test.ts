@@ -198,4 +198,68 @@ describe('entity XML codec', () => {
     });
     await reimported.close();
   });
+
+  it('round-trips a persisted place cluster: storage mode, admin level, and sourceEntry dates', async () => {
+    const repository = await EntitySqliteRepository.open();
+    await repository.createEntity({ id: 'place-cluster-xml', kind: 'place' });
+    await repository.addName({
+      entityId: 'place-cluster-xml',
+      text: '竟陵',
+      isPrimary: true,
+    });
+    await repository.applyAuthorityBackfillPatch({
+      entityId: 'place-cluster-xml',
+      storageMode: 'coordinates',
+      adminLevels: [{ source: 'CBDB', level: 'xian' }],
+      sourceEntries: [
+        {
+          source: 'CBDB',
+          authId: 'c_addr_123',
+          dates: [
+            { from: 0, to: 260 },
+            { from: 704, to: null },
+          ],
+        },
+        { source: 'CHGIS', authId: 'sys_456', dates: [{ from: 1000, to: 1400, label: 'Song' }] },
+      ],
+    });
+
+    const exported = await exportEntitiesXml(repository, { databaseId: 'test-place-cluster-db' });
+    expect(exported).toContain('type="coordinates"');
+    expect(exported).toContain('<note type="adminLevel"');
+    expect(exported).toContain('<sourceEntry source="CBDB" authId="c_addr_123"');
+    expect(exported).toContain('<date from="0" to="260"></date>');
+    expect(exported).toContain('<date from="704"></date>');
+    expect(exported).toContain('<sourceEntry source="CHGIS" authId="sys_456"');
+    expect(exported).toContain('<date from="1000" to="1400">Song</date>');
+    // A source-entry authority never also gets a plain <idno> for the same value.
+    expect(exported).not.toContain('<idno type="CBDB">c_addr_123</idno>');
+    await repository.close();
+
+    const reimported = await EntitySqliteRepository.open();
+    const report = await importEntitiesXml(reimported, exported);
+    expect(report.unresolvedReferences).toEqual([]);
+
+    const summary = await reimported.getPanelSummary('place-cluster-xml');
+    expect(summary?.storageMode).toBe('coordinates');
+    expect(summary?.adminLevel).toEqual({ level: 'xian', source: 'CBDB' });
+    expect(summary?.sourceEntries).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          source: 'CBDB',
+          authId: 'c_addr_123',
+          dates: [
+            { from: 0, to: 260, label: null },
+            { from: 704, to: null, label: null },
+          ],
+        }),
+        expect.objectContaining({
+          source: 'CHGIS',
+          authId: 'sys_456',
+          dates: [{ from: 1000, to: 1400, label: 'Song' }],
+        }),
+      ]),
+    );
+    await reimported.close();
+  });
 });
