@@ -1176,7 +1176,10 @@
       "translationGenerated": "翻譯已產生。",
       "zoteroCitationsUnavailable": "無法使用 Zotero 引文。",
       "zoteroPrefsLoadFailed": "無法載入 Zotero 偏好設定。",
-      "zoteroPrefsUnavailable": "無法使用 Zotero 偏好設定。"
+      "zoteroPrefsUnavailable": "無法使用 Zotero 偏好設定。",
+      "glyphUnavailableNoFile": "插入字符圖像前請先儲存此翻譯。",
+      "glyphUnavailableNoApi": "無法使用字符圖像插入功能－請嘗試重新啟動應用程式。",
+      "glyphInsertFailed": "無法插入字符圖像。"
     },
     "settlement": "",
     "show only valid tags": "僅顯示有效標記",

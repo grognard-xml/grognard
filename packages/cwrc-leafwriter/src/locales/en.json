@@ -1178,7 +1178,10 @@
       "translationGenerated": "Translation generated.",
       "zoteroCitationsUnavailable": "Zotero citations are not available.",
       "zoteroPrefsLoadFailed": "Zotero preferences failed to load.",
-      "zoteroPrefsUnavailable": "Zotero preferences are not available."
+      "zoteroPrefsUnavailable": "Zotero preferences are not available.",
+      "glyphUnavailableNoFile": "Save this translation before inserting a character image.",
+      "glyphUnavailableNoApi": "Character image insertion is unavailable — try restarting the app.",
+      "glyphInsertFailed": "Could not insert the character image."
     },
     "settlement": "",
     "show only valid tags": "show only valid tags",

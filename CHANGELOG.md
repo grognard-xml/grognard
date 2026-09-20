@@ -695,6 +695,14 @@ New built-in "Structure" toolbar menu (icon next to Auto-tagging), available on 
 - A heading inserted with nothing after it (typically because it landed at the very end of a document or section, where there was no following `<p>` to split) now gets an empty paragraph appended after it automatically, the same as splitting mid-paragraph would have produced - a section that's just a bare title with no body reads as broken.
 - These single-field prompts have no visible buttons at all: Enter confirms, Escape or a backdrop click cancels. `SimpleDialog` (the shared `'simple'` dialog type every one-off dialog in the app is built on) now passes its `Body` an `onSubmit` callback that confirms exactly as if the primary button had been clicked, and skips rendering the button row entirely when a dialog declares no `actions` - a general capability for any current or future minimal one-field popup, not something specific to this feature.
 
+### Palaeographic glyphs in the translation pane and footnotes
+
+Paste/drop a character image now works in the translation pane and its footnotes too, not only the main Visual editor - a plain-DOM, plain-`Range` counterpart to the main editor's `writer.tagger`-based glyph pipeline (`translationGlyphs.ts`), since this pane holds real element names directly (`<note>`, `<bibl>`, `<ref>`...) rather than the main editor's `_tag`-attribute-on-a-generic-span convention that glyph rendering/insertion there is built on:
+
+- Reuses the vectorization pipeline as-is (it was always UI-framework-agnostic Electron IPC) and the clipboard/drag helpers already used by the main editor's own paste/drop handling. Adds drag-and-drop to the translation pane and footnotes for the first time - previously only paste existed there at all.
+- Deliberately the bare `<graphic type="glyph">` shape only (no `<g>` wrapper, no source-provenance sibling, no `<teiHeader><charDecl>` registration): translation files aren't schema-validated at all, so there's no conformance reason to use the heavier mechanism the main editor needs for schema-validating documents. Assets live under `_glyphs/` next to the translation file itself, not the main document.
+- `sanitizeTranslationFragment` (runs after every paste, main-body and footnote alike) strips any element not on an explicit allowlist, and separately strips `contenteditable`/`style` as "editing-only" from *every* surviving element on *every* paste, not just newly-pasted content - both would have silently deleted a pasted glyph, or at minimum wiped its non-editable/masked-CSS styling the next time anything else nearby was pasted. `graphic` is now in that allowlist, and glyph styling is unconditionally reapplied after every sanitize pass, the same "reassert after every paste" pattern this pane already uses for footnote/citation/entity/date fields for the identical reason.
+
 ### Upstream
 
 - Updated Structure, CHHIV, and Advanced Tag Transform icons

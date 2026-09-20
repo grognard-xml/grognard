@@ -52,6 +52,7 @@ import {
   useRef,
   useState,
   type ClipboardEvent,
+  type DragEvent,
   type MouseEvent as ReactMouseEvent,
   type ReactNode,
   type SyntheticEvent,
@@ -175,6 +176,18 @@ import {
   footnoteStartIndexForUnit,
   isTranslationUnitBlank,
 } from './translationUnitCards';
+import {
+  GLYPH_SELECTOR,
+  insertTranslationGlyphFromImageFile,
+  insertTranslationGlyphFromRemoteImageUrl,
+  prepareAtomicGlyphFields,
+  translationGlyphImageUnavailableReason,
+} from './translationGlyphs';
+import {
+  getClipboardImageFile,
+  getDraggedImageUrl,
+  getDroppedImageFile,
+} from '../utilities/clipboardImage';
 import { isAiUiFeatureEnabled } from '../autoTagging/aiUiFeatures';
 import {
   finishAiRunProgress,
@@ -464,6 +477,7 @@ const TEI_INLINE_ELEMENTS = new Set([
   'b',
   'bibl',
   'br',
+  'graphic',
   'hi',
   'i',
   'lb',
@@ -1336,11 +1350,12 @@ export const TranslationPane = () => {
     const notes = Array.from(editable.querySelectorAll('note'));
     for (const note of notes) {
       const body = footnoteBodyOf(note);
-      if (body) prepareAtomicCitationFields(body, zoteroCitationLabel);
-      else prepareAtomicCitationFields(note, zoteroCitationLabel);
+      const target = body ?? note;
+      prepareAtomicCitationFields(target, zoteroCitationLabel);
+      prepareAtomicGlyphFields(target, translationPath);
     }
     setFootnotes(notes.map((note) => footnoteBodyHtml(note)));
-  }, [footnoteStartIndex, zoteroCitationLabel]);
+  }, [footnoteStartIndex, zoteroCitationLabel, translationPath]);
 
   const renderCitationRefs = useCallback(
     (doc: Document, styleId = activeCitationStyle) => {
@@ -1375,6 +1390,7 @@ export const TranslationPane = () => {
     }
     if (editable) {
       prepareAtomicCitationFields(editable, zoteroCitationLabel);
+      prepareAtomicGlyphFields(editable, translationPath);
       recalculateDateFieldsInRoot(editable, selectedLanguage);
       void recalculateAllEntityFieldsInRoot(
         editable,
@@ -1398,7 +1414,14 @@ export const TranslationPane = () => {
         pendingHighlightRef.current = null;
       }
     }
-  }, [unitHtml, selectedUnitId, refreshFootnotes, zoteroCitationLabel, selectedLanguage]);
+  }, [
+    unitHtml,
+    selectedUnitId,
+    refreshFootnotes,
+    zoteroCitationLabel,
+    selectedLanguage,
+    translationPath,
+  ]);
 
   const refreshEntityAnchors = useCallback(() => {
     const editable = editableRef.current;
@@ -1456,6 +1479,12 @@ export const TranslationPane = () => {
       ref.removeAttribute('title');
       // Presentation-only (CSS-driven); recomputed from the entity record on load.
       ref.removeAttribute(ENTITY_WORK_STYLE_ATTR);
+    }
+    for (const graphic of Array.from(clone.querySelectorAll(GLYPH_SELECTOR))) {
+      graphic.removeAttribute('contenteditable');
+      // The mask CSS is presentation-only (an inline `style`, from
+      // prepareAtomicGlyphFields) and recomputed on load - never written to disk.
+      graphic.removeAttribute('style');
     }
     stripInvisibleCaretSpacers(clone);
     flattenFootnoteNotesForPersist(clone);
@@ -3208,16 +3237,70 @@ export const TranslationPane = () => {
     entityFormatFieldRef.current = null;
   };
 
+  /** Paste/drop a palaeographic character image into the translation pane
+   * or a footnote - the plain-DOM counterpart to the main editor's own
+   * glyph paste/drop handling (see translationGlyphs.ts for why this can't
+   * just reuse that code). Always returns true/false for "handled it",
+   * never falls through to the normal text/html paste path once an image
+   * has been recognized, matching the main editor's own contract. */
+  const handleTranslationImageDrop = async (
+    currentTarget: HTMLElement,
+    range: Range,
+    imageFile: File | null,
+    imageUrl: string | null,
+    onInserted?: () => void,
+  ): Promise<boolean> => {
+    if (!imageFile && !imageUrl) return false;
+
+    const reason = translationGlyphImageUnavailableReason(translationPath);
+    if (reason) {
+      notifyViaSnackbar(t(reason));
+      return true;
+    }
+
+    const inserted = imageFile
+      ? await insertTranslationGlyphFromImageFile(translationPath!, imageFile, range)
+      : await insertTranslationGlyphFromRemoteImageUrl(translationPath!, imageUrl!, range);
+    if (!inserted) {
+      notifyViaSnackbar(t('LW.translationPane.glyphInsertFailed'));
+      return true;
+    }
+
+    prepareAtomicGlyphFields(currentTarget, translationPath);
+    refreshFootnotes();
+    onInserted?.();
+    return true;
+  };
+
   const handleTranslationPaste = (
     event: ClipboardEvent<HTMLElement>,
-    options: { target: 'body' | 'footnote' } = { target: 'body' },
+    options: { target: 'body' | 'footnote'; onImageInserted?: () => void } = { target: 'body' },
   ) => {
     const range = window.getSelection()?.rangeCount ? window.getSelection()?.getRangeAt(0) : null;
     if (!range || !event.currentTarget.contains(range.commonAncestorContainer)) return;
 
+    const clipboard = event.clipboardData;
+    const text = clipboard.getData('text/plain');
+    // Only treat this as an image paste when there's no plain-text
+    // alternative - same gate the main editor uses, so pasting e.g. a
+    // formatted Word paragraph (which can also carry an embedded image
+    // representation) doesn't get hijacked into a bare glyph insert.
+    const imageFile = !text.trim() ? getClipboardImageFile(clipboard) : null;
+    if (imageFile) {
+      event.preventDefault();
+      const currentTarget = event.currentTarget;
+      void handleTranslationImageDrop(
+        currentTarget,
+        range,
+        imageFile,
+        null,
+        options.onImageInserted,
+      );
+      return;
+    }
+
     event.preventDefault();
-    const html = event.clipboardData.getData('text/html');
-    const text = event.clipboardData.getData('text/plain');
+    const html = clipboard.getData('text/html');
     const container = document.createElement('div');
     if (html) container.innerHTML = html;
     else container.textContent = text;
@@ -3231,8 +3314,32 @@ export const TranslationPane = () => {
     while (container.firstChild) fragment.appendChild(container.firstChild);
     insertFragmentAtRange(range, fragment);
     sanitizeTranslationFragment(event.currentTarget, zoteroCitationLabel);
+    prepareAtomicGlyphFields(event.currentTarget, translationPath);
     applyEditorialCleanupToRootPreservingSelection(event.currentTarget, selectedLanguage);
     refreshFootnotes();
+  };
+
+  /** Dropping an image (a local file, or one dragged off a web page - the
+   * latter carries a remote URL, not bytes) is the drag-and-drop
+   * counterpart to pasting one. There's no existing drop handling at all in
+   * this pane to extend - this adds it, image-only, mirroring the main
+   * editor's own drop handler; a dropped non-image falls through to the
+   * browser's default contentEditable drop behaviour, same as before this
+   * existed. */
+  const handleTranslationDrop = (event: DragEvent<HTMLElement>, onInserted?: () => void) => {
+    const dataTransfer = event.dataTransfer;
+    if (!dataTransfer) return;
+
+    const imageFile = getDroppedImageFile(dataTransfer);
+    const imageUrl = !imageFile ? getDraggedImageUrl(dataTransfer) : null;
+    if (!imageFile && !imageUrl) return;
+
+    event.preventDefault();
+    const range = document.caretRangeFromPoint?.(event.clientX, event.clientY) ?? null;
+    if (!range || !event.currentTarget.contains(range.commonAncestorContainer)) return;
+
+    const currentTarget = event.currentTarget;
+    void handleTranslationImageDrop(currentTarget, range, imageFile, imageUrl, onInserted);
   };
 
   const protectCitationField = (event: SyntheticEvent<HTMLElement>) => {
@@ -4220,6 +4327,8 @@ export const TranslationPane = () => {
                             handleTranslationPaste(event);
                             rememberBodyRange();
                           }}
+                          onDragOver={(event) => event.preventDefault()}
+                          onDrop={handleTranslationDrop}
                           sx={{
                             ...unitBodySx,
                             flex: '1 0 auto',
@@ -4362,12 +4471,24 @@ export const TranslationPane = () => {
                                   }
                                   onContextMenu={handleEntityFieldContextMenu}
                                   onPaste={(event) => {
-                                    handleTranslationPaste(event, { target: 'footnote' });
-                                    updateFootnote(index, event.currentTarget.innerHTML);
-                                    rememberFootnoteRange(index, event.currentTarget);
+                                    const el = event.currentTarget;
+                                    handleTranslationPaste(event, {
+                                      target: 'footnote',
+                                      onImageInserted: () => updateFootnote(index, el.innerHTML),
+                                    });
+                                    updateFootnote(index, el.innerHTML);
+                                    rememberFootnoteRange(index, el);
+                                  }}
+                                  onDragOver={(event) => event.preventDefault()}
+                                  onDrop={(event) => {
+                                    const el = event.currentTarget;
+                                    handleTranslationDrop(event, () =>
+                                      updateFootnote(index, el.innerHTML),
+                                    );
                                   }}
                                   ref={(el: HTMLDivElement | null) => {
                                     if (el) prepareAtomicCitationFields(el, zoteroCitationLabel);
+                                    if (el) prepareAtomicGlyphFields(el, translationPath);
                                     if (el && focusFootnoteIndexRef.current === index) {
                                       focusFootnoteIndexRef.current = null;
                                       el.scrollIntoView({ block: 'center', behavior: 'smooth' });

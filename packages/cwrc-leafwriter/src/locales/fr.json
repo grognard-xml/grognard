@@ -550,7 +550,10 @@
       "translationGenerated": "Traduction générée.",
       "zoteroCitationsUnavailable": "Les citations Zotero ne sont pas disponibles.",
       "zoteroPrefsLoadFailed": "Échec du chargement des préférences Zotero.",
-      "zoteroPrefsUnavailable": "Les préférences Zotero ne sont pas disponibles."
+      "zoteroPrefsUnavailable": "Les préférences Zotero ne sont pas disponibles.",
+      "glyphUnavailableNoFile": "Enregistrez cette traduction avant d’insérer une image de caractère.",
+      "glyphUnavailableNoApi": "L’insertion d’image de caractère n’est pas disponible — essayez de redémarrer l’application.",
+      "glyphInsertFailed": "Impossible d’insérer l’image de caractère."
     },
     "dateAuthority": {
       "loading_calendar_tables": "Chargement des tables calendaires…",
