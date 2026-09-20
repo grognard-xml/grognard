@@ -100,7 +100,7 @@ export function registerChhivSymbolPaletteUi(context: PluginRegisterContext): vo
 
   context.registerToolbarItem({
     id: 'chhiv-menu',
-    icon: 'shortText',
+    icon: 'chhiv',
     title: 'CHHIV',
     tooltip: 'Palaeography symbols (CHHIV)',
     group: 'ui',

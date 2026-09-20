@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<!-- Created with Inkscape (http://www.inkscape.org/) -->
+
+<svg
+   width="14.137214mm"
+   height="14.14525mm"
+   viewBox="0 0 14.137214 14.14525"
+   version="1.1"
+   id="svg1"
+   xml:space="preserve"
+   inkscape:version="1.4.4 (dcaf3e7, 2026-05-05)"
+   sodipodi:docname="menu_structure.svg"
+   xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"
+   xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd"
+   xmlns="http://www.w3.org/2000/svg"
+   xmlns:svg="http://www.w3.org/2000/svg"><sodipodi:namedview
+     id="namedview1"
+     pagecolor="#ffffff"
+     bordercolor="#000000"
+     borderopacity="0.25"
+     inkscape:showpageshadow="2"
+     inkscape:pageopacity="0.0"
+     inkscape:pagecheckerboard="0"
+     inkscape:deskcolor="#d1d1d1"
+     inkscape:document-units="mm"
+     inkscape:zoom="3.2238496"
+     inkscape:cx="10.236209"
+     inkscape:cy="37.532768"
+     inkscape:window-width="1512"
+     inkscape:window-height="921"
+     inkscape:window-x="0"
+     inkscape:window-y="33"
+     inkscape:window-maximized="1"
+     inkscape:current-layer="layer1" /><defs
+     id="defs1" /><g
+     inkscape:label="Calque 1"
+     inkscape:groupmode="layer"
+     id="layer1"
+     transform="translate(-61.04583,-86.349121)"><path
+       d="m 64.986184,94.46419 q -0.597993,0 -1.264327,-0.222111 -0.666335,-0.222112 -1.264327,-0.68342 -0.580907,-0.461309 -0.956788,-1.161814 -0.375881,-0.700506 -0.375881,-1.657294 -0.01709,-0.751762 0.222111,-1.520609 0.256283,-0.768848 0.83719,-1.401011 0.597992,-0.632164 1.657293,-1.008045 1.059301,-0.375881 2.682424,-0.375881 0.854275,0 1.383925,0.03417 0.546737,0.03417 0.871361,0.119599 V 100.4612 H 67.685693 V 87.510392 H 66.233425 V 100.4612 h -1.093472 v -5.99701 z"
+       id="text4"
+       style="font-size:17.0855px;line-height:1.5;font-family:'Noto Sans JP';-inkscape-font-specification:'Noto Sans JP, Normal';letter-spacing:1.23396px;fill:#163d40;stroke-width:1.76825;stroke-linecap:round;stroke-dasharray:1.94507, 3.53648"
+       aria-label="¶" /><path
+       d="m 72.143572,95.957184 v -2.172333 h -2.013624 v -0.674515 h 2.013624 v -2.172333 h 0.724111 v 2.172333 h 2.023543 v 0.674515 h -2.023543 v 2.172333 z"
+       id="text5"
+       style="font-size:9.91933px;line-height:1.5;font-family:'Noto Sans JP';-inkscape-font-specification:'Noto Sans JP, Normal';letter-spacing:0.716408px;fill:#163d40;stroke:#163d40;stroke-width:0.58162;stroke-linecap:round"
+       aria-label="+" /></g></svg>

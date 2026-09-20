@@ -76,6 +76,10 @@ const BRANDING_TARGETS = [
   ['krp_menu_dark.svg', 'apps/commons/src/icons/krp_menu.dark.svg'],
   ['menu_norbert.svg', 'apps/commons/src/icons/menu_norbert.svg'],
   ['menu_norbert_dark.svg', 'apps/commons/src/icons/menu_norbert.dark.svg'],
+  ['menu_structure.svg', 'apps/commons/src/icons/menu_structure.svg'],
+  ['menu_structure.dark.svg', 'apps/commons/src/icons/menu_structure.dark.svg'],
+  ['plugin-CHHIV.svg', 'apps/commons/src/icons/plugin-CHHIV.svg'],
+  ['plugin-CHHIV.dark.svg', 'apps/commons/src/icons/plugin-CHHIV.dark.svg'],
   ['norbert-mini.png', 'apps/commons/src/assets/images/norbert-mini.png'],
   ['splash.svg', 'apps/desktop/resources/branding/splash.svg'],
   ['grognard.png', 'apps/desktop/resources/branding/splash_new.png'],
@@ -164,11 +168,22 @@ function removeIfPresent(relPath) {
 }
 
 function exportMenuIconPngs() {
-  const menuIcons = ['krp_menu', 'menu_norbert'];
+  // 32×32 PNGs consumed by themedToolIcon() in leafwriter's icons/index.tsx
+  const menuIcons = [
+    'krp_menu',
+    'menu_norbert',
+    'menu_structure',
+    'plugin-CHHIV',
+    'tool_transform',
+    'tool_correction',
+    'tool_hide_notes',
+    'tool_show_notes',
+  ];
   for (const base of menuIcons) {
     for (const variant of ['', '.dark']) {
       const svgPath = path.join(ROOT, 'apps/commons/src/icons', `${base}${variant}.svg`);
       const pngPath = path.join(ROOT, 'apps/commons/src/icons', `${base}${variant}.png`);
+      if (!existsSync(svgPath)) continue;
       execFileSync('rsvg-convert', ['-w', '32', '-h', '32', svgPath, '-o', pngPath], {
         stdio: 'inherit',
       });

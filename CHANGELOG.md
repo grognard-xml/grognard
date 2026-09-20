@@ -600,7 +600,7 @@ CBETA and similar texts often split a running string across milestones, e.g. `ã€
 - Fixed a few raw, untranslated i18n keys showing in that same new-project dialog's authority-matching section.
 - Fixed the R2 entity-database cloud backup silently redirecting to whichever project's Turso PEDB happened to be open, instead of always backing up the central entity database (CEDB). It could overwrite the CEDB's backup history with a near-empty per-project logical export the moment a Turso-backed project was opened, and separately suppressed the CEDB's own startup integrity check while such a project was active.
 
-## Upstream
+## v0.1.1-beta.3
 
 Grognard is a desktop fork of [LEAF-Writer](https://leaf-writer.leaf-vre.org/), part of [The Linked Editing Academic Framework](https://www.leaf-vre.org/) (LEAF) tool suite; LEAF-Writer is itself an enhancement of CWRC-Writer, developed by the [Canadian Writing Research Collaboratory (CWRC)](https://cwrc.ca). Grognard wraps that web app in Electron for offline, single-user desktop use and adds workflow changes aimed at local editing and East Asian documents â€” the entity-sync/backup, authority-pack, translation-pane, rewards, and import (Kanripo/Daozang/CBETA/BDRC/Wikisource) work logged above is all downstream of that shared core. Upstream-inherited functionality (tag editing, schema validation, XML tree navigation, table of contents, entity tools, and the VIAF/Wikidata/Getty/DBpedia/GeoNames authority connections) is not re-logged here except where Grognard changes it. See [readme.md](readme.md) for the full upstream lineage and licensing (`AGPL-3.0-only`, inherited from LEAF-Writer).
 
@@ -694,3 +694,7 @@ New built-in "Structure" toolbar menu (icon next to Auto-tagging), available on 
 - Page break, line break, and heading now open a small prompt (built on the existing `'simple'` dialog type, not a new one) asking for a page/line number or the heading's text before inserting - cancelling inserts nothing. A blank page/line number inserts a bare `<pb/>`/`<lb/>` with no `n` attribute; a heading's text is written directly into the new `<head>`, and the cursor moves on to the paragraph after it rather than landing inside the heading itself, so it doesn't feel like editing continues there.
 - A heading inserted with nothing after it (typically because it landed at the very end of a document or section, where there was no following `<p>` to split) now gets an empty paragraph appended after it automatically, the same as splitting mid-paragraph would have produced - a section that's just a bare title with no body reads as broken.
 - These single-field prompts have no visible buttons at all: Enter confirms, Escape or a backdrop click cancels. `SimpleDialog` (the shared `'simple'` dialog type every one-off dialog in the app is built on) now passes its `Body` an `onSubmit` callback that confirms exactly as if the primary button had been clicked, and skips rendering the button row entirely when a dialog declares no `actions` - a general capability for any current or future minimal one-field popup, not something specific to this feature.
+
+### Upstream
+
+- Updated Structure, CHHIV, and Advanced Tag Transform icons

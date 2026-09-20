@@ -185,8 +185,8 @@ Tracked here as mirrored or generated assets:
 - `apps/commons/src/icons/tab/tab_xpath.{svg,png,dark.svg,dark.png}`
 - `apps/commons/src/icons/tab/tab_toc.{svg,png,dark.svg,dark.png}`
 - `apps/commons/src/icons/tab/tab_tree.{svg,png,dark.svg,dark.png}`
-- `apps/commons/src/icons/tool_{correction,transform,hide_notes,show_notes}.{svg,dark.svg}`
-- `apps/commons/src/icons/{krp_menu,menu_norbert}.{svg,dark.svg,png,dark.png}`
+- `apps/commons/src/icons/tool_{correction,transform,hide_notes,show_notes}.{svg,dark.svg,png,dark.png}`
+- `apps/commons/src/icons/{krp_menu,menu_norbert,menu_structure,plugin-CHHIV}.{svg,dark.svg,png,dark.png}`
 - `apps/commons/src/assets/images/norbert-mini.png`
 - `apps/commons/src/desktop/achievements/definitions.ts`
 - `apps/desktop/resources/game-assets/assets.bin`

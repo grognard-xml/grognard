@@ -110,6 +110,10 @@ import krpMenu from '../../../../apps/commons/src/icons/krp_menu.png';
 import krpMenuDark from '../../../../apps/commons/src/icons/krp_menu.dark.png';
 import menuNorbert from '../../../../apps/commons/src/icons/menu_norbert.png';
 import menuNorbertDark from '../../../../apps/commons/src/icons/menu_norbert.dark.png';
+import menuStructure from '../../../../apps/commons/src/icons/menu_structure.png';
+import menuStructureDark from '../../../../apps/commons/src/icons/menu_structure.dark.png';
+import pluginChhiv from '../../../../apps/commons/src/icons/plugin-CHHIV.png';
+import pluginChhivDark from '../../../../apps/commons/src/icons/plugin-CHHIV.dark.png';
 
 export { BookIcon, BookOutlinedIcon } from './custom/Book';
 export { DisambiguateIcon } from './custom/Disambiguate';
@@ -148,6 +152,8 @@ const toolShowNotesIcon = themedToolIcon(toolShowNotes, toolShowNotesDark);
 const toolTransformIcon = themedToolIcon(toolTransform, toolTransformDark);
 const kanripoMenuIcon = themedToolIcon(krpMenu, krpMenuDark);
 const norbertMenuIcon = themedToolIcon(menuNorbert, menuNorbertDark);
+const structureMenuIcon = themedToolIcon(menuStructure, menuStructureDark);
+const chhivMenuIcon = themedToolIcon(pluginChhiv, pluginChhivDark);
 
 const icons = {
   accept: CheckIcon,
@@ -256,7 +262,8 @@ const icons = {
   sortType: LabelRoundedIcon,
   split: CallSplitIcon,
   StickyNote2Icon: StickyNote2Icon,
-  structure: AccountTreeRoundedIcon,
+  structure: structureMenuIcon,
+  chhiv: chhivMenuIcon,
   tagMultiSelection: LabelMultipleOutlineIcon,
   toolTransform: toolTransformIcon,
   TagPlus: TagPlusIcon,
