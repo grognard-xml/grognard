@@ -10,14 +10,24 @@ describe('proceduralOfficeGloss', () => {
     expect(parseGeoAdminCompound('豫章太守')).toEqual({ stem: '豫章', suffix: '太守' });
   });
 
+  it('accepts X縣令 and X郡太守, including one-character place stems', () => {
+    expect(parseGeoAdminCompound('豫章縣令')).toEqual({ stem: '豫章', suffix: '縣令' });
+    expect(parseGeoAdminCompound('上縣令')).toEqual({ stem: '上', suffix: '縣令' });
+    expect(parseGeoAdminCompound('陳郡太守')).toEqual({ stem: '陳', suffix: '郡太守' });
+    expect(parseGeoAdminCompound('三門縣令')).toEqual({ stem: '三門', suffix: '縣令' });
+    expect(parseGeoAdminCompound('安國縣令')).toEqual({ stem: '安國', suffix: '縣令' });
+    expect(parseGeoAdminCompound('縣令')).toBeNull();
+    expect(parseGeoAdminCompound('郡太守')).toBeNull();
+  });
+
   it('accepts X州刺史 place compounds, including 同州', () => {
     expect(parseGeoAdminCompound('豫州刺史')).toEqual({ stem: '豫州', suffix: '刺史' });
     expect(parseGeoAdminCompound('同州刺史')).toEqual({ stem: '同州', suffix: '刺史' });
   });
 
-  it('rejects 州-final stems for 令/太守 but accepts 同 as a place', () => {
+  it('rejects 州-final stems for 令 but accepts them for 太守', () => {
     expect(parseGeoAdminCompound('豫州令')).toBeNull();
-    expect(parseGeoAdminCompound('同州太守')).toBeNull();
+    expect(parseGeoAdminCompound('同州太守')).toEqual({ stem: '同州', suffix: '太守' });
     expect(parseGeoAdminCompound('同安太守')).not.toBeNull();
   });
 
@@ -36,6 +46,7 @@ describe('proceduralOfficeGloss', () => {
   it('romanizes place stems as concatenated toneless pinyin', () => {
     expect(romanizePlaceStem('遼東')).toBe('Liaodong');
     expect(romanizePlaceStem('枝江')).toBe('Zhijiang');
+    expect(romanizePlaceStem('呂')).toBe('Lü');
   });
 
   it('composes English and French glosses from the default suffix map', () => {
@@ -43,6 +54,14 @@ describe('proceduralOfficeGloss', () => {
     expect(result?.en).toBe('Commandery Governor of Yuzhang');
     expect(result?.fr).toBe('gouverneur de commanderie de Yuzhang');
     expect(result?.placeRomanization).toBe('Yuzhang');
+  });
+
+  it('composes short-stem X縣令 and X郡太守', () => {
+    expect(tryProceduralOfficeTranslation('上縣令')?.en).toBe('District Magistrate of Shang');
+    expect(tryProceduralOfficeTranslation('陳郡太守')?.en).toBe('Commandery Governor of Chen');
+    expect(tryProceduralOfficeTranslation('陳郡太守')?.fr).toBe(
+      'gouverneur de commanderie de Chen',
+    );
   });
 
   it('composes 刺史 of a 州 correctly', () => {

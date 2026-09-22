@@ -597,4 +597,99 @@ Same-day continuation after the killed run. Full detail and current queue:
 **Next:** commit pipeline → `npm run generate:huckbot5000 -- --resume` → audit → human review.  
 **Still open / not blocking generate:** `authoritypacks` release cut; remaining undated Norbert offices; expanding parentOf beyond the allowlist.
 
+## Norbert procedural first cut — issue #57 (2026-09-20)
+
+Tracked as [grognard#57](https://github.com/grognard-xml/grognard/issues/57). Goal: apply the existing place+suffix and parentOf procedural templates to **Norbert** headwords (not only CBDB), measure leftovers, knock out easy blocks — before any new LLM spend on the ~26k untranslated Norbert offices in the CEDB.
+
+**What changed in the pipeline:**
+
+- `resolveTargets.mjs` gains `includeUndatedNorbert`. Undated Norbert-only offices (~15.4k) enter the queue with `dynasty: null`. Wired as `--include-undated-norbert` on `generate.mjs`; **default on when `--procedural-only`**, off for full LLM runs (so dynasty-unspecified prompts stay out of the API path). Override with `--no-include-undated-norbert`.
+- Place+suffix now treats compound suffixes **`縣令`** and **`郡太守`**
+  (`豫章縣令` → District Magistrate of Yuzhang; `陳郡太守` → Commandery Governor of Chen).
+  Bare `縣令` / `郡太守` still rejected. One-character place stems are allowed
+  for both (`上縣令`, `陳郡太守`).
+- Same generate pass folds place+suffix glosses into the parentOf remainder index (`mergeProceduralGlossesIntoOfficeIndex`) so chaining can happen in one `--procedural-only` run.
+- `npm run report:huckbot5000-leftover` prints leftover ending/category frequencies among Norbert-only targets that still lack a procedural gloss.
+
+**Measured after this cut** (`--procedural-only`, Hucker skips active):
+
+| Bucket                         | Count                                                                              |
+| ------------------------------ | ---------------------------------------------------------------------------------- |
+| Targets resolved               | 27,312 (10,682 CBDB groups + 16,630 Norbert-only; 15,415 undated Norbert included) |
+| place+suffix procedural        | **9,840**                                                                          |
+| parentOf procedural            | **1** (太子學士)                                                                   |
+| Written to candidates.ndjson   | 9,841 procedural (+ existing LLM rows kept)                                        |
+| Norbert-only leftover (report) | **~7,114**                                                                         |
+
+ParentOf stays near floor under Hucker filtering: 53 allowlisted edges → 16 skipped as Hucker/CBDB-Hucker covered → 37 in queue → only 1 has a known remainder gloss. Place+suffix rarely supplies those remainders (右庶子, 太師, …). Do **not** widen the 太子/公主/親王 allowlist in this pass.
+
+### Follow-up: enable X郡太守 + short-stem X縣令 (same day)
+
+They were **blocked by design**, not overlooked:
+
+| Pattern                                         | Why it was rejected                                                              | Fix                                                                           |
+| ----------------------------------------------- | -------------------------------------------------------------------------------- | ----------------------------------------------------------------------------- |
+| `X郡太守`                                       | Stem ending in 郡 banned (same rule as short `太守`) so `陳郡太守` never matched | Dedicated suffix `郡太守`; stem is the place without 郡 (`陳`)                |
+| Short `X縣令` (`上縣令`)                        | `縣令` stem min length was 2                                                     | Min stem length 1 for `縣令` / `郡太守`                                       |
+| Place stems with 門/臺 (`三門縣令`, `五臺縣令`) | `INSTITUTIONAL_IN_STEM` treated 門/臺 as non-geographic                          | Skip that filter for compound `縣令` / `郡太守`                               |
+| Counties ending in 國 (`安國縣令`)              | Stem-final 國/州/郡 banned even under `縣令`                                     | For `縣令` / `郡太守`, only reject a _doubled_ unit (`…縣縣令` / `…郡郡太守`) |
+| `呂縣令` etc.                                   | Romanizer rejected stems with `ü` (ASCII-only check)                             | Allow `ü` in romanization (`呂` → `Lü`)                                       |
+
+**Re-measured after that enablement:**
+
+| Bucket                                  | Count                                           |
+| --------------------------------------- | ----------------------------------------------- |
+| place+suffix procedural                 | **~11,623** (Norbert leftover report)           |
+| Norbert-only leftover                   | **~5,283**                                      |
+| Residual `縣令` in leftover top endings | **gone**                                        |
+| Residual `太守` in leftover top endings | **gone** (after xx太守 enable + x太守 excision) |
+
+### Follow-up: xx太守 enabled; x太守 excised (same day)
+
+| Change                       | Detail                                                                                                                                                                                                                                                     |
+| ---------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Enable `xx太守` / `xx郡太守` | Skip institutional-char filter for `太守`; allow 州/國 stems (`冀州太守`, `襄國太守`, `雁門太守`, `樂浪太守`)                                                                                                                                              |
+| Excise `x太守`               | One CJK char + `太守` (`豐太守` …) — truncated/corrupt. `oneCharTaishouOffice.mjs`; removed from pack (16,788 → 16,772), both SQL dumps, compile filter. CEDB install script: `authoritypacks/.cedb-purge-work-one-char-taishou/INSTALL-INTO-LIVE-CEDB.sh` |
+| Not excised                  | Bare `太守`, bare `郡太守`, left/right compounds (`安蠻左太守`), prefix modifiers (`領方太守`), multi-place (`二郡太守`) — still leftovers / LLM                                                                                                           |
+
+**Next easy leftover blocks** (from `report:huckbot5000-leftover`, Norbert-only):
+
+| Block                                          | ~size                        | Path                                                                               |
+| ---------------------------------------------- | ---------------------------- | ---------------------------------------------------------------------------------- |
+| `將軍` / `參軍` / `長史` / `司馬` / `大夫` / … | ~450+ / ~180 / ~93 / ~70 / … | **Huckbot5000 LLM → review → MaxiRicci7000 FR** — not further procedural templates |
+| Rank/fief (`郡公`, `國公`, `侯`, `王`)         | hundreds                     | **Leave alone** until a noble-title translation system exists                      |
+| Residual hard `太守` / `郡太守`                | ~45                          | LLM (左郡, 領…, 二郡, rare glyphs) or case-by-case                                 |
+| Other leftover                                 | remainder of ~5.3k           | Same LLM queue as above                                                            |
+
+**Still out of scope for #57 close:** inventing noble-title gloss rules; MaxiRicci before Huckbot EN exists for a row; shipping via approved-include / pack bump (candidates only so far). Live app port: `proceduralOfficeGloss.ts` mirrors the place+suffix rules (EN+FR).
+
+**LLM next (when ready):** `OPENAI_API_KEY=… npm run generate:huckbot5000 -- --resume` (or `--sample N` pilot). Undated Norbert is **off** by default for LLM spend — pass `--include-undated-norbert` if that full leftover set should be included. Then audit → review CSV → approved-include → `collect:maxiricci7000` / generate FR batches.
+
+## Dynasty-glued bogus Norbert offices excised (2026-09-20)
+
+Sixteen Norbert office headwords that glued a regime label onto the title
+(e.g. `北魏華山太守`, `東魏縣令`, `西涼州刺史`) were incorrect — not real
+offices. Removed from:
+
+- `packs/norbert/offices.ndjson` (16,804 → 16,788) and manifest counts
+- `norbert_public/norbert-authority.sql` and `norbert_secret/norbert-authority.sql`
+
+Compile now drops any office whose `full_string` matches
+`norbert/dynastyGluedOffice.mjs` (`isDynastyGluedOfficeName`), so a recompile
+from the dump cannot resurrect them. Procedural place+suffix uses the same
+helper.
+
+Older TEI exports under `outputs/norbert/entities.xml` (and
+`outputs/import_test_DONE/entities.xml`) still need a local pass if present —
+Cursor cannot write that directory from this environment:
+
+```bash
+npm run excise:dynasty-glued-offices-entities -- ../outputs/norbert/entities.xml
+npm run excise:dynasty-glued-offices-entities -- ../outputs/import_test_DONE/entities.xml
+```
+
+List of excised ids/names: `reports/huckbot5000-dynasty-prefixed-offices.csv`
+(status `excised-2026-09-20`). Note: titles like `益州東晉壽太守` are **kept** —
+`東晉壽` is a place name there, not a leading dynasty prefix.
+
 Remaining open items from earlier in this doc that are _not_ the next coding step: the release cut in item 1.

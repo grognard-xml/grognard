@@ -74,11 +74,13 @@ const DYNASTY_IN_STEM =
 /** Another office title embedded in the stem (郡守刺史, …). */
 const OFFICE_IN_STEM = /郡守|縣令|太守|刺史|縣長|郡丞/;
 
-export const GEO_ADMIN_SUFFIXES = ['太守', '刺史', '令'] as const;
+export const GEO_ADMIN_SUFFIXES = ['縣令', '郡太守', '太守', '刺史', '令'] as const;
 export type GeoAdminSuffix = (typeof GEO_ADMIN_SUFFIXES)[number];
 
 /** Default suffix gloss when no dynasty-specific override is known. */
 export const DEFAULT_SUFFIX_GLOSS: Record<GeoAdminSuffix, string> = {
+  縣令: 'District Magistrate',
+  郡太守: 'Commandery Governor',
   太守: 'Commandery Governor',
   刺史: 'Regional Inspector',
   令: 'District Magistrate',
@@ -86,12 +88,17 @@ export const DEFAULT_SUFFIX_GLOSS: Record<GeoAdminSuffix, string> = {
 
 /** French counterpart. No offline procedural precedent exists for MaxiRicci7000 yet. */
 export const DEFAULT_SUFFIX_GLOSS_FR: Record<GeoAdminSuffix, string> = {
+  縣令: 'magistrat de district',
+  郡太守: 'gouverneur de commanderie',
   太守: 'gouverneur de commanderie',
   刺史: 'inspecteur régional',
   令: 'magistrat de district',
 };
 
 const STEM_LENGTH: Record<GeoAdminSuffix, { min: number; max: number }> = {
+  // X縣令 / X郡太守 — one-character place stems are real (上縣, 陳郡, …)
+  縣令: { min: 1, max: 4 },
+  郡太守: { min: 1, max: 4 },
   太守: { min: 2, max: 4 },
   // X州刺史 needs room for 南寧州 / 青冀二州
   刺史: { min: 2, max: 5 },
@@ -105,16 +112,22 @@ export function romanizePlaceStem(zh: string): string | null {
     .filter(Boolean);
   if (!syllables.length) return null;
   const joined = syllables.join('');
-  if (!/^[a-zA-Z]+$/.test(joined)) return null;
+  // Allow ü (lü, nü, …) — that is correct pinyin, not ASCII "v".
+  if (!/^[a-zA-ZüÜ]+$/.test(joined)) return null;
   return joined[0].toUpperCase() + joined.slice(1).toLowerCase();
 }
 
 /**
  * Admin-unit character at the end of a place stem.
- * 刺史 compounds normally end in 州 (豫州刺史); 令/太守 must not.
+ * 刺史 compounds normally end in 州 (豫州刺史); short 令 must not end in
+ * 國郡州縣. Compound 縣令 / 郡太守 only reject a doubled unit. Bare 太守
+ * accepts 州/國 stems (冀州太守, 襄國太守).
  */
 function stemEndsWithBannedAdminUnit(stem: string, suffix: GeoAdminSuffix): boolean {
   if (suffix === '刺史') return /[國郡縣]$/.test(stem);
+  if (suffix === '縣令') return /縣$/.test(stem);
+  if (suffix === '郡太守') return /郡$/.test(stem);
+  if (suffix === '太守') return /縣$/.test(stem);
   return /[國郡州縣]$/.test(stem);
 }
 
@@ -139,7 +152,17 @@ export function parseGeoAdminCompound(zh: string): ParsedGeoAdminCompound | null
     if (suffix === '令' && FIXED_LING_OFFICES.has(name)) continue;
     if (PREFIX_MODIFIER.test(name)) continue;
     if (REJECT_STEM_PREFIX.test(stem)) continue;
-    if (INSTITUTIONAL_IN_STEM.test(stem)) continue;
+    // 縣令 / 郡太守 / 太守 are geo-admin titles; place stems routinely contain
+    // 門/臺/衛/樂/尉 (雁門, 樂浪, 五臺, …). Keep the institutional-char filter
+    // only for short 令 / 刺史 (黃門令, …).
+    if (
+      suffix !== '縣令' &&
+      suffix !== '郡太守' &&
+      suffix !== '太守' &&
+      INSTITUTIONAL_IN_STEM.test(stem)
+    ) {
+      continue;
+    }
     if (stemEndsWithBannedAdminUnit(stem, suffix)) continue;
     if (DYNASTY_IN_STEM.test(stem)) continue;
     if (/[左右]$/.test(stem)) continue;
