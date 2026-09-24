@@ -731,3 +731,10 @@ Paste/drop a character image now works in the translation pane and its footnotes
 ### Upstream
 
 - Updated Structure, CHHIV, and Advanced Tag Transform icons
+
+### CHHIV palaeography palette
+
+- Fixed the reduplication/重文 entry inserting `〓` (U+3013 GETA MARK, Unicode's generic "unknown/missing character" placeholder), reused only because it looks similar — the palette now inserts 𖿣 (U+16FE3 Old Chinese Iteration Mark), the dedicated Unicode character for this exact manuscript mark.
+- Added a hook mark/鉤識號 entry (𖿢, U+16FE2 Old Chinese Hook Mark), previously missing from the palette entirely.
+- Both are in Unicode's "Ideographic Symbols and Punctuation" block, added in version 12.0 (2019) specifically for Warring States/Qin/Han manuscript marks; font coverage is still thin outside BabelStone Han.
+- Filed [issue #58](https://github.com/grognard-xml/grognard/issues/58) to track a future "mark selection as…" semantic layer (存疑/補字/脫文/衍文/訛字/合文/重文 → real TEI markup with per-project notation config) on top of today's plain-symbol insertion.
