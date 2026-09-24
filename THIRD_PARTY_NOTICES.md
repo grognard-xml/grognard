@@ -32,6 +32,20 @@ When shipping releases, keep this document in sync with the actual dependency se
 - `Lato` - UI typeface, bundled as static `.woff`/`.woff2` files under
   `apps/commons/public/fonts/`. SIL Open Font License 1.1; full text copied
   to `apps/commons/public/fonts/OFL-1.1-lato.txt`.
+- `@kurgm/kage-engine` - renders KAGE-format glyph data (the format used by
+  GlyphWiki) to SVG, used by the CHHIV glyph composer to draw locally-composed
+  unencoded characters. GPL-3.0 licensed; combined into this AGPL-3.0-only
+  program under each license's section 13 (the "Remote Network Interaction"
+  compatibility clause both licenses carry, added specifically to permit
+  this combination).
+- **GlyphWiki KAGE core data** (`packages/cwrc-leafwriter/src/resources/glyphwiki/kageCore.json`)
+  - a filtered, dependency-closed subset of GlyphWiki's public dump (canonical
+    `u<hex>`-named entries plus every component they reference), bundled so the
+    glyph composer can draw ordinary Unicode characters as components offline.
+    Per GlyphWiki's own dump license (copied to
+    `packages/cwrc-leafwriter/src/resources/glyphwiki/LICENSE.txt`): free to
+    use, copy, and distribute, with or without modification, commercially or
+    not, no attribution required. Copyright 2009 GlyphWiki Project.
 - `Noto Sans` - pre-rendered glyph tiles (SDF/PBF) for map-label rendering,
   bundled under `apps/commons/public/fonts/Noto Sans {Regular,Medium,Italic}/`.
   SIL Open Font License 1.1; full text copied to `OFL-1.1-noto-sans.txt` in

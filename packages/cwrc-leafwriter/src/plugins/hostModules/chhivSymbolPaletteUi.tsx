@@ -37,6 +37,37 @@ const openGlyphPalette = (writer: Writer) => {
   });
 };
 
+/** Opens the component-based glyph composer (Phase 1: see
+ * plugins/glyph_maker.md). Stays open after a successful insert, the same
+ * "keep composing/inserting without reopening" interaction as the other two
+ * CHHIV dialogs.
+ *
+ * Dynamically imported here rather than statically at the top of this file:
+ * the composer's dependency graph pulls in the bundled GlyphWiki KAGE core
+ * (~17 MB JSON, see kageRenderer.ts) - a static import dragged that into
+ * this module's own chunk and produced a genuine "cannot access before
+ * initialization" TDZ error on the menu click (the toolbar registers and
+ * becomes clickable before that chunk finishes loading/executing). Every
+ * other heavy host module in this plugin system is already loaded this way
+ * (see plugins/hostModules/index.ts's HOST_MODULE_LOADERS) - this just
+ * applies the same pattern one level down, to the composer specifically
+ * rather than the whole CHHIV module (whose other two dialogs stay cheap to
+ * load eagerly). */
+const openComposeCharacter = async (writer: Writer) => {
+  const { ComposeCharacterDialog } =
+    await import('../../dialogs/composeCharacter/ComposeCharacterDialog');
+  writer.overmindActions?.ui?.openDialog({
+    type: 'simple',
+    props: {
+      maxWidth: 'xs',
+      title: 'Compose character',
+      Body: () => <ComposeCharacterDialog writer={writer} />,
+      actions: [{ action: 'close', label: 'Close' }],
+      onClose: () => {},
+    },
+  });
+};
+
 export function registerChhivSymbolPaletteUi(context: PluginRegisterContext): void {
   context.log('registering CHHIV symbol palette');
 
@@ -64,6 +95,15 @@ export function registerChhivSymbolPaletteUi(context: PluginRegisterContext): vo
           const writer = window.writer;
           if (!writer) return;
           openGlyphPalette(writer);
+        },
+      },
+      {
+        id: 'compose-character',
+        label: 'Compose character…',
+        onClick: () => {
+          const writer = window.writer;
+          if (!writer) return;
+          void openComposeCharacter(writer);
         },
       },
     ],

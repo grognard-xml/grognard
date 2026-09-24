@@ -22,6 +22,34 @@ const spec = {
   svgHeight: 49,
 };
 
+describe('ensureGlyphCharDeclEntry mappings', () => {
+  it('writes mapping elements before the graphic children, in the given order', () => {
+    const result = ensureGlyphCharDeclEntry(baseXml, {
+      ...spec,
+      mappings: [
+        { type: 'ids', value: '⿰言某' },
+        { type: 'kage', value: '99:0:0:0:0:100:200:u8a00:0:0:0' },
+      ],
+    });
+    const doc = new DOMParser().parseFromString(result as string, 'application/xml');
+    const glyph = doc.getElementsByTagNameNS(TEI_NS, 'glyph')[0];
+    const childNames = Array.from(glyph.children).map((el) => el.localName);
+    expect(childNames).toEqual(['mapping', 'mapping', 'graphic', 'graphic']);
+
+    const mappings = Array.from(glyph.children).filter((el) => el.localName === 'mapping');
+    expect(mappings[0].getAttribute('type')).toBe('ids');
+    expect(mappings[0].textContent).toBe('⿰言某');
+    expect(mappings[1].getAttribute('type')).toBe('kage');
+  });
+
+  it('omits mapping elements entirely when none are given (existing image-glyph callers unaffected)', () => {
+    const result = ensureGlyphCharDeclEntry(baseXml, spec);
+    const doc = new DOMParser().parseFromString(result as string, 'application/xml');
+    const glyph = doc.getElementsByTagNameNS(TEI_NS, 'glyph')[0];
+    expect(glyph.getElementsByTagNameNS(TEI_NS, 'mapping')).toHaveLength(0);
+  });
+});
+
 describe('ensureGlyphCharDeclEntry', () => {
   it('creates encodingDesc/charDecl/glyph when none exist, right after fileDesc', () => {
     const result = ensureGlyphCharDeclEntry(baseXml, spec);

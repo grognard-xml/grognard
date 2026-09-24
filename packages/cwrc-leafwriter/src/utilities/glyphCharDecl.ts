@@ -6,6 +6,9 @@ export interface GlyphGraphicSpec {
   svgUrl: string;
   svgWidth: number;
   svgHeight: number;
+  /** Optional `<mapping type="...">value</mapping>` children, e.g. `{ type: 'ids', value: '⿰言某' }` -
+   * written before the `<graphic>` children, per the schema agreed in plugins/glyph_maker.md §5. */
+  mappings?: { type: string; value: string }[];
 }
 
 export interface GlyphGraphicEntry {
@@ -75,6 +78,13 @@ export const ensureGlyphCharDeclEntry = (xml: string, spec: GlyphGraphicSpec): s
 
   const glyph = createNamedElement(doc, ns, 'glyph');
   glyph.setAttributeNS(XML_NS, 'xml:id', spec.glyphId);
+
+  for (const mapping of spec.mappings ?? []) {
+    const mappingEl = createNamedElement(doc, ns, 'mapping');
+    mappingEl.setAttribute('type', mapping.type);
+    mappingEl.textContent = mapping.value;
+    glyph.appendChild(mappingEl);
+  }
 
   const source = createNamedElement(doc, ns, 'graphic');
   source.setAttribute('type', 'source');

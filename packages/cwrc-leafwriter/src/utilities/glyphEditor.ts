@@ -130,6 +130,8 @@ export const insertGlyph = async (
     svgUrl: string;
     svgWidth: number;
     svgHeight: number;
+    /** Optional `<mapping>` entries (ids/kage/unicode/...) - see GlyphGraphicSpec. */
+    mappings?: { type: string; value: string }[];
   },
 ): Promise<boolean> => {
   const bookmark = writer.editor?.selection.getBookmark(1);

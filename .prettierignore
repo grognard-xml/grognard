@@ -20,6 +20,12 @@ packages/cwrc-leafwriter-validator/src/lib/jsdom/**
 **/generated/**
 **/generated*.ts
 
+# Bundled GlyphWiki KAGE core data (scripts/extract-glyphwiki-kage-core.mjs):
+# a flat 229,000-entry name->data map kept single-line/compact on purpose -
+# prettier's default object formatting bloats this ~5% for no benefit and
+# drifts from what the extraction script emits on a regenerate.
+packages/cwrc-leafwriter/src/resources/glyphwiki/kageCore.json
+
 # Wide reference tables. Prettier pads every cell to its column's widest entry,
 # and these hold whole UI strings in four languages: formatting the German
 # triage table takes it from 89KB to 784KB, all of it trailing spaces, and makes
