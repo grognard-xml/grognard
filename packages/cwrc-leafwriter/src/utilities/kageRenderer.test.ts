@@ -38,4 +38,18 @@ describe('renderKageToSvg', () => {
     expect(result.unresolvedComponents).toEqual([]);
     expect(result.svg).toContain('<svg');
   });
+
+  it('renders a real GlyphWiki-style "@N" component reference, not just the composer\'s own suffix-free ones', () => {
+    // Regression: a real adopted GlyphWiki entry's own "99:" records commonly
+    // carry a trailing "@N" render-parameter suffix on the component name
+    // (e.g. "u7259@4") - kage-engine does NOT strip that itself when
+    // resolving against kBuhin (confirmed empirically), so without stripping
+    // it ourselves this silently rendered as an empty glyph: 0 polygons,
+    // *and* an empty unresolvedComponents list (which does strip "@N" for
+    // its own existence check), so the bug was invisible to that safety net.
+    const kageData = '99:0:0:-1:-5:100:197:u7259@4:0:0:0$99:0:0:81:0:197:200:u9f52@3:0:0:0';
+    const result = renderKageToSvg(kageData);
+    expect(result.unresolvedComponents).toEqual([]);
+    expect(result.svg.match(/<polygon/g)?.length ?? 0).toBeGreaterThan(0);
+  });
 });

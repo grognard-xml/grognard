@@ -22,14 +22,44 @@ const KAGE_CORE: Record<string, string> = kageCore as unknown as Record<string, 
 export const isKnownComponent = (name: string, extraComponents?: Record<string, string>): boolean =>
   name in KAGE_CORE || Boolean(extraComponents && name in extraComponents);
 
+/**
+ * Strips a "99:" record's "@N" render-parameter suffix from its component
+ * reference (e.g. "u7259@4" -> "u7259"). Corrects a wrong assumption from
+ * the Phase 1 extraction decision gate: that gate only needed to strip "@N"
+ * to decide *which entries to bundle* (a Node script parsing the dump
+ * directly) - it never established that `@kurgm/kage-engine`'s own
+ * `makeGlyph` does the same stripping internally when it resolves a "99:"
+ * reference against `kBuhin`. Empirically it does not: `kBuhin` is a plain
+ * name->data map, and a reference to "u7259@4" looks up exactly that string,
+ * not "u7259" - so a real GlyphWiki entry adopted via glyphwikiIndex.ts
+ * (which commonly carries these suffixes; our own composeKageData never
+ * generates them) silently rendered as an empty glyph, only visible as a
+ * blank thumbnail, not as an entry in `unresolvedComponents` (which *did*
+ * correctly strip "@N" for its own existence check, masking the mismatch).
+ * Dropping "@N" rather than registering every variant is an acceptable
+ * simplification given the composer's already-agreed "no stroke-level
+ * deformation" scope - it renders the component's default form.
+ */
+const stripComponentRefSuffixes = (kageData: string): string =>
+  kageData
+    .split('$')
+    .map((record) => {
+      const fields = record.split(':');
+      if (fields[0] !== '99' || fields.length < 8) return record;
+      const atIndex = fields[7].indexOf('@');
+      if (atIndex !== -1) fields[7] = fields[7].slice(0, atIndex);
+      return fields.join(':');
+    })
+    .join('$');
+
 const buildEngine = (extraComponents?: Record<string, string>): Kage => {
   const kage = new Kage();
   for (const [name, data] of Object.entries(KAGE_CORE)) {
-    kage.kBuhin.push(name, data);
+    kage.kBuhin.push(name, stripComponentRefSuffixes(data));
   }
   if (extraComponents) {
     for (const [name, data] of Object.entries(extraComponents)) {
-      kage.kBuhin.push(name, data);
+      kage.kBuhin.push(name, stripComponentRefSuffixes(data));
     }
   }
   return kage;
@@ -73,7 +103,7 @@ export const renderKageToSvg = (
 ): RenderResult => {
   const kage = buildEngine(extraComponents);
   const name = '__preview__';
-  kage.kBuhin.push(name, kageData);
+  kage.kBuhin.push(name, stripComponentRefSuffixes(kageData));
   const polygons = new Polygons();
   kage.makeGlyph(polygons, name);
   return {

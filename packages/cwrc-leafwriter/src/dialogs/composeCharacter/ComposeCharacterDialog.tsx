@@ -1,17 +1,47 @@
-import { Alert, Box, Button, MenuItem, Select, TextField, Typography } from '@mui/material';
+import {
+  Alert,
+  Box,
+  Button,
+  ButtonBase,
+  MenuItem,
+  Select,
+  TextField,
+  Tooltip,
+  Typography,
+} from '@mui/material';
 import { useEffect, useMemo, useState } from 'react';
 import type Writer from '../../js/Writer';
-import { IDS_OPERATORS, type IdsOperator } from '../../utilities/kageCompose';
+import { insertAtCursor } from '../../utilities/chhivSymbols';
+import type { GlyphwikiCandidate } from '../../utilities/glyphwikiIndex';
+import { canonicalUnicodeChar, IDS_OPERATORS, type IdsOperator } from '../../utilities/kageCompose';
+import { renderKageToSvg } from '../../utilities/kageRenderer';
 import {
   emptyProjectGlyphRegistry,
   type ProjectGlyphRegistry,
 } from '../../utilities/projectGlyphRegistry';
 import {
+  adoptGlyphwikiCandidateAndInsert,
   composeAndInsertProjectGlyph,
   getProjectRootPath,
   loadProjectGlyphRegistryFromDisk,
   previewComposition,
 } from '../../utilities/projectGlyphStore';
+
+const GlyphThumbnail = ({ svg, size = 160 }: { svg: string; size?: number }) => (
+  <Box
+    sx={{
+      width: size,
+      height: size,
+      overflow: 'hidden',
+      // kage-engine's raw SVG carries its own width="200" height="200"
+      // attributes; without this, the browser honors those over the
+      // wrapper's size and the glyph renders at full size, overflowing
+      // everything below it instead of scaling to fit the preview box.
+      '& svg': { width: '100%', height: '100%', display: 'block' },
+    }}
+    dangerouslySetInnerHTML={{ __html: svg }}
+  />
+);
 
 /**
  * Phase 1 CHHIV glyph composer (see plugins/glyph_maker.md): compose an
@@ -36,7 +66,7 @@ export const ComposeCharacterDialog = ({ writer }: { writer: Writer }) => {
   const [registry, setRegistry] = useState<ProjectGlyphRegistry>(emptyProjectGlyphRegistry());
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
-  const [savedId, setSavedId] = useState<string | null>(null);
+  const [insertedMessage, setInsertedMessage] = useState<string | null>(null);
 
   useEffect(() => {
     const projectRoot = getProjectRootPath();
@@ -58,7 +88,7 @@ export const ComposeCharacterDialog = ({ writer }: { writer: Writer }) => {
   const handleSave = async () => {
     setSaving(true);
     setSaveError(null);
-    setSavedId(null);
+    setInsertedMessage(null);
     const result = await composeAndInsertProjectGlyph(
       writer,
       operator,
@@ -72,9 +102,38 @@ export const ComposeCharacterDialog = ({ writer }: { writer: Writer }) => {
     }
     setFirstInput('');
     setSecondInput('');
-    setSavedId(result.glyph.id);
+    setInsertedMessage(result.glyph.id);
     const projectRoot = getProjectRootPath();
     if (projectRoot) setRegistry(await loadProjectGlyphRegistryFromDisk(projectRoot));
+  };
+
+  const handleAdopt = async (candidate: GlyphwikiCandidate) => {
+    setSaving(true);
+    setSaveError(null);
+    setInsertedMessage(null);
+    const result = await adoptGlyphwikiCandidateAndInsert(writer, candidate);
+    setSaving(false);
+    if (!result.ok) {
+      setSaveError(result.error);
+      return;
+    }
+    setFirstInput('');
+    setSecondInput('');
+    setInsertedMessage(result.glyph.id);
+    const projectRoot = getProjectRootPath();
+    if (projectRoot) setRegistry(await loadProjectGlyphRegistryFromDisk(projectRoot));
+  };
+
+  /** Route A (plugins/glyph_maker.md): this candidate already IS an ordinary
+   * encoded Unicode character - insert the plain character directly, no SVG
+   * gaiji/registry entry at all. No file I/O, so no error path to handle. */
+  const handleInsertUnicode = (char: string, codepointLabel: string) => {
+    setSaveError(null);
+    setInsertedMessage(null);
+    insertAtCursor(writer, char);
+    setFirstInput('');
+    setSecondInput('');
+    setInsertedMessage(`${char} (${codepointLabel}, plain text)`);
   };
 
   const canSave = Boolean(preview) && preview!.unresolvedComponents.length === 0 && !saving;
@@ -115,6 +174,52 @@ export const ComposeCharacterDialog = ({ writer }: { writer: Writer }) => {
         />
       </Box>
 
+      {preview && preview.existingUnicodeChar && (
+        // Phase A (composer-visual-redesign.md §3-4): this exact IDS
+        // composition already has a standard Unicode decomposition on
+        // record - a stronger, qualitatively different result than a
+        // GlyphWiki candidate (which only means *some* non-standard glyph
+        // happens to combine the same parts). Foregrounded above the plain
+        // preview/candidates, not shown as one tile among several.
+        <Box
+          sx={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 2,
+            border: '2px solid',
+            borderColor: 'success.main',
+            borderRadius: 1,
+            p: 2,
+          }}
+        >
+          <Typography sx={{ fontSize: 48, lineHeight: 1 }}>
+            {preview.existingUnicodeChar}
+          </Typography>
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+            <Typography variant="body2">
+              This is already an encoded Unicode character (U+
+              {preview.existingUnicodeChar.codePointAt(0)?.toString(16).toUpperCase()}) - no need to
+              compose a new glyph.
+            </Typography>
+            <Button
+              variant="contained"
+              color="success"
+              size="small"
+              disabled={saving}
+              onClick={() =>
+                handleInsertUnicode(
+                  preview.existingUnicodeChar as string,
+                  `U+${preview.existingUnicodeChar?.codePointAt(0)?.toString(16).toUpperCase()}`,
+                )
+              }
+              sx={{ alignSelf: 'flex-start' }}
+            >
+              Insert as plain text
+            </Button>
+          </Box>
+        </Box>
+      )}
+
       {preview && (
         <Box
           sx={{
@@ -126,19 +231,7 @@ export const ComposeCharacterDialog = ({ writer }: { writer: Writer }) => {
             p: 1,
           }}
         >
-          <Box
-            sx={{
-              width: 160,
-              height: 160,
-              overflow: 'hidden',
-              // kage-engine's raw SVG carries its own width="200" height="200"
-              // attributes; without this, the browser honors those over the
-              // wrapper's size and the glyph renders at full size, overflowing
-              // everything below it instead of scaling to fit the preview box.
-              '& svg': { width: '100%', height: '100%', display: 'block' },
-            }}
-            dangerouslySetInnerHTML={{ __html: preview.svg }}
-          />
+          <GlyphThumbnail svg={preview.svg} />
         </Box>
       )}
 
@@ -147,10 +240,71 @@ export const ComposeCharacterDialog = ({ writer }: { writer: Writer }) => {
           No geometry found for: {preview.unresolvedComponents.join(', ')}
         </Alert>
       )}
+
+      {preview && preview.glyphwikiCandidates.length > 0 && (
+        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+          <Typography variant="body2" color="text.secondary">
+            GlyphWiki already has {preview.glyphwikiCandidates.length} matching{' '}
+            {preview.glyphwikiCandidates.length === 1 ? 'glyph' : 'glyphs'} - adopt one instead of
+            composing a new one:
+          </Typography>
+          <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
+            {preview.glyphwikiCandidates.map((candidate) => {
+              const unicodeChar = canonicalUnicodeChar(candidate.name);
+              if (unicodeChar) {
+                // This candidate already IS an ordinary encoded character -
+                // show it as plain text in the document's own font, not a
+                // KAGE-rendered SVG, and insert exactly that on click. No
+                // gaiji object, no registry entry: Route A.
+                const codepointLabel = `U+${unicodeChar.codePointAt(0)?.toString(16).toUpperCase()}`;
+                return (
+                  <Tooltip key={candidate.name} title={`Insert ${codepointLabel} as plain text`}>
+                    <ButtonBase
+                      disabled={saving}
+                      onClick={() => handleInsertUnicode(unicodeChar, codepointLabel)}
+                      sx={{
+                        width: 64,
+                        height: 64,
+                        border: '2px solid',
+                        borderColor: 'success.main',
+                        borderRadius: 1,
+                        display: 'flex',
+                        flexDirection: 'column',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        gap: 0.25,
+                      }}
+                    >
+                      <Typography sx={{ fontSize: 32, lineHeight: 1 }}>{unicodeChar}</Typography>
+                      <Typography variant="caption" color="success.main">
+                        Unicode
+                      </Typography>
+                    </ButtonBase>
+                  </Tooltip>
+                );
+              }
+
+              const { svg } = renderKageToSvg(candidate.kageData);
+              return (
+                <Tooltip key={candidate.name} title={`Adopt ${candidate.name}`}>
+                  <ButtonBase
+                    disabled={saving}
+                    onClick={() => void handleAdopt(candidate)}
+                    sx={{ border: '1px solid', borderColor: 'divider', borderRadius: 1 }}
+                  >
+                    <GlyphThumbnail svg={svg} size={64} />
+                  </ButtonBase>
+                </Tooltip>
+              );
+            })}
+          </Box>
+        </Box>
+      )}
+
       {saveError && <Alert severity="error">{saveError}</Alert>}
-      {savedId && !saveError && (
+      {insertedMessage && !saveError && (
         <Alert severity="success">
-          Inserted {savedId} - compose another, or close this dialog.
+          Inserted {insertedMessage} - compose another, or close this dialog.
         </Alert>
       )}
 

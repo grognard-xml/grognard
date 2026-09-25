@@ -4,7 +4,20 @@ import type Writer from '../js/Writer';
 import { handleGraphics, refreshGraphicsInBody } from '../js/schema/mappings/utitlities';
 import { assetDirForDocument, joinPath, relativeAssetUrl } from './assetPaths';
 import { blobToUint8Array } from './clipboardImage';
-import { ensureGlyphCharDeclEntry, type GlyphGraphicSpec } from './glyphCharDecl';
+import {
+  createGlyphAssetsFromBytes,
+  dataUrlToBytes,
+  GAIJI_MARKER_PATTERN,
+  GAIJI_PLACEHOLDER,
+  GLYPH_ASSET_DIR,
+  glyphIdForImageBytes,
+  sharperImage,
+} from './gaijiImport';
+import {
+  ensureGlyphCharDeclEntry,
+  findGlyphCharDeclEntry,
+  type GlyphGraphicSpec,
+} from './glyphCharDecl';
 
 export type GlyphContext =
   | {
@@ -16,14 +29,16 @@ export type GlyphContext =
     }
   | { kind: 'ref'; gElement: Element; glyphId: string };
 
-const GLYPH_DIR = '_glyphs';
+const GLYPH_DIR = GLYPH_ASSET_DIR;
 
 export const glyphDirForDocument = (documentPath: string): string =>
   assetDirForDocument(documentPath, GLYPH_DIR);
 
 export const relativeGlyphUrl = (fileName: string): string => relativeAssetUrl(GLYPH_DIR, fileName);
 
-export const generatePastedGlyphId = (): string => `glyph-paste-${Date.now().toString(36)}`;
+/** Clock + random suffix: two glyphs made in the same millisecond must not collide. */
+export const generatePastedGlyphId = (): string =>
+  `glyph-paste-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
 
 const activeDocumentFilePath = (): string | null =>
   window.__leafWriterProject?.getActiveFilePath?.() ?? null;
@@ -132,6 +147,9 @@ export const insertGlyph = async (
     svgHeight: number;
     /** Optional `<mapping>` entries (ids/kage/unicode/...) - see GlyphGraphicSpec. */
     mappings?: { type: string; value: string }[];
+    /** Reference an existing `<charDecl>` entry for this id as-is instead of
+     * rewriting it - which would drop any `<mapping>`s added to it since. */
+    reuseExistingDeclaration?: boolean;
   },
 ): Promise<boolean> => {
   const bookmark = writer.editor?.selection.getBookmark(1);
@@ -142,7 +160,11 @@ export const insertGlyph = async (
   if (supportsGlyphCharDecl(writer)) {
     const storedXml = getStoredDocumentXml(writer);
     if (!storedXml) return false;
-    const updatedXml = ensureGlyphCharDeclEntry(storedXml, options);
+    const { reuseExistingDeclaration, ...spec } = options;
+    const updatedXml =
+      reuseExistingDeclaration && findGlyphCharDeclEntry(storedXml, options.glyphId)
+        ? storedXml
+        : ensureGlyphCharDeclEntry(storedXml, spec);
     if (!updatedXml) return false;
 
     // `<g>`'s content model is text-only on every schema that defines it
@@ -201,22 +223,128 @@ export const insertGlyph = async (
  * the glyph via insertGlyph (see there for the schema-dependent shape).
  */
 export const insertGlyphFromImageFile = async (writer: Writer, file: File): Promise<boolean> => {
-  const bytes = await blobToUint8Array(file);
+  const spec = await prepareGlyphFromImageBytes(writer, await blobToUint8Array(file));
+  return spec ? insertGlyph(writer, { ...spec, reuseExistingDeclaration: true }) : false;
+};
+
+/**
+ * The async half of inserting an image as a glyph: trace it and write its
+ * assets, or reuse the document's existing glyph for identical bytes (ids
+ * are content hashes - see glyphIdForImageBytes). Split from insertGlyph so
+ * a batch can do all the slow work first, then touch the DOM in one go.
+ */
+export const prepareGlyphFromImageBytes = async (
+  writer: Writer,
+  bytes: Uint8Array,
+): Promise<GlyphGraphicSpec | null> => {
+  const documentPath = activeDocumentFilePath();
+  if (!documentPath) return null;
+  try {
+    return await createGlyphAssetsFromBytes({
+      api: window.electronAPI,
+      bytes,
+      documentPath,
+      xml: supportsGlyphCharDecl(writer) ? getStoredDocumentXml(writer) : null,
+    });
+  } catch (error) {
+    console.warn('[glyph] could not convert image', error);
+    return null;
+  }
+};
+
+/** Bytes for an `<img src>` found in pasted HTML: inline data, one of Word's
+ * clipboard temp files (read by the main process - see readPastedImageFile),
+ * or a web image. Null for anything else (blob:, cid:, a deleted temp file). */
+export const readPastedImageBytes = async (src: string): Promise<Uint8Array | null> => {
   const api = window.electronAPI;
-  if (!api?.vectorizeGlyphImage) return false;
+  if (/^data:/i.test(src)) return dataUrlToBytes(src);
+  if (/^file:/i.test(src)) return (await api?.readPastedImageFile?.(src)) ?? null;
+  if (/^https?:/i.test(src)) return (await api?.fetchRemoteImageBytes?.(src)) ?? null;
+  return null;
+};
 
-  const result = await api.vectorizeGlyphImage(bytes);
-  const glyphId = generatePastedGlyphId();
-  const saved = await saveGlyphAssets(glyphId, bytes, result.svg);
-  if (!saved) return false;
+const findGaijiMarker = (
+  body: HTMLElement,
+): { node: Text; start: number; end: number; index: number } | null => {
+  const walker = body.ownerDocument.createTreeWalker(body, NodeFilter.SHOW_TEXT);
+  for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+    const text = node.nodeValue ?? '';
+    const match = new RegExp(GAIJI_MARKER_PATTERN).exec(text);
+    if (match) {
+      return {
+        node: node as Text,
+        start: match.index,
+        end: match.index + match[0].length,
+        index: Number(match[1]),
+      };
+    }
+  }
+  return null;
+};
 
-  return insertGlyph(writer, {
-    glyphId,
-    sourceUrl: saved.sourceUrl,
-    svgUrl: saved.svgUrl,
-    svgWidth: result.width,
-    svgHeight: result.height,
-  });
+/**
+ * Second half of a paste with inline images (see gaijiImport.ts): the text
+ * is already in the document with a marker where each image was. Convert
+ * every image first (slow, async), then replace all markers in a single
+ * undo step - each with its glyph, or 〓 where the image couldn't be read
+ * or converted, so nothing disappears silently.
+ */
+export const convertGaijiMarkersInEditor = async (
+  writer: Writer,
+  sources: string[],
+  /** Other copies of the same images, index-aligned with `sources` (Word's
+   * RTF renditions - see readClipboardRtfImages); whichever of the two has
+   * more pixels is traced. */
+  alternates?: (Uint8Array | null)[],
+): Promise<{ converted: number; failed: number }> => {
+  // Keyed by content hash: the same gaiji repeated in one paste is traced once.
+  const specsByGlyphId = new Map<string, Promise<GlyphGraphicSpec | null>>();
+  const specs = await Promise.all(
+    sources.map(async (src, index) => {
+      const fromHtml = await readPastedImageBytes(src);
+      const bytes = sharperImage(fromHtml, alternates?.[index] ?? null);
+      if (!bytes) return null;
+      const glyphId = await glyphIdForImageBytes(bytes);
+      if (!specsByGlyphId.has(glyphId)) {
+        specsByGlyphId.set(glyphId, prepareGlyphFromImageBytes(writer, bytes));
+      }
+      return specsByGlyphId.get(glyphId)!;
+    }),
+  );
+
+  const editor = writer.editor;
+  const body = editor?.getBody();
+  if (!editor || !body) return { converted: 0, failed: sources.length };
+
+  let converted = 0;
+  let failed = 0;
+  const replaceAll = () => {
+    for (let marker = findGaijiMarker(body); marker; marker = findGaijiMarker(body)) {
+      const range = editor.dom.createRng();
+      range.setStart(marker.node, marker.start);
+      range.setEnd(marker.node, marker.end);
+      range.deleteContents();
+      editor.selection.setRng(range);
+
+      const spec = specs[marker.index];
+      if (spec) {
+        // insertGlyph does all of its DOM work synchronously, so it lands
+        // inside this transaction despite being declared async.
+        void insertGlyph(writer, { ...spec, reuseExistingDeclaration: true });
+        converted += 1;
+      } else {
+        const placeholder = editor.getDoc().createTextNode(GAIJI_PLACEHOLDER);
+        range.insertNode(placeholder);
+        placeCaretAfterElement(writer, placeholder as unknown as Element);
+        failed += 1;
+      }
+    }
+  };
+  editor.undoManager.transact(replaceAll);
+  body.normalize();
+
+  writer.event('contentChanged').publish();
+  return { converted, failed };
 };
 
 /** A dragged web image arrives as a remote URL, not bytes - fetch it via the

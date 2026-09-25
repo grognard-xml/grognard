@@ -22,9 +22,11 @@ export interface ProjectGlyph {
   kage?: string;
   /** Project-relative path to the cached rendered SVG, e.g. "_glyphs/chhiv-0017.svg". */
   svgRelativeUrl: string;
-  sourceType: 'composed' | 'image';
-  /** The two component names used to compose this glyph, if source_type is "composed". */
+  sourceType: 'composed' | 'image' | 'glyphwiki';
+  /** The two component names used to compose this glyph, for source_type "composed" or "glyphwiki". */
   componentIds?: [string, string];
+  /** The GlyphWiki entry name this was adopted from (e.g. "abyterus_g0000"), for source_type "glyphwiki" - kept so the glyph never falsely presents as a purely local composition (see glyph_maker.md §19, provenance). */
+  glyphwikiId?: string;
   notes?: string;
   createdAt: string;
 }
@@ -51,7 +53,8 @@ export const parseProjectGlyphRegistry = (json: string): ProjectGlyphRegistry =>
         typeof (g as ProjectGlyph).id === 'string' &&
         typeof (g as ProjectGlyph).svgRelativeUrl === 'string' &&
         ((g as ProjectGlyph).sourceType === 'composed' ||
-          (g as ProjectGlyph).sourceType === 'image'),
+          (g as ProjectGlyph).sourceType === 'image' ||
+          (g as ProjectGlyph).sourceType === 'glyphwiki'),
     );
     return { version: 1, glyphs };
   } catch {
@@ -92,18 +95,19 @@ export const addProjectGlyph = (
 });
 
 /**
- * Every already-composed project glyph's own KAGE data, keyed by id - fed to
+ * Every project glyph's own KAGE data that has one, keyed by id - fed to
  * `renderKageToSvg` as `extraComponents` so a new composition can use a
- * previously-composed project glyph as one of its two components (recursive
- * composition, per the "known Unicode character / known components /
- * composed" continuum in glyph_maker.md §31).
+ * previously-composed or GlyphWiki-adopted project glyph as one of its two
+ * components (recursive composition, per the "known Unicode character /
+ * known components / composed" continuum in glyph_maker.md §31). An
+ * image-derived glyph has no `kage` field and is naturally excluded.
  */
 export const projectGlyphKageComponentMap = (
   registry: ProjectGlyphRegistry,
 ): Record<string, string> => {
   const map: Record<string, string> = {};
   for (const glyph of registry.glyphs) {
-    if (glyph.sourceType === 'composed' && glyph.kage) map[glyph.id] = glyph.kage;
+    if (glyph.kage) map[glyph.id] = glyph.kage;
   }
   return map;
 };

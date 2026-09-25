@@ -46,6 +46,17 @@ When shipping releases, keep this document in sync with the actual dependency se
     `packages/cwrc-leafwriter/src/resources/glyphwiki/LICENSE.txt`): free to
     use, copy, and distribute, with or without modification, commercially or
     not, no attribution required. Copyright 2009 GlyphWiki Project.
+- **CHISE IDS decomposition data** (`packages/cwrc-leafwriter/src/resources/ids/idsUnicodeIndex.json`)
+  - an exact-match IDS-string -> Unicode-character lookup table, built from
+    the CHISE IDS project's `ids.txt` (distributed via
+    `github.com/cjkvi/cjkvi-ids`; upstream README copied to
+    `packages/cwrc-leafwriter/src/resources/ids/cjkvi-ids-README.md`), used
+    by the glyph composer to recognize when a composition is already an
+    ordinary encoded character. GPL-2.0-or-later (traced to CHISE-IDS's own
+    source headers, e.g. `ids.el`'s "either version 2, or (at your option)
+    any later version"); combined into this AGPL-3.0-only program under
+    each license's section 13 compatibility clause, same reasoning as
+    `@kurgm/kage-engine` above.
 - `Noto Sans` - pre-rendered glyph tiles (SDF/PBF) for map-label rendering,
   bundled under `apps/commons/public/fonts/Noto Sans {Regular,Medium,Italic}/`.
   SIL Open Font License 1.1; full text copied to `OFL-1.1-noto-sans.txt` in

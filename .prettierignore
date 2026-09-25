@@ -26,6 +26,15 @@ packages/cwrc-leafwriter-validator/src/lib/jsdom/**
 # drifts from what the extraction script emits on a regenerate.
 packages/cwrc-leafwriter/src/resources/glyphwiki/kageCore.json
 
+# Bundled GlyphWiki compound-glyph index (scripts/build-glyphwiki-compound-index.mjs):
+# 282,518 compact [name, kageData, componentA, componentB] tuples, same
+# single-line-on-purpose rationale as kageCore.json above.
+packages/cwrc-leafwriter/src/resources/glyphwiki/glyphwikiCompoundIndex.json
+
+# Bundled IDS-to-Unicode decomposition index (scripts/build-ids-unicode-index.mjs):
+# 91,708 compact [ids, char] tuples, same single-line-on-purpose rationale.
+packages/cwrc-leafwriter/src/resources/ids/idsUnicodeIndex.json
+
 # Wide reference tables. Prettier pads every cell to its column's widest entry,
 # and these hold whole UI strings in four languages: formatting the German
 # triage table takes it from 89KB to 784KB, all of it trailing spaces, and makes

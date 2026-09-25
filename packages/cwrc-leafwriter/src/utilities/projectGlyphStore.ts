@@ -1,6 +1,13 @@
 import type Writer from '../js/Writer';
 import { insertGlyph } from './glyphEditor';
-import { composeIds, composeKageData, type IdsOperator } from './kageCompose';
+import { findGlyphwikiCandidates, type GlyphwikiCandidate } from './glyphwikiIndex';
+import { findEncodedCharacterForIds } from './idsUnicodeIndex';
+import {
+  composeIds,
+  composeKageData,
+  guessOperatorFromKageData,
+  type IdsOperator,
+} from './kageCompose';
 import { isKnownComponent, renderKageToSvg } from './kageRenderer';
 import {
   addProjectGlyph,
@@ -79,7 +86,13 @@ export const resolveComponentInput = (
   if (BARE_UNICODE_CHAR_RE.test(trimmed)) {
     const codePoint = trimmed.codePointAt(0);
     if (codePoint !== undefined) {
-      return { name: `u${codePoint.toString(16)}`, kind: 'unicode' };
+      // GlyphWiki zero-pads to at least 4 hex digits (e.g. "u0035", not
+      // "u35") - irrelevant for ordinary CJK ideographs, whose codepoints
+      // are always >= 0x1000 and so already produce 4+ digits naturally, but
+      // a real mismatch for anything below that (digits, Latin letters,
+      // basic punctuation used as GlyphWiki components - confirmed against
+      // the bundled data: "u0035" exists, "u35" does not).
+      return { name: `u${codePoint.toString(16).padStart(4, '0')}`, kind: 'unicode' };
     }
   }
   if (getProjectGlyph(registry, trimmed)) return { name: trimmed, kind: 'project-glyph' };
@@ -91,6 +104,19 @@ export interface ComposePreview {
   kageData: string;
   ids: string;
   unresolvedComponents: string[];
+  /** Set when this exact IDS composition already has a standard Unicode
+   * decomposition on record - Phase A of composer-visual-redesign.md, the
+   * check zi.tools performs first, before anything else. Stronger and
+   * checked ahead of `glyphwikiCandidates`: this means the structure itself
+   * is already an ordinary encoded character, not merely that some
+   * non-standard glyph happens to combine the same two parts. */
+  existingUnicodeChar: string | null;
+  /** GlyphWiki entries already combining these two components directly, per
+   * glyph_maker.md Phase 2 ("find before compose") - independent of which
+   * operator is selected, since GlyphWiki's real geometry for the pair may
+   * not match the composer's own default layout for that operator. Each
+   * candidate can be adopted instead of saving the fresh composition. */
+  glyphwikiCandidates: GlyphwikiCandidate[];
 }
 
 /** Renders a live preview without saving anything - used by the composer
@@ -104,26 +130,81 @@ export const previewComposition = (
   const first = resolveComponentInput(firstInput, registry);
   const second = resolveComponentInput(secondInput, registry);
   const kageData = composeKageData(operator, first.name, second.name);
+  const ids = composeIds(operator, first.name, second.name);
   const extraComponents = projectGlyphKageComponentMap(registry);
   const { svg, unresolvedComponents } = renderKageToSvg(kageData, extraComponents);
   return {
     svg,
     kageData,
-    ids: composeIds(operator, first.name, second.name),
+    ids,
     unresolvedComponents,
+    existingUnicodeChar: findEncodedCharacterForIds(ids),
+    glyphwikiCandidates: findGlyphwikiCandidates(first.name, second.name),
   };
 };
 
 export type ComposeResult = { ok: true; glyph: ProjectGlyph } | { ok: false; error: string };
 
 /**
- * Full save path: validate both components actually resolve to geometry,
- * render, allocate an id, write the cached SVG file, persist the registry,
- * and insert `<g ref="#id">` at the cursor (which also writes this
- * document's own `<charDecl>` cache entry - see glyphEditor.ts's
- * insertGlyph). Refuses to save a composition with any unresolved
- * component: a silently-incomplete glyph is worse than an explicit error,
- * per the lesson from the extraction decision gate.
+ * Shared tail for both "compose a new glyph" and "adopt a GlyphWiki
+ * candidate": write the cached SVG file, persist the registry, and insert
+ * `<g ref="#id">` at the cursor (which also writes this document's own
+ * `<charDecl>` cache entry - see glyphEditor.ts's insertGlyph). Neither
+ * caller should reach here with an unresolved component - each checks that
+ * itself first, since the right error message differs (see the extraction
+ * decision gate's lesson: a clean render is not proof of resolution).
+ */
+const persistAndInsertProjectGlyph = async (
+  writer: Writer,
+  projectRoot: string,
+  registry: ProjectGlyphRegistry,
+  glyphWithoutSvgUrl: Omit<ProjectGlyph, 'svgRelativeUrl'>,
+  svg: string,
+): Promise<ComposeResult> => {
+  const api = window.electronAPI;
+  if (!api?.ensureDirectory || !api.writeFile) {
+    return { ok: false, error: 'File access is unavailable.' };
+  }
+
+  await api.ensureDirectory(`${projectRoot}/${SVG_DIR}`);
+  await api.writeFile(svgPath(projectRoot, glyphWithoutSvgUrl.id), svg);
+
+  const glyph: ProjectGlyph = {
+    ...glyphWithoutSvgUrl,
+    svgRelativeUrl: svgRelativeUrl(glyphWithoutSvgUrl.id),
+  };
+
+  const updatedRegistry = addProjectGlyph(registry, glyph);
+  const saved = await saveProjectGlyphRegistryToDisk(projectRoot, updatedRegistry);
+  if (!saved) return { ok: false, error: 'Could not save the project glyph registry.' };
+
+  const inserted = await insertGlyph(writer, {
+    glyphId: glyph.id,
+    // No separate source image for a composed/adopted glyph - the rendered
+    // SVG is both the "source" and "normalized" graphic (see
+    // glyphCharDecl.ts's GlyphGraphicSpec; findGlyphCharDeclEntry requires
+    // both to be present).
+    sourceUrl: glyph.svgRelativeUrl,
+    svgUrl: glyph.svgRelativeUrl,
+    svgWidth: 200,
+    svgHeight: 200,
+    mappings: [
+      { type: 'ids', value: glyph.ids ?? '' },
+      { type: 'kage', value: glyph.kage ?? '' },
+      ...(glyph.glyphwikiId ? [{ type: 'glyphwiki', value: glyph.glyphwikiId }] : []),
+    ],
+  });
+  if (!inserted) return { ok: false, error: 'Could not insert the glyph into the document.' };
+
+  return { ok: true, glyph };
+};
+
+/**
+ * Full save path for a fresh composition: validate both components actually
+ * resolve to geometry, render, allocate an id, then hand off to
+ * `persistAndInsertProjectGlyph`. Refuses to save a composition with any
+ * unresolved component: a silently-incomplete glyph is worse than an
+ * explicit error, per the lesson from the extraction decision gate.
  */
 export const composeAndInsertProjectGlyph = async (
   writer: Writer,
@@ -155,44 +236,62 @@ export const composeAndInsertProjectGlyph = async (
     };
   }
 
-  const api = window.electronAPI;
-  if (!api?.ensureDirectory || !api.writeFile) {
-    return { ok: false, error: 'File access is unavailable.' };
+  return persistAndInsertProjectGlyph(
+    writer,
+    projectRoot,
+    registry,
+    {
+      id: nextProjectGlyphId(registry),
+      ids: composeIds(operator, first.name, second.name),
+      kage: kageData,
+      sourceType: 'composed',
+      componentIds: [first.name, second.name],
+      createdAt: new Date().toISOString(),
+    },
+    svg,
+  );
+};
+
+/**
+ * Adopts a GlyphWiki candidate (from `findGlyphwikiCandidates`/
+ * `previewComposition`'s `glyphwikiCandidates`) as a project glyph instead
+ * of composing a fresh one - "find before compose" (glyph_maker.md §7). The
+ * candidate's own components are already guaranteed known (that's how the
+ * index was built - see build-glyphwiki-compound-index.mjs), so this never
+ * hits the "unresolved component" path a fresh composition can.
+ */
+export const adoptGlyphwikiCandidateAndInsert = async (
+  writer: Writer,
+  candidate: GlyphwikiCandidate,
+): Promise<ComposeResult> => {
+  const projectRoot = getProjectRootPath();
+  if (!projectRoot) return { ok: false, error: 'No project is open.' };
+
+  const registry = await loadProjectGlyphRegistryFromDisk(projectRoot);
+  const extraComponents = projectGlyphKageComponentMap(registry);
+  const { svg, unresolvedComponents } = renderKageToSvg(candidate.kageData, extraComponents);
+  if (unresolvedComponents.length > 0) {
+    return {
+      ok: false,
+      error: `This GlyphWiki entry references components with no geometry: ${unresolvedComponents.join(', ')}.`,
+    };
   }
 
-  const id = nextProjectGlyphId(registry);
-  await api.ensureDirectory(`${projectRoot}/${SVG_DIR}`);
-  await api.writeFile(svgPath(projectRoot, id), svg);
+  const operator = guessOperatorFromKageData(candidate.kageData);
 
-  const glyph: ProjectGlyph = {
-    id,
-    ids: composeIds(operator, first.name, second.name),
-    kage: kageData,
-    svgRelativeUrl: svgRelativeUrl(id),
-    sourceType: 'composed',
-    componentIds: [first.name, second.name],
-    createdAt: new Date().toISOString(),
-  };
-
-  const updatedRegistry = addProjectGlyph(registry, glyph);
-  const saved = await saveProjectGlyphRegistryToDisk(projectRoot, updatedRegistry);
-  if (!saved) return { ok: false, error: 'Could not save the project glyph registry.' };
-
-  const inserted = await insertGlyph(writer, {
-    glyphId: glyph.id,
-    // No separate source image for a composed glyph - the rendered SVG is
-    // both the "source" and "normalized" graphic (see glyphCharDecl.ts's
-    // GlyphGraphicSpec; findGlyphCharDeclEntry requires both to be present).
-    sourceUrl: glyph.svgRelativeUrl,
-    svgUrl: glyph.svgRelativeUrl,
-    svgWidth: 200,
-    svgHeight: 200,
-    mappings: [
-      { type: 'ids', value: glyph.ids ?? '' },
-      { type: 'kage', value: glyph.kage ?? '' },
-    ],
-  });
-  if (!inserted) return { ok: false, error: 'Could not insert the glyph into the document.' };
-
-  return { ok: true, glyph };
+  return persistAndInsertProjectGlyph(
+    writer,
+    projectRoot,
+    registry,
+    {
+      id: nextProjectGlyphId(registry),
+      ids: composeIds(operator, candidate.componentA, candidate.componentB),
+      kage: candidate.kageData,
+      sourceType: 'glyphwiki',
+      glyphwikiId: candidate.name,
+      componentIds: [candidate.componentA, candidate.componentB],
+      createdAt: new Date().toISOString(),
+    },
+    svg,
+  );
 };
