@@ -824,6 +824,8 @@ declare global {
       options?: { threshold?: number; minBlobPixels?: number; marginPixels?: number },
     ) => Promise<{ svg: string; threshold: number; width: number; height: number }>;
     fetchRemoteImageBytes?: (url: string) => Promise<Uint8Array | null>;
+    readPastedImageFile?: (fileUrl: string) => Promise<Uint8Array | null>;
+    readClipboardRtfImages?: () => Promise<(Uint8Array | null)[]>;
     ensureDirectory?: (dirPath: string) => Promise<void>;
     readDirectory?: (
       dirPath: string,

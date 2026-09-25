@@ -20,6 +20,8 @@
     "noUnusedParameters": false,
     "paths": {
       "@src/*": ["src/*"],
+      "@cwrc/leafwriter/glyphCharDecl": ["src/utilities/glyphCharDecl.ts"],
+      "@cwrc/leafwriter/gaijiImport": ["src/utilities/gaijiImport.ts"],
       "@cwrc/leafwriter/pageBreakDetection": ["src/utilities/pageBreakDetection.ts"],
       "@cwrc/leafwriter/teiMilestoneHeuristics": ["src/utilities/teiMilestoneHeuristics.ts"]
     },

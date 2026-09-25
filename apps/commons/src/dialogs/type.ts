@@ -48,6 +48,9 @@ interface SimpleDialogMessageProps {
 
 export interface SimpleDialogProps extends IDialog {
   Body?: React.FC<SimpleDialogMessageProps> | string;
+  /** Keyboard shortcuts for actions, as `event.key` -> action (e.g. `{ Enter: 'ok' }`).
+   * Escape already closes with `'escapeKeyDown'` unless `preventEscape` is set. */
+  keyBindings?: Record<string, string>;
 }
 
 export interface ChineseAssetsDialogProps extends IDialog {

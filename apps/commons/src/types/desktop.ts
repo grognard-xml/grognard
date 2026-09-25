@@ -456,9 +456,21 @@ export interface ElectronAPI {
   readFile: (filePath: string) => Promise<string>;
   readFileAutoEncoding: (filePath: string) => Promise<{ encoding: string; text: string }>;
   extractDocxText: (filePath: string) => Promise<{ text: string; warnings: string[] }>;
+  extractDocxTextWithImages?: (filePath: string) => Promise<{
+    text: string;
+    images: { contentType: string; bytes: Uint8Array }[];
+    warnings: string[];
+  }>;
   extractOdtText: (filePath: string) => Promise<{ text: string; warnings: string[] }>;
   writeClipboardRich: (flavors: { text: string; html?: string; rtf?: string }) => Promise<void>;
   writeFile: (filePath: string, content: string) => Promise<void>;
+  writeBinaryFile?: (filePath: string, bytes: Uint8Array) => Promise<void>;
+  readPastedImageFile?: (fileUrl: string) => Promise<Uint8Array | null>;
+  readClipboardRtfImages?: () => Promise<(Uint8Array | null)[]>;
+  vectorizeGlyphImage?: (
+    bytes: Uint8Array,
+    options?: { threshold?: number; minBlobPixels?: number; marginPixels?: number },
+  ) => Promise<{ svg: string; threshold: number; width: number; height: number }>;
   pathExists: (filePath: string) => Promise<boolean>;
   statFile: (filePath: string) => Promise<FileStat>;
   syncWatchedFiles: (paths: string[]) => Promise<void>;

@@ -12,6 +12,7 @@ export const SimpleDialog = ({
   Body,
   id = nanoid(),
   icon,
+  keyBindings,
   maxWidth = 'sm',
   onBeforeClose,
   onClose,
@@ -59,6 +60,14 @@ export const SimpleDialog = ({
     onClose?.(action, data);
   };
 
+  const handleKeyDown = (event: React.KeyboardEvent) => {
+    const action = keyBindings?.[event.key];
+    if (!action || actionsDisabled) return;
+    event.preventDefault();
+    event.stopPropagation();
+    void handleAction(action);
+  };
+
   return (
     <Dialog
       aria-labelledby="alert-dialog-title"
@@ -66,6 +75,7 @@ export const SimpleDialog = ({
       id={id}
       maxWidth={maxWidth}
       onClose={handleClose}
+      onKeyDown={keyBindings ? handleKeyDown : undefined}
       open={open}
     >
       <DialogTitle

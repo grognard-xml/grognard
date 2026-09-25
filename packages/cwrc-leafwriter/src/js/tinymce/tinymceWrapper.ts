@@ -40,10 +40,18 @@ import {
   getDroppedImageFile,
 } from '../../utilities/clipboardImage';
 import {
+  convertGaijiMarkersInEditor,
   glyphImageUnavailableReason,
   insertGlyphFromImageFile,
   insertGlyphFromRemoteImageUrl,
 } from '../../utilities/glyphEditor';
+import {
+  gaijiChoiceForKey,
+  htmlHasImages,
+  htmlToTextWithGaijiMarkers,
+  stripGaijiMarkers,
+  type GaijiConversionChoice,
+} from '../../utilities/gaijiImport';
 import { refreshGraphicsInBody } from '../schema/mappings/utitlities';
 import { initEditorZoom } from './editorZoom';
 import { DEFAULT_EDITOR_FONT_SIZE } from '../../overmind/editor/state';
@@ -650,6 +658,173 @@ export const tinymceWrapperInit = function ({
     updateSelection(selectedMode);
   };
 
+  /**
+   * Asked when pasted rich text (typically from Word) has inline images -
+   * usually gaiji set as pictures. Enter converts them to glyphs, Backspace
+   * pastes the text without them, Escape cancels the paste. The keys work
+   * wherever focus sits in the dialog, so a focused button can't turn Enter
+   * into a different choice.
+   */
+  const showGaijiConvertPrompt = (imageCount: number): Promise<GaijiConversionChoice> =>
+    new Promise((resolve) => {
+      let settled = false;
+      const $dialog = $('<div class="grognard-gaiji-convert" />');
+      const settle = (choice: GaijiConversionChoice) => {
+        if (settled) return;
+        settled = true;
+        $dialog.dialog('destroy').remove();
+        resolve(choice);
+      };
+
+      $('<p />')
+        .text(
+          imageCount === 1
+            ? i18next.t('LW.The pasted text contains an inline image.')
+            : i18next.t('LW.The pasted text contains {{count}} inline images.', {
+                count: imageCount,
+              }),
+        )
+        .appendTo($dialog);
+      $('<p />')
+        .css({ fontSize: '12px', opacity: 0.75 })
+        .text(
+          i18next.t(
+            'LW.Convert them to glyphs? Identical images become one glyph; any that cannot be converted are marked 〓.',
+          ),
+        )
+        .appendTo($dialog);
+
+      $dialog.dialog({
+        title: i18next.t('LW.Convert images to glyphs?'),
+        modal: true,
+        resizable: false,
+        width: 420,
+        closeOnEscape: false,
+        close: () => settle('cancel'),
+        buttons: [
+          { text: i18next.t('LW.Convert (Enter)'), click: () => settle('convert') },
+          { text: i18next.t('LW.Text only (Backspace)'), click: () => settle('skip') },
+          { text: i18next.t('LW.Cancel (Esc)'), click: () => settle('cancel') },
+        ],
+      });
+      // On the whole dialog (buttons included), which jQuery UI focuses on open.
+      $dialog.closest('.ui-dialog').on('keydown', (event) => {
+        const choice = gaijiChoiceForKey(event.key);
+        if (!choice) return;
+        event.preventDefault();
+        event.stopPropagation();
+        settle(choice);
+      });
+    });
+
+  interface PasteTarget {
+    bookmark: ReturnType<LeafWriterEditor['selection']['getBookmark']>;
+    range: Range | null | undefined;
+    context: PasteInsertionContext;
+  }
+
+  /** Must run synchronously inside the paste event, before any dialog steals the selection. */
+  const capturePasteTarget = (editor: LeafWriterEditor): PasteTarget => {
+    const bookmark = editor.selection.getBookmark(1);
+    const tinyMcePasteRange = editor.selection.getRng()?.cloneRange();
+    const browserPasteTargetRange = getPendingPasteTargetRange(editor);
+    const lastKnownPasteRange = getLastKnownEditorRange(editor);
+    pendingPasteTargetRange = null;
+    const range = browserPasteTargetRange ?? lastKnownPasteRange ?? tinyMcePasteRange;
+    return { bookmark, range, context: capturePasteInsertionContext(editor, range) };
+  };
+
+  const commitPasteContent = (
+    editor: LeafWriterEditor,
+    target: PasteTarget,
+    content: string,
+    splitBlock: boolean,
+    fromLeafWriter: boolean,
+    afterPaste?: () => void,
+  ) => {
+    const { bookmark, range: pasteRange, context: pasteContext } = target;
+    editor.focus();
+    try {
+      if (pasteRange) {
+        editor.selection.setRng(pasteRange);
+      } else {
+        editor.selection.moveToBookmark(bookmark);
+      }
+    } catch {
+      editor.selection.moveToBookmark(bookmark);
+    }
+    if (!pasteContext.parentTag) return;
+    (editor as any)._leafWriterLastPasteFromLeafWriter = fromLeafWriter;
+    // Commit the pre-paste state so a single undo returns exactly here.
+    editor.undoManager.add();
+    const liveRange = editor.selection.getRng();
+    const savedRangeIsUsable =
+      pasteRange &&
+      isNodeInEditorBody(editor, pasteRange.startContainer) &&
+      isNodeInEditorBody(editor, pasteRange.endContainer);
+    const restoredRange = savedRangeIsUsable ? pasteRange : liveRange;
+    const blockEl = pasteContext.blockEl;
+    if (
+      splitBlock &&
+      blockEl &&
+      isNodeInEditorBody(editor, blockEl) &&
+      blockEl.contains(restoredRange.startContainer) &&
+      blockEl.contains(restoredRange.endContainer)
+    ) {
+      insertEditorContentSplittingBlock(editor, content, restoredRange, blockEl);
+    } else {
+      insertEditorContentAtRange(editor, content, restoredRange);
+    }
+    setTimeout(() => {
+      const body = editor.getBody();
+      normalizePastedParagraphs(writer, body);
+      writer.tagger.processNewContent(body);
+      fixNestedPastedParagraphs(body);
+      removeEmptyParagraphs(body, writer.schemaManager.getBlockTag());
+      // Commit the fully processed paste as one undo level.
+      editor.undoManager.add();
+      writer.event('contentPasted').publish({ fromLeafWriter });
+      writer.event('contentChanged').publish();
+      afterPaste?.();
+    }, 0);
+  };
+
+  /**
+   * Pastes text we built ourselves (rather than the browser's own clipboard
+   * HTML): through the Paste Special dialog when its line breaks are
+   * ambiguous, exactly as a plain-text paste would; otherwise directly -
+   * one line inline, several lines as one paragraph each (the shape of the
+   * rich source, where every line was its own paragraph).
+   */
+  const pasteTextAtTarget = (
+    editor: LeafWriterEditor,
+    target: PasteTarget,
+    text: string,
+    fromLeafWriter: boolean,
+    afterPaste?: () => void,
+  ) => {
+    if (!text.trim()) return;
+    const commit = (content: string, splitBlock: boolean) =>
+      commitPasteContent(editor, target, content, splitBlock, fromLeafWriter, afterPaste);
+
+    const ambiguity = detectPasteAmbiguity({ fromLeafWriter, text });
+    if (ambiguity) {
+      showPasteSpecialDialog({ ambiguity, context: target.context, text, onPaste: commit });
+      return;
+    }
+
+    const lines = text.split('\n').filter((line) => line.trim());
+    const result =
+      lines.length > 1
+        ? buildPasteModeContent(target.context, 'paragraphs', lines.join('\n\n'))
+        : buildPasteModeContent(target.context, 'plain', lines[0] ?? '');
+    if (result.content) {
+      commit(result.content, result.splitBlock === true);
+    } else if (result.error) {
+      writer.dialogManager.show('message', { title: 'Paste', msg: result.error, type: 'error' });
+    }
+  };
+
   const shouldBlockEditorTextInput = (): boolean =>
     writer.isTextLocked === true || Boolean(window.__desktopTagging?.isPopupOpen?.());
 
@@ -1045,68 +1220,71 @@ export const tinymceWrapperInit = function ({
               return;
             }
 
+            const html = fromLeafWriter ? '' : clipboard.getData('text/html');
+            const marked = html && htmlHasImages(html) ? htmlToTextWithGaijiMarkers(html) : null;
+            if (marked && marked.sources.length > 0) {
+              // Rich text with inline images (typically gaiji from Word).
+              // Left to TinyMCE, the images would either vanish or become raw
+              // <img>s that are silently dropped on save.
+              event.preventDefault();
+              event.stopImmediatePropagation();
+              const target = capturePasteTarget(editor);
+              // Start now, while the clipboard certainly still holds this
+              // paste: Word's RTF flavor has larger renditions of the images.
+              const rtfImages = (
+                window.electronAPI?.readClipboardRtfImages?.() ?? Promise.resolve(null)
+              ).catch(() => null);
+              void showGaijiConvertPrompt(marked.sources.length).then((choice) => {
+                editor.focus();
+                if (choice === 'cancel') return;
+                const reason = choice === 'convert' ? glyphImageUnavailableReason() : null;
+                if (reason) {
+                  writer.overmindActions.ui.notifyViaSnackbar(i18next.t(reason));
+                  return;
+                }
+                const pasteText =
+                  choice === 'convert' ? marked.text : stripGaijiMarkers(marked.text);
+                const afterPaste =
+                  choice === 'convert'
+                    ? () =>
+                        void rtfImages
+                          // Only trust a one-to-one match; otherwise the RTF
+                          // may hold pictures the HTML doesn't (or vice versa).
+                          .then((images) =>
+                            convertGaijiMarkersInEditor(
+                              writer,
+                              marked.sources,
+                              images?.length === marked.sources.length ? images : undefined,
+                            ),
+                          )
+                          .then(({ failed }) => {
+                            if (failed === 0) return;
+                            writer.overmindActions.ui.notifyViaSnackbar(
+                              i18next.t(
+                                'LW.{{count}} image(s) could not be converted and are marked 〓.',
+                                { count: failed },
+                              ),
+                            );
+                          })
+                    : undefined;
+                pasteTextAtTarget(editor, target, pasteText, false, afterPaste);
+              });
+              return;
+            }
+
             const ambiguity = detectPasteAmbiguity({ fromLeafWriter, text });
             if (!ambiguity) return;
 
             event.preventDefault();
             event.stopImmediatePropagation();
 
-            const bookmark = editor.selection.getBookmark(1);
-            const tinyMcePasteRange = editor.selection.getRng()?.cloneRange();
-            const browserPasteTargetRange = getPendingPasteTargetRange(editor);
-            const lastKnownPasteRange = getLastKnownEditorRange(editor);
-            pendingPasteTargetRange = null;
-            const pasteRange = browserPasteTargetRange ?? lastKnownPasteRange ?? tinyMcePasteRange;
-            const pasteContext = capturePasteInsertionContext(editor, pasteRange);
+            const target = capturePasteTarget(editor);
             showPasteSpecialDialog({
               ambiguity,
-              context: pasteContext,
+              context: target.context,
               text,
-              onPaste: (content, splitBlock) => {
-                editor.focus();
-                try {
-                  if (pasteRange) {
-                    editor.selection.setRng(pasteRange);
-                  } else {
-                    editor.selection.moveToBookmark(bookmark);
-                  }
-                } catch {
-                  editor.selection.moveToBookmark(bookmark);
-                }
-                if (!pasteContext.parentTag) return;
-                (editor as any)._leafWriterLastPasteFromLeafWriter = fromLeafWriter;
-                // Commit the pre-paste state so a single undo returns exactly here.
-                editor.undoManager.add();
-                const liveRange = editor.selection.getRng();
-                const savedRangeIsUsable =
-                  pasteRange &&
-                  isNodeInEditorBody(editor, pasteRange.startContainer) &&
-                  isNodeInEditorBody(editor, pasteRange.endContainer);
-                const restoredRange = savedRangeIsUsable ? pasteRange : liveRange;
-                const blockEl = pasteContext.blockEl;
-                if (
-                  splitBlock &&
-                  blockEl &&
-                  isNodeInEditorBody(editor, blockEl) &&
-                  blockEl.contains(restoredRange.startContainer) &&
-                  blockEl.contains(restoredRange.endContainer)
-                ) {
-                  insertEditorContentSplittingBlock(editor, content, restoredRange, blockEl);
-                } else {
-                  insertEditorContentAtRange(editor, content, restoredRange);
-                }
-                setTimeout(() => {
-                  const body = editor.getBody();
-                  normalizePastedParagraphs(writer, body);
-                  writer.tagger.processNewContent(body);
-                  fixNestedPastedParagraphs(body);
-                  removeEmptyParagraphs(body, writer.schemaManager.getBlockTag());
-                  // Commit the fully processed paste as one undo level.
-                  editor.undoManager.add();
-                  writer.event('contentPasted').publish({ fromLeafWriter });
-                  writer.event('contentChanged').publish();
-                }, 0);
-              },
+              onPaste: (content, splitBlock) =>
+                commitPasteContent(editor, target, content, splitBlock, fromLeafWriter),
             });
           },
           true,

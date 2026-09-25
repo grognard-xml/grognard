@@ -68,6 +68,12 @@ import {
   type DocumentImportSource,
 } from '@src/desktop/documentImport';
 import {
+  convertImportedGaiji,
+  gaijiModeForCatalog,
+  type DocxTextWithImages,
+} from '@src/desktop/documentImportGaiji';
+import { stripGaijiMarkers, type GaijiConversionChoice } from '@cwrc/leafwriter/gaijiImport';
+import {
   countImportedParagraphs,
   formatDocumentImportReportDetail,
   summarizeDocumentImportReport,
@@ -958,15 +964,85 @@ const confirmXmlDocumentImport = async (xmlCount: number): Promise<boolean> => {
   return result.response === 1;
 };
 
+/**
+ * Word documents with inline images (usually gaiji set as pictures): ask
+ * once for the whole import. Enter converts, Backspace imports the text
+ * only (the pre-existing behaviour), Escape cancels before anything is written.
+ */
+const confirmGaijiConversion = (
+  actions: Context['actions'],
+  imageCount: number,
+  documentCount: number,
+): Promise<GaijiConversionChoice> =>
+  new Promise((resolve) => {
+    actions.ui.openDialog({
+      props: {
+        title: t('LWC.desktop.project.dialogs.import_gaiji_title'),
+        Body: `${t('LWC.desktop.project.dialogs.import_gaiji_message', {
+          documentCount,
+          imageCount,
+        })} ${t('LWC.desktop.project.dialogs.import_gaiji_detail')}`,
+        actions: [
+          { action: 'cancel', label: t('LWC.desktop.project.dialogs.import_gaiji_cancel_button') },
+          { action: 'skip', label: t('LWC.desktop.project.dialogs.import_gaiji_skip_button') },
+          {
+            action: 'convert',
+            label: t('LWC.desktop.project.dialogs.import_gaiji_convert_button'),
+            variant: 'contained',
+          },
+        ],
+        keyBindings: { Enter: 'convert', Backspace: 'skip' },
+        // Escape and backdrop clicks arrive as their MUI close reasons.
+        onClose: (action) =>
+          resolve(action === 'convert' ? 'convert' : action === 'skip' ? 'skip' : 'cancel'),
+      },
+    });
+  });
+
+/** Pre-extracts every .docx in the plan so the gaiji question can be asked
+ * once, up front, before any file is written. Empty when the desktop build
+ * predates extractDocxTextWithImages or the schema has no glyph mechanism. */
+const extractDocxSourcesWithImages = async (
+  plan: DocumentImportPlanItem[],
+  catalogId: string | undefined,
+): Promise<Map<string, DocxTextWithImages>> => {
+  const extracted = new Map<string, DocxTextWithImages>();
+  const extract = window.electronAPI?.extractDocxTextWithImages;
+  if (!extract || !gaijiModeForCatalog(catalogId)) return extracted;
+
+  for (const item of plan) {
+    if (item.format !== 'docx') continue;
+    try {
+      extracted.set(item.sourcePath, await extract(item.sourcePath));
+    } catch (error) {
+      // Leave it to writeImportedDocument's plain path, which reports failures properly.
+      console.warn('[document-import] image-aware docx extraction failed', error);
+    }
+  }
+  return extracted;
+};
+
+interface ImportGaijiOptions {
+  choice: GaijiConversionChoice;
+  extracted: Map<string, DocxTextWithImages>;
+}
+
 const writeImportedDocument = async (
   item: DocumentImportPlanItem,
   config: ProjectBundle['config'],
   metadata: Awaited<ReturnType<typeof readProjectMetadata>>,
-): Promise<{ keysDemoted: number; paragraphCount: number; xml: string }> => {
+  gaiji?: ImportGaijiOptions,
+): Promise<{
+  gaijiFailed: number;
+  keysDemoted: number;
+  paragraphCount: number;
+  xml: string;
+}> => {
   if (!window.electronAPI) throw new Error('Desktop file APIs are unavailable.');
 
   let xml: string;
   let keysDemoted = 0;
+  let gaijiFailed = 0;
 
   if (item.format === 'xml') {
     const { text } = await window.electronAPI.readFileAutoEncoding(item.sourcePath);
@@ -985,8 +1061,11 @@ const writeImportedDocument = async (
     });
     assertImportedXmlWellFormed(xml, 'Imported XML is not well formed after transform');
   } else {
-    const { text } =
-      item.format === 'docx'
+    const withImages = gaiji?.extracted.get(item.sourcePath);
+    const convertImages = Boolean(withImages?.images.length) && gaiji?.choice === 'convert';
+    const { text } = withImages
+      ? { text: convertImages ? withImages.text : stripGaijiMarkers(withImages.text) }
+      : item.format === 'docx'
         ? await window.electronAPI.extractDocxText(item.sourcePath)
         : item.format === 'odt'
           ? await window.electronAPI.extractOdtText(item.sourcePath)
@@ -1004,6 +1083,26 @@ const writeImportedDocument = async (
       stage: 'body generation',
     });
     assertImportedXmlWellFormed(xml, 'Generated import XML is not well formed');
+
+    const gaijiMode = gaijiModeForCatalog(config?.schema?.catalogId);
+    if (withImages && convertImages && gaijiMode) {
+      const converted = await convertImportedGaiji({
+        api: window.electronAPI,
+        images: withImages.images,
+        mode: gaijiMode,
+        outputPath: item.outputPath,
+        xml,
+      });
+      xml = converted.xml;
+      gaijiFailed = converted.failed;
+      logImportedXmlInspection({
+        content: xml,
+        outputPath: item.outputPath,
+        sourcePath: item.sourcePath,
+        stage: 'gaiji conversion',
+      });
+      assertImportedXmlWellFormed(xml, 'Imported XML is not well formed after gaiji conversion');
+    }
   }
 
   if (metadata) {
@@ -1042,7 +1141,12 @@ const writeImportedDocument = async (
   });
   assertImportedXmlWellFormed(writtenXml, 'Written import XML is not well formed');
 
-  return { keysDemoted, paragraphCount: countImportedParagraphs(writtenXml), xml: writtenXml };
+  return {
+    gaijiFailed,
+    keysDemoted,
+    paragraphCount: countImportedParagraphs(writtenXml),
+    xml: writtenXml,
+  };
 };
 
 const formatDocumentImportProblems = (problems: DocumentImportProblem[]): string =>
@@ -1145,6 +1249,22 @@ export const importDocuments = async (context: Context) => {
     sources,
   });
 
+  const extractedDocx = await extractDocxSourcesWithImages(
+    plan,
+    state.project.config.schema?.catalogId,
+  );
+  const docsWithImages = [...extractedDocx.values()].filter((doc) => doc.images.length > 0);
+  let gaijiChoice: GaijiConversionChoice = 'skip';
+  if (docsWithImages.length > 0) {
+    gaijiChoice = await confirmGaijiConversion(
+      actions,
+      docsWithImages.reduce((sum, doc) => sum + doc.images.length, 0),
+      docsWithImages.length,
+    );
+    if (gaijiChoice === 'cancel') return;
+  }
+  const gaiji: ImportGaijiOptions = { choice: gaijiChoice, extracted: extractedDocx };
+
   const bundle: ProjectBundle = {
     config: state.project.config,
     projectFilePath: state.project.projectFilePath,
@@ -1155,10 +1275,12 @@ export const importDocuments = async (context: Context) => {
   const reportEntries: DocumentImportReportEntry[] = [];
   const writtenPaths: string[] = [];
   let keysDemotedTotal = 0;
+  let gaijiFailedTotal = 0;
 
   for (const item of plan) {
     try {
-      const written = await writeImportedDocument(item, state.project.config, metadata);
+      const written = await writeImportedDocument(item, state.project.config, metadata, gaiji);
+      gaijiFailedTotal += written.gaijiFailed;
       const schemaValidation = await validateImportedXmlRelaxNg(written.xml, {
         config: state.project.config,
         rootPath: state.project.rootPath,
@@ -1215,6 +1337,15 @@ export const importDocuments = async (context: Context) => {
         sourcePath: writtenPaths[0],
       });
     }
+  }
+
+  if (gaijiFailedTotal > 0) {
+    notifyViaSnackbar({
+      message: t('LWC.desktop.project.dialogs.import_gaiji_failed', {
+        failedCount: gaijiFailedTotal,
+      }),
+      options: { variant: 'warning' },
+    });
   }
 
   if (reportEntries.length > 0 || problems.length > 0) {

@@ -121,6 +121,10 @@ const config: Config.InitialOptions = {
         '^@src/(.*)$': '<rootDir>/apps/commons/src/$1',
         '^@cwrc/leafwriter/documentExport$':
           '<rootDir>/packages/cwrc-leafwriter/src/js/conversion/documentExport.ts',
+        '^@cwrc/leafwriter/glyphCharDecl$':
+          '<rootDir>/packages/cwrc-leafwriter/src/utilities/glyphCharDecl.ts',
+        '^@cwrc/leafwriter/gaijiImport$':
+          '<rootDir>/packages/cwrc-leafwriter/src/utilities/gaijiImport.ts',
         '^@cwrc/leafwriter/pageBreakDetection$':
           '<rootDir>/packages/cwrc-leafwriter/src/utilities/pageBreakDetection.ts',
         '^@cwrc/leafwriter/languageCodes$':

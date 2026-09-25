@@ -1,3 +1,4 @@
+import { reconcileGlyphDeclarations } from '@cwrc/leafwriter/glyphCharDecl';
 import { findOrlandoHeader } from './orlandoHeaderXml';
 import { DESKTOP_APP_DISPLAY_NAME, DESKTOP_APP_IDENT } from './desktopBranding';
 import { isOrlandoCatalog } from './schemaMetadataFields';
@@ -178,5 +179,11 @@ export const stampContentBeforeSave = async (
     }
   }
 
-  return stampLastEditedInXml(content, { catalogId, encoderName, appVersion });
+  // Drop glyph declarations nothing uses any more (e.g. a deleted gaiji) -
+  // see reconcileGlyphDeclarations for exactly what is and isn't touched.
+  return stampLastEditedInXml(reconcileGlyphDeclarations(content), {
+    catalogId,
+    encoderName,
+    appVersion,
+  });
 };

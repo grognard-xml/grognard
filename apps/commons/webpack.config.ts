@@ -248,6 +248,22 @@ const webpackConfig: webpack.Configuration = {
         'utilities',
         'pageBreakDetection.ts',
       ),
+      // Inline-image (gaiji) conversion for document import - same reason.
+      '@cwrc/leafwriter/gaijiImport$': path.resolve(
+        relPathToPackages,
+        'cwrc-leafwriter',
+        'src',
+        'utilities',
+        'gaijiImport.ts',
+      ),
+      // Save-time pruning of unused glyph declarations - same reason.
+      '@cwrc/leafwriter/glyphCharDecl$': path.resolve(
+        relPathToPackages,
+        'cwrc-leafwriter',
+        'src',
+        'utilities',
+        'glyphCharDecl.ts',
+      ),
       // Same treatment: the source-mode heuristic is needed by file-level document
       // loading, which must not pull in the editor bundle.
       '@cwrc/leafwriter/teiMilestoneHeuristics$': path.resolve(

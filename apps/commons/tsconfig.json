@@ -45,6 +45,12 @@
       "@cwrc/leafwriter/documentExport": [
         "../../packages/cwrc-leafwriter/src/js/conversion/documentExport.ts"
       ],
+      "@cwrc/leafwriter/glyphCharDecl": [
+        "../../packages/cwrc-leafwriter/src/utilities/glyphCharDecl.ts"
+      ],
+      "@cwrc/leafwriter/gaijiImport": [
+        "../../packages/cwrc-leafwriter/src/utilities/gaijiImport.ts"
+      ],
       "@cwrc/leafwriter/pageBreakDetection": [
         "../../packages/cwrc-leafwriter/src/utilities/pageBreakDetection.ts"
       ],

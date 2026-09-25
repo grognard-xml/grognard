@@ -1,4 +1,9 @@
-import { ensureGlyphCharDeclEntry, findGlyphCharDeclEntry } from './glyphCharDecl';
+import {
+  clearPrunedGlyphDeclarations,
+  ensureGlyphCharDeclEntry,
+  findGlyphCharDeclEntry,
+  reconcileGlyphDeclarations,
+} from './glyphCharDecl';
 
 const TEI_NS = 'http://www.tei-c.org/ns/1.0';
 
@@ -140,5 +145,82 @@ describe('findGlyphCharDeclEntry', () => {
       <glyph xml:id="bad"><graphic type="source" url="a.png"/><graphic type="normalized" url="a.svg"/></glyph>
     </charDecl></encodingDesc></teiHeader><text><body/></text></TEI>`;
     expect(findGlyphCharDeclEntry(xml, 'bad')).toBeNull();
+  });
+});
+
+describe('reconcileGlyphDeclarations', () => {
+  beforeEach(() => clearPrunedGlyphDeclarations());
+
+  const docWith = (body: string, extraGlyphs = '') => {
+    let xml = ensureGlyphCharDeclEntry(baseXml, spec) as string;
+    xml = ensureGlyphCharDeclEntry(xml, { ...spec, glyphId: 'glyph-2' }) as string;
+    xml = xml.replace('</charDecl>', `${extraGlyphs}</charDecl>`);
+    // As saved files have it (ensureGlyphCharDeclEntry's serializer drops it).
+    if (!xml.startsWith('<?xml')) xml = `<?xml version="1.0" encoding="UTF-8"?>\n${xml}`;
+    return xml.replace('<p>Hello</p>', body);
+  };
+
+  it('leaves the document byte-for-byte alone when every glyph is used', () => {
+    const xml = docWith('<p>a<g type="glyph" ref="#glyph-1"/>b<g ref="#glyph-2"/></p>');
+    expect(reconcileGlyphDeclarations(xml)).toBe(xml);
+    expect(reconcileGlyphDeclarations(baseXml)).toBe(baseXml);
+  });
+
+  it('prunes unreferenced Grognard glyphs and keeps the XML declaration', () => {
+    const xml = docWith('<p>a<g type="glyph" ref="#glyph-1"/>b</p>');
+    const result = reconcileGlyphDeclarations(xml);
+    expect(result.startsWith('<?xml version="1.0" encoding="UTF-8"?>')).toBe(true);
+    expect(result).toContain('xml:id="glyph-1"');
+    expect(result).not.toContain('xml:id="glyph-2"');
+    expect(result).toContain('<p>a<g type="glyph" ref="#glyph-1"/>b</p>');
+  });
+
+  it('drops charDecl and encodingDesc once they are empty', () => {
+    const result = reconcileGlyphDeclarations(docWith('<p>no glyphs left</p>'));
+    expect(result).not.toContain('charDecl');
+    expect(result).not.toContain('encodingDesc');
+    expect(result).not.toMatch(/\n\s*\n\s*<\/teiHeader>/);
+  });
+
+  it('keeps encodingDesc when it has other content', () => {
+    const xml = docWith('<p>none</p>').replace(
+      '<encodingDesc>',
+      '<encodingDesc><projectDesc><p>Mine</p></projectDesc>',
+    );
+    const result = reconcileGlyphDeclarations(xml);
+    expect(result).not.toContain('charDecl');
+    expect(result).toContain('<encodingDesc><projectDesc><p>Mine</p></projectDesc>');
+  });
+
+  it('never prunes hand-authored declarations', () => {
+    const handWritten =
+      '<glyph xml:id="hand"><glyphName>MY GLYPH</glyphName><graphic url="img/hand.png"/></glyph>';
+    const result = reconcileGlyphDeclarations(docWith('<p>none</p>', handWritten));
+    expect(result).toContain('xml:id="hand"');
+    expect(result).not.toContain('xml:id="glyph-1"');
+  });
+
+  it('counts pointers in any attribute, including space-separated lists', () => {
+    const xml = docWith('<p><seg corresp="#other #glyph-2">x</seg><g ref="#glyph-1"/></p>');
+    expect(reconcileGlyphDeclarations(xml)).toBe(xml);
+  });
+
+  it('restores a pruned declaration when an undo brings its reference back', () => {
+    const referenced = docWith('<p><g ref="#glyph-1"/><g ref="#glyph-2"/></p>');
+    // Save 1: glyph-2 was deleted, so it is pruned.
+    const saved = reconcileGlyphDeclarations(referenced.replace('<g ref="#glyph-2"/>', ''));
+    expect(saved).not.toContain('xml:id="glyph-2"');
+    // Undo restores the <g>; save 2 must declare it again.
+    const afterUndo = saved.replace(
+      '<g ref="#glyph-1"/>',
+      '<g ref="#glyph-1"/><g ref="#glyph-2"/>',
+    );
+    const restored = reconcileGlyphDeclarations(afterUndo);
+    expect(findGlyphCharDeclEntry(restored, 'glyph-2')).toEqual({
+      sourceUrl: '_glyphs/glyph-1.png',
+      svgUrl: '_glyphs/glyph-1.svg',
+      width: 41,
+      height: 49,
+    });
   });
 });

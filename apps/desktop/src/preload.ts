@@ -281,6 +281,11 @@ export interface ElectronAPI {
   readFile: (filePath: string) => Promise<string>;
   readFileAutoEncoding: (filePath: string) => Promise<{ encoding: string; text: string }>;
   extractDocxText: (filePath: string) => Promise<{ text: string; warnings: string[] }>;
+  extractDocxTextWithImages: (filePath: string) => Promise<{
+    text: string;
+    images: { contentType: string; bytes: Uint8Array }[];
+    warnings: string[];
+  }>;
   extractOdtText: (filePath: string) => Promise<{ text: string; warnings: string[] }>;
   writeClipboardRich: (flavors: { text: string; html?: string; rtf?: string }) => Promise<void>;
   writeFile: (filePath: string, content: string) => Promise<void>;
@@ -290,6 +295,8 @@ export interface ElectronAPI {
     options?: { threshold?: number; minBlobPixels?: number; marginPixels?: number },
   ) => Promise<{ svg: string; threshold: number; width: number; height: number }>;
   fetchRemoteImageBytes: (url: string) => Promise<Uint8Array | null>;
+  readPastedImageFile: (fileUrl: string) => Promise<Uint8Array | null>;
+  readClipboardRtfImages: () => Promise<(Uint8Array | null)[]>;
   pathExists: (filePath: string) => Promise<boolean>;
   statFile: (filePath: string) => Promise<FileStat>;
   syncWatchedFiles: (paths: string[]) => Promise<void>;
@@ -1032,6 +1039,8 @@ const electronAPI: ElectronAPI = {
   readFile: (filePath: string) => ipcRenderer.invoke('readFile', filePath),
   readFileAutoEncoding: (filePath: string) => ipcRenderer.invoke('readFileAutoEncoding', filePath),
   extractDocxText: (filePath: string) => ipcRenderer.invoke('extractDocxText', filePath),
+  extractDocxTextWithImages: (filePath: string) =>
+    ipcRenderer.invoke('extractDocxTextWithImages', filePath),
   extractOdtText: (filePath: string) => ipcRenderer.invoke('extractOdtText', filePath),
   writeClipboardRich: (flavors: { text: string; html?: string; rtf?: string }) =>
     ipcRenderer.invoke('writeClipboardRich', flavors),
@@ -1044,6 +1053,8 @@ const electronAPI: ElectronAPI = {
     options?: { threshold?: number; minBlobPixels?: number; marginPixels?: number },
   ) => ipcRenderer.invoke('vectorizeGlyphImage', bytes, options),
   fetchRemoteImageBytes: (url: string) => ipcRenderer.invoke('fetchRemoteImageBytes', url),
+  readPastedImageFile: (fileUrl: string) => ipcRenderer.invoke('readPastedImageFile', fileUrl),
+  readClipboardRtfImages: () => ipcRenderer.invoke('readClipboardRtfImages'),
   pathExists: (filePath: string) => ipcRenderer.invoke('pathExists', filePath),
   statFile: (filePath: string) => ipcRenderer.invoke('statFile', filePath),
   syncWatchedFiles: (paths: string[]) => ipcRenderer.invoke('syncWatchedFiles', paths),

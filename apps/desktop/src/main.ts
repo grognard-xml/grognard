@@ -193,6 +193,8 @@ import {
 import { resolveDialogDefaultPath } from './dialogDefaultPath';
 import mammoth from 'mammoth';
 import { extractOdtText } from './odtText';
+import { extractDocxTextWithImages, readPastedImageFile } from './pastedImages';
+import { extractRtfImages } from './rtfImages';
 import { readAchievementsFile, writeAchievementsFile } from './achievementsFile';
 import {
   deleteSourceProfileFromFile,
@@ -2615,6 +2617,11 @@ const registerIpcHandlers = () => {
     };
   });
 
+  ipcMain.handle('extractDocxTextWithImages', async (_event, filePath: string) => {
+    await assertRendererReadPath(filePath);
+    return extractDocxTextWithImages(filePath);
+  });
+
   ipcMain.handle('writeFile', async (_event, filePath: string, content: string) => {
     await assertRendererWritePath(filePath);
     await fs.writeFile(filePath, content, 'utf-8');
@@ -2648,6 +2655,20 @@ const registerIpcHandlers = () => {
     } catch {
       return null;
     }
+  });
+
+  // Word's clipboard HTML points its inline images at temp files - see
+  // resolvePastedImagePath for exactly which paths this will read.
+  ipcMain.handle('readPastedImageFile', async (_event, fileUrl: string) =>
+    readPastedImageFile(fileUrl),
+  );
+
+  // Word's RTF flavor carries larger renditions of inline images than its
+  // HTML does - see rtfImages.ts. Read here rather than from the paste
+  // event, which isn't guaranteed to expose text/rtf.
+  ipcMain.handle('readClipboardRtfImages', async () => {
+    const rtf = clipboard.readRTF();
+    return rtf ? extractRtfImages(rtf) : [];
   });
 
   ipcMain.handle('pathExists', async (_event, filePath: string) => {
