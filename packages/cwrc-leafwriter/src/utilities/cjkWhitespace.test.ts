@@ -25,10 +25,10 @@ describe('stripCjkWhitespace', () => {
     expect(stripCjkWhitespace('破桓 亮')).toBe('破桓亮'); // thin space
   });
 
-  it('preserves the ideographic (long) space U+3000', () => {
-    expect(stripCjkWhitespace('漢　唐')).toBe('漢　唐');
-    // ASCII spaces around a full-width space collapse away, the U+3000 stays
-    expect(stripCjkWhitespace('漢 　 唐')).toBe('漢　唐');
+  it('removes the ideographic (long) space U+3000 between CJK characters', () => {
+    expect(stripCjkWhitespace('漢　唐')).toBe('漢唐');
+    expect(stripCjkWhitespace('漢 　 唐')).toBe('漢唐');
+    expect(stripCjkWhitespace('第二弟也　「詔」')).toBe('第二弟也「詔」');
   });
 
   it('leaves Latin text untouched — safe on any document', () => {

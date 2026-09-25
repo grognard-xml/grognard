@@ -4,26 +4,24 @@
  * breaks between characters; in these scripts that whitespace is not part of
  * the text and shows as spurious gaps in WYSIWYG.
  *
- * The rule is character-based, not language-based: an ASCII whitespace run is
- * removed only when it sits between characters in a no-space East Asian script
- * (and never when a Latin/word character is on either side). That makes it
- * safe to run on any document regardless of its declared language — Latin text
- * is left untouched — so callers don't need reliable language metadata. The
- * ideographic ("long") space U+3000 is always preserved.
+ * The rule is character-based, not language-based: a whitespace run is removed
+ * only when it sits between characters in a no-space East Asian script (and
+ * never when a Latin/word character is on either side). That makes it safe to
+ * run on any document regardless of its declared language — Latin text is left
+ * untouched — so callers don't need reliable language metadata.
+ *
+ * This includes the ideographic space U+3000 that Mandoku/Kanripo inserts
+ * between citations: Chinese does not use inter-character space, so leaving
+ * those in produces gaps next to punctuation (e.g. around 「」).
  */
 
 // No-space East Asian scripts, plus CJK symbols/punctuation and full/half-width
-// forms (so whitespace around 、。「」（）etc. is also cleaned). U+3000 is in
-// this range but is not ASCII whitespace, so it is preserved by construction.
+// forms (so whitespace around 、。「」（）《》 etc. is also cleaned).
 const EAST_ASIAN =
-  // eslint-disable-next-line no-irregular-whitespace -- U+3000 is a literal range boundary here, not stray whitespace.
-  /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}\p{Script=Tibetan}\p{Script=Bopomofo}　-〿︰-﹏＀-￯]/u;
+  /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}\p{Script=Tibetan}\p{Script=Bopomofo}\u3000-〿︰-﹏＀-￯]/u;
 
-// Any Unicode whitespace EXCEPT U+3000 (the ideographic "long" space), which is
-// meaningful and preserved. Catches ASCII spaces/tabs/newlines and also the
-// exotic spaces that arrive via paste (U+00A0 nbsp, U+2000–200A en/em/thin
-// spaces, U+202F, U+205F, etc.) — the ones a source editor renders as □ boxes.
-const isStrippableWhitespace = (ch: string): boolean => ch !== '　' && /\s/u.test(ch);
+/** Any Unicode whitespace, including the ideographic space U+3000. */
+const isStrippableWhitespace = (ch: string): boolean => /\s/u.test(ch);
 
 const isEastAsian = (ch: string): boolean => ch !== '' && EAST_ASIAN.test(ch);
 
@@ -31,10 +29,11 @@ const isEastAsian = (ch: string): boolean => ch !== '' && EAST_ASIAN.test(ch);
 const isSpacedWordChar = (ch: string): boolean => ch !== '' && /[0-9A-Za-zÀ-ɏ]/.test(ch);
 
 /**
- * Remove ASCII whitespace between East Asian characters. A run is dropped when
+ * Remove whitespace between East Asian characters (ASCII spaces, newlines,
+ * exotic paste spaces, and the ideographic space U+3000). A run is dropped when
  * at least one neighbour is East Asian and neither neighbour is a spaced-word
  * (Latin) character; a run between two Latin words collapses to one space;
- * anything else is left as-is. U+3000 is never removed.
+ * anything else is left as-is.
  */
 export function stripCjkWhitespace(text: string): string {
   let out = '';

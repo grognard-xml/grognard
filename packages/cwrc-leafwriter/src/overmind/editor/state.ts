@@ -118,7 +118,7 @@ export const state: EditorStateType = {
   showTags: false,
   showBreaks: true,
   showNotes: true,
-  stripCjkWhitespace: false,
+  stripCjkWhitespace: true,
   validateXmlOnReplace: true,
   schemas: {},
   schemasList: derived((state: EditorStateType) => Object.values(state.schemas)),

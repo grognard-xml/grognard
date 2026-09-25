@@ -766,6 +766,12 @@ Paste/drop a character image now works in the translation pane and its footnotes
 - Word's clipboard HTML points at temp files instead of embedding the images. These are read through a new narrowly scoped IPC call (`readPastedImageFile`) that only accepts image files inside a `msohtmlclip` folder or the system temp directory.
 - Known issue: the paste prompt ("Convert images to glyphs?") still uses the older jQuery UI dialog, like Paste Special, rather than the standard MUI dialog the rest of the app uses. The `.docx` import prompt already uses the standard dialog. The paste prompt's behaviour and keys are final; only its appearance still needs to move to the standard dialog.
 
+### Kanripo parallel punctuation (title marks and spaces)
+
+- Title marks 《》 (and the middle-dot ·) are now copied from a parallel source. They were missing from the set of marks the transfer recognises, so a stretch like `《周易》本義` came through as `周易》本義` — and a title at the start of a paragraph lost its opening 《 entirely, because leading marks had nowhere to attach.
+- Ordinary spaces and the wide Kanripo citation space (　) are now removed when punctuation is written back into the body. They were only being skipped when looking ahead for notes, then put back into the XML, which left gaps next to 「」.
+- The editor's "strip East Asian whitespace" cleanup now also removes that wide space, and is on by default (still safe around Latin words).
+
 ### CHHIV glyph composer (Phase A — recognize already-encoded characters)
 
 - Added the check zi.tools performs first, before anything else, which the composer was missing: does the exact composition being built already have a standard Unicode decomposition on record, independent of GlyphWiki entirely? While composing, if it does, the composer now foregrounds the real character — codepoint and an "Insert as plain text" button — above the SVG preview and any GlyphWiki candidates, since this is a stronger result than "some non-standard glyph happens to combine the same parts": the structure itself is already ordinary, encoded text.
