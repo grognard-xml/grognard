@@ -52,4 +52,18 @@ describe('renderKageToSvg', () => {
     expect(result.unresolvedComponents).toEqual([]);
     expect(result.svg.match(/<polygon/g)?.length ?? 0).toBeGreaterThan(0);
   });
+
+  it('reports an unresolved component nested inside an extraComponents entry, not just the top-level record (Phase D)', () => {
+    // Regression: findUnresolved used to check only kageData's own two
+    // refs, never what an extraComponents entry's *own* refs pointed to.
+    // Phase D's tree preview feeds in not-yet-validated synthetic
+    // sub-compositions via extraComponents, so a broken leaf several levels
+    // down produced an empty unresolvedComponents list at the root - the
+    // exact "clean render is not proof of resolution" failure mode this
+    // module already exists to guard against, just one level removed.
+    const brokenNestedComponent = composeKageData('⿱', 'not-a-real-thing', 'u5973'); // 女
+    const kageData = composeKageData('⿰', 'u8a00', '__nested_0__');
+    const result = renderKageToSvg(kageData, { __nested_0__: brokenNestedComponent });
+    expect(result.unresolvedComponents).toEqual(['not-a-real-thing']);
+  });
 });

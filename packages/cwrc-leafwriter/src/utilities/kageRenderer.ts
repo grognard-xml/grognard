@@ -74,7 +74,7 @@ export interface RenderResult {
   unresolvedComponents: string[];
 }
 
-const findUnresolved = (
+const findDirectlyUnresolved = (
   kageData: string,
   extraComponents: Record<string, string> | undefined,
 ): string[] => {
@@ -89,6 +89,33 @@ const findUnresolved = (
     if (baseName && !isKnownComponent(baseName, extraComponents)) unresolved.push(baseName);
   }
   return unresolved;
+};
+
+/**
+ * Unresolved refs in `kageData` itself, plus - critically - in every entry
+ * of `extraComponents`. A flat one-level check was correct while every
+ * `extraComponents` value was a previously-*saved* project glyph (already
+ * validated when it was composed, so its own refs were guaranteed good by
+ * construction). Phase D's tree preview breaks that assumption: a `nested`
+ * slot's synthetic component is *not yet* validated - it's a live in-memory
+ * preview - so a broken leaf several levels down produced an empty
+ * `unresolvedComponents` at the top level (this function only looked at the
+ * root's own two refs, never at what *those* refs' own data pointed to).
+ * `extraComponents` from `previewComposerTree` is already a flat map of
+ * every node in the tree, so one extra pass over its values - no recursion
+ * needed - covers arbitrary nesting depth in one go.
+ */
+const findUnresolved = (
+  kageData: string,
+  extraComponents: Record<string, string> | undefined,
+): string[] => {
+  const unresolved = new Set(findDirectlyUnresolved(kageData, extraComponents));
+  for (const componentData of Object.values(extraComponents ?? {})) {
+    for (const name of findDirectlyUnresolved(componentData, extraComponents)) {
+      unresolved.add(name);
+    }
+  }
+  return [...unresolved];
 };
 
 /**

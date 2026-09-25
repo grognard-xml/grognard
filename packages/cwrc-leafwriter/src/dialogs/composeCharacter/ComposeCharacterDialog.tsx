@@ -5,13 +5,13 @@ import {
   ButtonBase,
   MenuItem,
   Select,
-  TextField,
   Tooltip,
   Typography,
 } from '@mui/material';
 import { useEffect, useMemo, useState } from 'react';
 import type Writer from '../../js/Writer';
 import { insertAtCursor } from '../../utilities/chhivSymbols';
+import { emptyLeafSlot, isSlotFilled, type ComposerSlot } from '../../utilities/composerTree';
 import type { GlyphwikiCandidate } from '../../utilities/glyphwikiIndex';
 import { canonicalUnicodeChar, IDS_OPERATORS, type IdsOperator } from '../../utilities/kageCompose';
 import { renderKageToSvg } from '../../utilities/kageRenderer';
@@ -21,11 +21,12 @@ import {
 } from '../../utilities/projectGlyphRegistry';
 import {
   adoptGlyphwikiCandidateAndInsert,
-  composeAndInsertProjectGlyph,
+  composeTreeAndInsertProjectGlyph,
   getProjectRootPath,
   loadProjectGlyphRegistryFromDisk,
-  previewComposition,
+  previewComposerTree,
 } from '../../utilities/projectGlyphStore';
+import { SlotEditor } from './SlotEditor';
 
 const GlyphThumbnail = ({ svg, size = 160 }: { svg: string; size?: number }) => (
   <Box
@@ -44,11 +45,13 @@ const GlyphThumbnail = ({ svg, size = 160 }: { svg: string; size?: number }) => 
 );
 
 /**
- * Phase 1 CHHIV glyph composer (see plugins/glyph_maker.md): compose an
- * unencoded character from two existing components - each either an
- * ordinary Unicode character (typed/pasted directly) or an already-composed
- * project glyph's id - under one of the basic IDS layouts, preview the
- * result, and save it as a new project glyph inserted at the cursor.
+ * CHHIV glyph composer (see plugins/glyph_maker.md, plugins/composer-visual-
+ * redesign.md): compose an unencoded character from two components - each
+ * either an ordinary Unicode character (typed/pasted directly), an
+ * already-composed project glyph's id, or (Phase D) itself an unresolved
+ * sub-composition edited inline via `SlotEditor`, to arbitrary nesting depth
+ * - under one of the basic IDS layouts, preview the result, and save it as
+ * a new project glyph inserted at the cursor.
  *
  * Deliberately does not include manual drag/scale geometry editing or
  * stroke-level editing (both explicitly deferred) - each operator uses a
@@ -61,8 +64,8 @@ const GlyphThumbnail = ({ svg, size = 160 }: { svg: string; size?: number }) => 
  */
 export const ComposeCharacterDialog = ({ writer }: { writer: Writer }) => {
   const [operator, setOperator] = useState<IdsOperator>('⿰');
-  const [firstInput, setFirstInput] = useState('');
-  const [secondInput, setSecondInput] = useState('');
+  const [firstSlot, setFirstSlot] = useState<ComposerSlot>(emptyLeafSlot());
+  const [secondSlot, setSecondSlot] = useState<ComposerSlot>(emptyLeafSlot());
   const [registry, setRegistry] = useState<ProjectGlyphRegistry>(emptyProjectGlyphRegistry());
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -81,27 +84,26 @@ export const ComposeCharacterDialog = ({ writer }: { writer: Writer }) => {
   }, []);
 
   const preview = useMemo(() => {
-    if (!firstInput.trim() || !secondInput.trim()) return null;
-    return previewComposition(operator, firstInput.trim(), secondInput.trim(), registry);
-  }, [operator, firstInput, secondInput, registry]);
+    if (!isSlotFilled(firstSlot) || !isSlotFilled(secondSlot)) return null;
+    return previewComposerTree(operator, firstSlot, secondSlot, registry);
+  }, [operator, firstSlot, secondSlot, registry]);
+
+  const resetSlots = () => {
+    setFirstSlot(emptyLeafSlot());
+    setSecondSlot(emptyLeafSlot());
+  };
 
   const handleSave = async () => {
     setSaving(true);
     setSaveError(null);
     setInsertedMessage(null);
-    const result = await composeAndInsertProjectGlyph(
-      writer,
-      operator,
-      firstInput.trim(),
-      secondInput.trim(),
-    );
+    const result = await composeTreeAndInsertProjectGlyph(writer, operator, firstSlot, secondSlot);
     setSaving(false);
     if (!result.ok) {
       setSaveError(result.error);
       return;
     }
-    setFirstInput('');
-    setSecondInput('');
+    resetSlots();
     setInsertedMessage(result.glyph.id);
     const projectRoot = getProjectRootPath();
     if (projectRoot) setRegistry(await loadProjectGlyphRegistryFromDisk(projectRoot));
@@ -117,8 +119,7 @@ export const ComposeCharacterDialog = ({ writer }: { writer: Writer }) => {
       setSaveError(result.error);
       return;
     }
-    setFirstInput('');
-    setSecondInput('');
+    resetSlots();
     setInsertedMessage(result.glyph.id);
     const projectRoot = getProjectRootPath();
     if (projectRoot) setRegistry(await loadProjectGlyphRegistryFromDisk(projectRoot));
@@ -131,8 +132,7 @@ export const ComposeCharacterDialog = ({ writer }: { writer: Writer }) => {
     setSaveError(null);
     setInsertedMessage(null);
     insertAtCursor(writer, char);
-    setFirstInput('');
-    setSecondInput('');
+    resetSlots();
     setInsertedMessage(`${char} (${codepointLabel}, plain text)`);
   };
 
@@ -157,21 +157,9 @@ export const ComposeCharacterDialog = ({ writer }: { writer: Writer }) => {
         ))}
       </Select>
 
-      <Box sx={{ display: 'flex', gap: 1 }}>
-        <TextField
-          label="First component"
-          size="small"
-          value={firstInput}
-          onChange={(e) => setFirstInput(e.target.value)}
-          fullWidth
-        />
-        <TextField
-          label="Second component"
-          size="small"
-          value={secondInput}
-          onChange={(e) => setSecondInput(e.target.value)}
-          fullWidth
-        />
+      <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+        <SlotEditor slot={firstSlot} onChange={setFirstSlot} label="First component" />
+        <SlotEditor slot={secondSlot} onChange={setSecondSlot} label="Second component" />
       </Box>
 
       {preview && preview.existingUnicodeChar && (

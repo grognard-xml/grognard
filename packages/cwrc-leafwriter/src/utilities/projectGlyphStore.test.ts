@@ -1,13 +1,17 @@
 import type Writer from '../js/Writer';
+import type { ComposerSlot } from './composerTree';
 import type { GlyphwikiCandidate } from './glyphwikiIndex';
 import {
   addProjectGlyph,
   emptyProjectGlyphRegistry,
+  parseProjectGlyphRegistry,
   type ProjectGlyph,
 } from './projectGlyphRegistry';
 import {
   adoptGlyphwikiCandidateAndInsert,
   composeAndInsertProjectGlyph,
+  composeTreeAndInsertProjectGlyph,
+  previewComposerTree,
   previewComposition,
   resolveComponentInput,
 } from './projectGlyphStore';
@@ -289,5 +293,216 @@ describe('adoptGlyphwikiCandidateAndInsert', () => {
     const result = await adoptGlyphwikiCandidateAndInsert(writer, brokenCandidate);
     expect(result.ok).toBe(false);
     expect(files.size).toBe(0);
+  });
+});
+
+describe('previewComposerTree (Phase D nesting)', () => {
+  it('renders a nested composition (a slot that is itself a two-part sub-composition)', () => {
+    const nestedSlot: ComposerSlot = {
+      kind: 'nested',
+      operator: '⿱',
+      first: { kind: 'leaf', input: '攴' },
+      second: { kind: 'leaf', input: '女' },
+    };
+    const preview = previewComposerTree(
+      '⿰',
+      { kind: 'leaf', input: '言' },
+      nestedSlot,
+      emptyProjectGlyphRegistry(),
+    );
+    expect(preview.unresolvedComponents).toEqual([]);
+    expect(preview.svg).toContain('<svg');
+  });
+
+  it('builds a proper nested IDS string - the nested operator embedded directly, not a synthetic name', () => {
+    const nestedSlot: ComposerSlot = {
+      kind: 'nested',
+      operator: '⿱',
+      first: { kind: 'leaf', input: '攴' },
+      second: { kind: 'leaf', input: '女' },
+    };
+    const preview = previewComposerTree(
+      '⿰',
+      { kind: 'leaf', input: '言' },
+      nestedSlot,
+      emptyProjectGlyphRegistry(),
+    );
+    expect(preview.ids).toBe('⿰言⿱攴女');
+  });
+
+  it('reports an unresolved component from deep inside a nested slot', () => {
+    const nestedSlot: ComposerSlot = {
+      kind: 'nested',
+      operator: '⿱',
+      first: { kind: 'leaf', input: 'not-a-real-thing' },
+      second: { kind: 'leaf', input: '女' },
+    };
+    const preview = previewComposerTree(
+      '⿰',
+      { kind: 'leaf', input: '言' },
+      nestedSlot,
+      emptyProjectGlyphRegistry(),
+    );
+    expect(preview.unresolvedComponents).toEqual(['not-a-real-thing']);
+  });
+
+  it('reports no GlyphWiki candidates when either slot is nested (no single component pair to search on)', () => {
+    const nestedSlot: ComposerSlot = {
+      kind: 'nested',
+      operator: '⿱',
+      first: { kind: 'leaf', input: '攴' },
+      second: { kind: 'leaf', input: '女' },
+    };
+    const preview = previewComposerTree(
+      '⿰',
+      { kind: 'leaf', input: '言' },
+      nestedSlot,
+      emptyProjectGlyphRegistry(),
+    );
+    expect(preview.glyphwikiCandidates).toEqual([]);
+  });
+
+  it('supports nesting to arbitrary depth (three levels)', () => {
+    const deepSlot: ComposerSlot = {
+      kind: 'nested',
+      operator: '⿰',
+      first: { kind: 'leaf', input: '言' },
+      second: {
+        kind: 'nested',
+        operator: '⿱',
+        first: { kind: 'leaf', input: '攴' },
+        second: {
+          kind: 'nested',
+          operator: '⿰',
+          first: { kind: 'leaf', input: '一' },
+          second: { kind: 'leaf', input: '二' },
+        },
+      },
+    };
+    const preview = previewComposerTree(
+      '⿱',
+      deepSlot,
+      { kind: 'leaf', input: '女' },
+      emptyProjectGlyphRegistry(),
+    );
+    expect(preview.unresolvedComponents).toEqual([]);
+    expect(preview.ids).toBe('⿱⿰言⿱攴⿰一二女');
+  });
+});
+
+describe('composeTreeAndInsertProjectGlyph (Phase D nesting)', () => {
+  const makeFakeWriter = (): { writer: Writer; addStructureTag: jest.Mock } => {
+    const addStructureTag = jest.fn(({ tagName }: { tagName: string }) => ({
+      id: `${tagName}-1`,
+      isConnected: true,
+    }));
+    const editor = {
+      selection: {
+        getBookmark: () => ({ id: 'bookmark' }),
+        setRng: () => {},
+        setContent: () => {},
+      },
+      dom: { createRng: () => ({ setStartAfter: () => {}, collapse: () => {} }) },
+      getBody: () => ({}),
+      focus: () => {},
+    };
+    const writer = {
+      editor,
+      tagger: { ADD: 'ADD', addStructureTag, processNewContent: () => {} },
+      schemaManager: { getCurrentSchema: () => ({ mapping: 'teiAll' }) },
+      event: () => ({ publish: jest.fn() }),
+      overmindState: { document: { xml: '<TEI/>' } },
+      overmindActions: { document: { updateXMLHeader: () => {}, setDocumentXml: () => {} } },
+    } as unknown as Writer;
+    return { writer, addStructureTag };
+  };
+
+  const installFakeProjectApi = (files: Map<string, string>) => {
+    window.__leafWriterProject = {
+      getProjectRootPath: () => '/project',
+    } as unknown as typeof window.__leafWriterProject;
+    window.electronAPI = {
+      pathExists: async (path: string) => files.has(path),
+      readFile: async (path: string) => files.get(path) ?? '',
+      writeFile: async (path: string, content: string) => {
+        files.set(path, content);
+      },
+      ensureDirectory: async () => {},
+    } as unknown as typeof window.electronAPI;
+  };
+
+  afterEach(() => {
+    window.__leafWriterProject = undefined;
+    window.electronAPI = undefined;
+  });
+
+  it('persists every nested sub-part as its own real project glyph, and inserts only the root', async () => {
+    const files = new Map<string, string>();
+    installFakeProjectApi(files);
+    const { writer, addStructureTag } = makeFakeWriter();
+    window.__desktopStoredDocumentXml = `<?xml version="1.0"?>
+<TEI xmlns="http://www.tei-c.org/ns/1.0">
+  <teiHeader><fileDesc><titleStmt><title>T</title></titleStmt><publicationStmt><p>U</p></publicationStmt><sourceDesc><p>N</p></sourceDesc></fileDesc></teiHeader>
+  <text><body><p>Hi</p></body></text>
+</TEI>`;
+
+    const nestedSlot: ComposerSlot = {
+      kind: 'nested',
+      operator: '⿱',
+      first: { kind: 'leaf', input: '攴' },
+      second: { kind: 'leaf', input: '女' },
+    };
+    const result = await composeTreeAndInsertProjectGlyph(
+      writer,
+      '⿰',
+      { kind: 'leaf', input: '言' },
+      nestedSlot,
+    );
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+
+    // The nested sub-part (⿱攴女) was allocated the first id and persisted
+    // to the registry as its own reusable glyph, distinct from the root.
+    const registry = parseProjectGlyphRegistry(files.get('/project/project-glyphs.json') ?? '');
+    expect(registry.glyphs).toHaveLength(2);
+    const nested = registry.glyphs.find((g) => g.ids === '⿱攴女');
+    expect(nested).toBeDefined();
+    expect(nested?.id).toBe('chhiv-0001');
+
+    // The root references the nested part's freshly-minted id as its second component.
+    expect(result.glyph.id).toBe('chhiv-0002');
+    expect(result.glyph.componentIds).toEqual(['u8a00', 'chhiv-0001']);
+
+    // Only the root was inserted into the document.
+    expect(addStructureTag).toHaveBeenCalledTimes(1);
+    expect(addStructureTag).toHaveBeenCalledWith(
+      expect.objectContaining({
+        tagName: 'g',
+        attributes: expect.objectContaining({ ref: '#chhiv-0002' }),
+      }),
+    );
+
+    window.__desktopStoredDocumentXml = undefined;
+  });
+
+  it('fails the whole save, without writing the registry, when a leaf deep inside a nested slot cannot be resolved', async () => {
+    const files = new Map<string, string>();
+    installFakeProjectApi(files);
+    const { writer } = makeFakeWriter();
+
+    const brokenNestedSlot: ComposerSlot = {
+      kind: 'nested',
+      operator: '⿱',
+      first: { kind: 'leaf', input: 'not-a-real-thing' },
+      second: { kind: 'leaf', input: '女' },
+    };
+    const result = await composeTreeAndInsertProjectGlyph(
+      writer,
+      '⿰',
+      { kind: 'leaf', input: '言' },
+      brokenNestedSlot,
+    );
+    expect(result.ok).toBe(false);
+    expect(files.has('/project/project-glyphs.json')).toBe(false);
   });
 });
