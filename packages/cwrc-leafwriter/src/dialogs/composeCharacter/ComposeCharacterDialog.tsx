@@ -8,6 +8,7 @@ import {
   emptyLeafSlot,
   isSlotFilled,
   slotAt,
+  type ComposerSlot,
 } from '../../utilities/composerTree';
 import type { GlyphwikiCandidate } from '../../utilities/glyphwikiIndex';
 import { canonicalUnicodeChar, partCountFor, type IdsOperator } from '../../utilities/kageCompose';

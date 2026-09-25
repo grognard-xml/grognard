@@ -35,6 +35,9 @@ packages/cwrc-leafwriter/src/resources/glyphwiki/glyphwikiCompoundIndex.json
 # 91,708 compact [ids, char] tuples, same single-line-on-purpose rationale.
 packages/cwrc-leafwriter/src/resources/ids/idsUnicodeIndex.json
 
+# Upstream cjkvi-ids README, vendored verbatim alongside the index it licenses.
+packages/cwrc-leafwriter/src/resources/ids/cjkvi-ids-README.md
+
 # Wide reference tables. Prettier pads every cell to its column's widest entry,
 # and these hold whole UI strings in four languages: formatting the German
 # triage table takes it from 89KB to 784KB, all of it trailing spaces, and makes

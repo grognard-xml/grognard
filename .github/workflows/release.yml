@@ -156,6 +156,10 @@ jobs:
     # Signing and notarization secrets live in the protected "releases"
     # environment (restricted to v* tags).
     environment: releases
+    # The commons webpack build inlines the bundled GlyphWiki JSON (~47 MB),
+    # which overruns Node's default ~2 GB heap on 7 GB macOS runners.
+    env:
+      NODE_OPTIONS: --max-old-space-size=6144
     strategy:
       fail-fast: false
       matrix:

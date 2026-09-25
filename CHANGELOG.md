@@ -797,3 +797,9 @@ Paste/drop a character image now works in the translation pane and its footnotes
 - ⿲/⿳ need a third component field, so the composer's two-component model is now variable-length throughout — composing, previewing, saving, and a project glyph's own recorded component list all take an ordered list of components instead of a fixed pair. Selecting a three-part operator (at the root, or on any nested sub-part) adds a third field on the spot without losing what was already typed into the first two; switching back removes it the same way.
 - All existing compositions and tests for the ordinary two-part case are unaffected — confirmed by updating every existing test to the new calling convention and checking they still pass with the same assertions.
 - Real-data check beyond the unit tests: composed three real characters (木木木, a "森"-shaped left/middle/right) and confirmed it renders correctly against the actual bundled component data.
+
+### CI fixes after the glyph composer phases
+
+- Fixed a typecheck failure: the composer dialog used the `ComposerSlot` type without importing it.
+- macOS builds (CI and release) now give Node a 6 GB heap. The bundled GlyphWiki data (~47 MB of JSON) pushed the webpack build past Node's default ~2 GB limit on the 7 GB macOS runners; locally the build peaks at about 4.3 GB. Loading that data at runtime instead of bundling it would be the longer-term fix.
+- The vendored cjkvi-ids README is now excluded from Prettier, like the other vendored glyph data.

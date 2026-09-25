@@ -176,6 +176,10 @@ jobs:
     # own architecture, which would otherwise ship arm64 payloads inside the
     # Intel app.
     runs-on: macos-15
+    # The commons webpack build inlines the bundled GlyphWiki JSON (~47 MB),
+    # which overruns Node's default ~2 GB heap on 7 GB macOS runners.
+    env:
+      NODE_OPTIONS: --max-old-space-size=6144
     strategy:
       fail-fast: false
       matrix:
