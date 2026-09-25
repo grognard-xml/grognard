@@ -23,8 +23,10 @@ export interface ProjectGlyph {
   /** Project-relative path to the cached rendered SVG, e.g. "_glyphs/chhiv-0017.svg". */
   svgRelativeUrl: string;
   sourceType: 'composed' | 'image' | 'glyphwiki';
-  /** The two component names used to compose this glyph, for source_type "composed" or "glyphwiki". */
-  componentIds?: [string, string];
+  /** The component names used to compose this glyph, in order - two for
+   * source_type "glyphwiki" (always a pair, see build-glyphwiki-compound-index.mjs)
+   * or a Phase-1/D binary "composed" glyph; three for a Phase B ⿲/⿳ composition. */
+  componentIds?: string[];
   /** The GlyphWiki entry name this was adopted from (e.g. "abyterus_g0000"), for source_type "glyphwiki" - kept so the glyph never falsely presents as a purely local composition (see glyph_maker.md §19, provenance). */
   glyphwikiId?: string;
   notes?: string;

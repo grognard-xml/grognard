@@ -1,19 +1,16 @@
-import {
-  Alert,
-  Box,
-  Button,
-  ButtonBase,
-  MenuItem,
-  Select,
-  Tooltip,
-  Typography,
-} from '@mui/material';
-import { useEffect, useMemo, useState } from 'react';
+import { Alert, Box, Button, ButtonBase, Tooltip, Typography } from '@mui/material';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type Writer from '../../js/Writer';
 import { insertAtCursor } from '../../utilities/chhivSymbols';
-import { emptyLeafSlot, isSlotFilled, type ComposerSlot } from '../../utilities/composerTree';
+import {
+  applyPaletteOperator,
+  draftIds,
+  emptyLeafSlot,
+  isSlotFilled,
+  slotAt,
+} from '../../utilities/composerTree';
 import type { GlyphwikiCandidate } from '../../utilities/glyphwikiIndex';
-import { canonicalUnicodeChar, IDS_OPERATORS, type IdsOperator } from '../../utilities/kageCompose';
+import { canonicalUnicodeChar, partCountFor, type IdsOperator } from '../../utilities/kageCompose';
 import { renderKageToSvg } from '../../utilities/kageRenderer';
 import {
   emptyProjectGlyphRegistry,
@@ -26,7 +23,7 @@ import {
   loadProjectGlyphRegistryFromDisk,
   previewComposerTree,
 } from '../../utilities/projectGlyphStore';
-import { SlotEditor } from './SlotEditor';
+import { LayoutPalette, LayoutRegion } from './LayoutCanvas';
 
 const GlyphThumbnail = ({ svg, size = 160 }: { svg: string; size?: number }) => (
   <Box
@@ -49,7 +46,7 @@ const GlyphThumbnail = ({ svg, size = 160 }: { svg: string; size?: number }) => 
  * redesign.md): compose an unencoded character from two components - each
  * either an ordinary Unicode character (typed/pasted directly), an
  * already-composed project glyph's id, or (Phase D) itself an unresolved
- * sub-composition edited inline via `SlotEditor`, to arbitrary nesting depth
+ * sub-composition edited inline in the layout square, to arbitrary nesting depth
  * - under one of the basic IDS layouts, preview the result, and save it as
  * a new project glyph inserted at the cursor.
  *
@@ -64,12 +61,18 @@ const GlyphThumbnail = ({ svg, size = 160 }: { svg: string; size?: number }) => 
  */
 export const ComposeCharacterDialog = ({ writer }: { writer: Writer }) => {
   const [operator, setOperator] = useState<IdsOperator>('⿰');
-  const [firstSlot, setFirstSlot] = useState<ComposerSlot>(emptyLeafSlot());
-  const [secondSlot, setSecondSlot] = useState<ComposerSlot>(emptyLeafSlot());
+  const [parts, setParts] = useState<ComposerSlot[]>([emptyLeafSlot(), emptyLeafSlot()]);
   const [registry, setRegistry] = useState<ProjectGlyphRegistry>(emptyProjectGlyphRegistry());
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [insertedMessage, setInsertedMessage] = useState<string | null>(null);
+  const [flattenNotice, setFlattenNotice] = useState<string | null>(null);
+  // [] means the outer square is selected. A field's path, e.g. [1], means
+  // the next palette click builds a layout inside that field. Kept in a ref
+  // as well as state so a palette click sees the field the scholar just
+  // focused, even before React has re-rendered.
+  const [selection, setSelection] = useState<number[]>([]);
+  const selectionRef = useRef<number[]>([]);
 
   useEffect(() => {
     const projectRoot = getProjectRootPath();
@@ -84,20 +87,43 @@ export const ComposeCharacterDialog = ({ writer }: { writer: Writer }) => {
   }, []);
 
   const preview = useMemo(() => {
-    if (!isSlotFilled(firstSlot) || !isSlotFilled(secondSlot)) return null;
-    return previewComposerTree(operator, firstSlot, secondSlot, registry);
-  }, [operator, firstSlot, secondSlot, registry]);
+    if (!parts.every(isSlotFilled)) return null;
+    return previewComposerTree(operator, parts, registry);
+  }, [operator, parts, registry]);
 
   const resetSlots = () => {
-    setFirstSlot(emptyLeafSlot());
-    setSecondSlot(emptyLeafSlot());
+    setParts(Array.from({ length: partCountFor(operator) }, emptyLeafSlot));
+    select([]);
   };
+
+  const select = (path: number[]) => {
+    selectionRef.current = path;
+    setSelection(path);
+  };
+
+  const handlePalette = (next: IdsOperator) => {
+    setFlattenNotice(null);
+    const applied = applyPaletteOperator(operator, parts, selectionRef.current, next);
+    setOperator(applied.operator);
+    setParts(applied.parts);
+    if (selectionRef.current.length > 0 && !slotAt(applied.parts, selectionRef.current)) {
+      select([]);
+    }
+  };
+
+  const selectedSlot = slotAt(parts, selection);
+  const activeOperator: IdsOperator | null =
+    selection.length === 0
+      ? operator
+      : selectedSlot?.kind === 'nested'
+        ? selectedSlot.operator
+        : null;
 
   const handleSave = async () => {
     setSaving(true);
     setSaveError(null);
     setInsertedMessage(null);
-    const result = await composeTreeAndInsertProjectGlyph(writer, operator, firstSlot, secondSlot);
+    const result = await composeTreeAndInsertProjectGlyph(writer, operator, parts);
     setSaving(false);
     if (!result.ok) {
       setSaveError(result.error);
@@ -139,166 +165,183 @@ export const ComposeCharacterDialog = ({ writer }: { writer: Writer }) => {
   const canSave = Boolean(preview) && preview!.unresolvedComponents.length === 0 && !saving;
 
   return (
-    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, minWidth: 320 }}>
+    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
       <Typography variant="body2" color="text.secondary">
-        Compose a character from two existing components - a Unicode character you can type or
-        paste, or an existing project glyph id (e.g. chhiv-0003).
+        Pick a layout, then type one character or a project glyph id (e.g. chhiv-0003) in each box.
+        Click a box and pick another layout to compose inside it. Click the square itself to change
+        the outer layout again.
       </Typography>
 
-      <Select
-        value={operator}
-        onChange={(e) => setOperator(e.target.value as IdsOperator)}
-        size="small"
-      >
-        {IDS_OPERATORS.map(({ operator: op, label }) => (
-          <MenuItem key={op} value={op}>
-            {op} {label}
-          </MenuItem>
-        ))}
-      </Select>
-
-      <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-        <SlotEditor slot={firstSlot} onChange={setFirstSlot} label="First component" />
-        <SlotEditor slot={secondSlot} onChange={setSecondSlot} label="Second component" />
-      </Box>
-
-      {preview && preview.existingUnicodeChar && (
-        // Phase A (composer-visual-redesign.md §3-4): this exact IDS
-        // composition already has a standard Unicode decomposition on
-        // record - a stronger, qualitatively different result than a
-        // GlyphWiki candidate (which only means *some* non-standard glyph
-        // happens to combine the same parts). Foregrounded above the plain
-        // preview/candidates, not shown as one tile among several.
-        <Box
-          sx={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 2,
-            border: '2px solid',
-            borderColor: 'success.main',
-            borderRadius: 1,
-            p: 2,
-          }}
-        >
-          <Typography sx={{ fontSize: 48, lineHeight: 1 }}>
-            {preview.existingUnicodeChar}
-          </Typography>
-          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-            <Typography variant="body2">
-              This is already an encoded Unicode character (U+
-              {preview.existingUnicodeChar.codePointAt(0)?.toString(16).toUpperCase()}) - no need to
-              compose a new glyph.
-            </Typography>
-            <Button
-              variant="contained"
-              color="success"
-              size="small"
-              disabled={saving}
-              onClick={() =>
-                handleInsertUnicode(
-                  preview.existingUnicodeChar as string,
-                  `U+${preview.existingUnicodeChar?.codePointAt(0)?.toString(16).toUpperCase()}`,
+      <Box sx={{ display: 'flex', gap: 2, alignItems: 'flex-start' }}>
+        <Box sx={{ width: 280, flexShrink: 0 }}>
+          <LayoutPalette activeOperator={activeOperator} onPick={handlePalette} />
+          <Box sx={{ width: 280, height: 280, mt: 1 }}>
+            <LayoutRegion
+              operator={operator}
+              parts={parts}
+              path={[]}
+              selectedPath={selection}
+              onSelect={select}
+              onPartsChange={setParts}
+              onFlattenRefused={() =>
+                setFlattenNotice(
+                  'This layout has more than one part filled in. Clear the extras, then remove it.',
                 )
               }
-              sx={{ alignSelf: 'flex-start' }}
-            >
-              Insert as plain text
-            </Button>
+            />
           </Box>
         </Box>
-      )}
 
-      {preview && (
-        <Box
-          sx={{
-            display: 'flex',
-            justifyContent: 'center',
-            border: '1px solid',
-            borderColor: 'divider',
-            borderRadius: 1,
-            p: 1,
-          }}
-        >
-          <GlyphThumbnail svg={preview.svg} />
-        </Box>
-      )}
-
-      {preview && preview.unresolvedComponents.length > 0 && (
-        <Alert severity="warning">
-          No geometry found for: {preview.unresolvedComponents.join(', ')}
-        </Alert>
-      )}
-
-      {preview && preview.glyphwikiCandidates.length > 0 && (
-        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-          <Typography variant="body2" color="text.secondary">
-            GlyphWiki already has {preview.glyphwikiCandidates.length} matching{' '}
-            {preview.glyphwikiCandidates.length === 1 ? 'glyph' : 'glyphs'} - adopt one instead of
-            composing a new one:
+        <Box sx={{ flex: 1, minWidth: 220, display: 'flex', flexDirection: 'column', gap: 1.5 }}>
+          <Typography variant="body2" sx={{ fontFamily: 'serif', fontSize: 20 }}>
+            {draftIds(operator, parts)}
           </Typography>
-          <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
-            {preview.glyphwikiCandidates.map((candidate) => {
-              const unicodeChar = canonicalUnicodeChar(candidate.name);
-              if (unicodeChar) {
-                // This candidate already IS an ordinary encoded character -
-                // show it as plain text in the document's own font, not a
-                // KAGE-rendered SVG, and insert exactly that on click. No
-                // gaiji object, no registry entry: Route A.
-                const codepointLabel = `U+${unicodeChar.codePointAt(0)?.toString(16).toUpperCase()}`;
-                return (
-                  <Tooltip key={candidate.name} title={`Insert ${codepointLabel} as plain text`}>
-                    <ButtonBase
-                      disabled={saving}
-                      onClick={() => handleInsertUnicode(unicodeChar, codepointLabel)}
-                      sx={{
-                        width: 64,
-                        height: 64,
-                        border: '2px solid',
-                        borderColor: 'success.main',
-                        borderRadius: 1,
-                        display: 'flex',
-                        flexDirection: 'column',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        gap: 0.25,
-                      }}
-                    >
-                      <Typography sx={{ fontSize: 32, lineHeight: 1 }}>{unicodeChar}</Typography>
-                      <Typography variant="caption" color="success.main">
-                        Unicode
-                      </Typography>
-                    </ButtonBase>
-                  </Tooltip>
-                );
-              }
 
-              const { svg } = renderKageToSvg(candidate.kageData);
-              return (
-                <Tooltip key={candidate.name} title={`Adopt ${candidate.name}`}>
-                  <ButtonBase
-                    disabled={saving}
-                    onClick={() => void handleAdopt(candidate)}
-                    sx={{ border: '1px solid', borderColor: 'divider', borderRadius: 1 }}
-                  >
-                    <GlyphThumbnail svg={svg} size={64} />
-                  </ButtonBase>
-                </Tooltip>
-              );
-            })}
-          </Box>
+          {preview && preview.existingUnicodeChar && (
+            // Phase A (composer-visual-redesign.md §3-4): this exact IDS
+            // composition already has a standard Unicode decomposition on
+            // record - a stronger, qualitatively different result than a
+            // GlyphWiki candidate (which only means *some* non-standard glyph
+            // happens to combine the same parts). Foregrounded above the plain
+            // preview/candidates, not shown as one tile among several.
+            <Box
+              sx={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 2,
+                border: '2px solid',
+                borderColor: 'success.main',
+                borderRadius: 1,
+                p: 2,
+              }}
+            >
+              <Typography sx={{ fontSize: 48, lineHeight: 1 }}>
+                {preview.existingUnicodeChar}
+              </Typography>
+              <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+                <Typography variant="body2">
+                  This is already an encoded Unicode character (U+
+                  {preview.existingUnicodeChar.codePointAt(0)?.toString(16).toUpperCase()}) - no
+                  need to compose a new glyph.
+                </Typography>
+                <Button
+                  variant="contained"
+                  color="success"
+                  size="small"
+                  disabled={saving}
+                  onClick={() =>
+                    handleInsertUnicode(
+                      preview.existingUnicodeChar as string,
+                      `U+${preview.existingUnicodeChar?.codePointAt(0)?.toString(16).toUpperCase()}`,
+                    )
+                  }
+                  sx={{ alignSelf: 'flex-start' }}
+                >
+                  Insert as plain text
+                </Button>
+              </Box>
+            </Box>
+          )}
+
+          {preview && (
+            <Box
+              sx={{
+                display: 'flex',
+                justifyContent: 'center',
+                border: '1px solid',
+                borderColor: 'divider',
+                borderRadius: 1,
+                p: 1,
+              }}
+            >
+              <GlyphThumbnail svg={preview.svg} />
+            </Box>
+          )}
+
+          {preview && preview.unresolvedComponents.length > 0 && (
+            <Alert severity="warning">
+              No geometry found for: {preview.unresolvedComponents.join(', ')}
+            </Alert>
+          )}
+
+          {preview && preview.glyphwikiCandidates.length > 0 && (
+            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+              <Typography variant="body2" color="text.secondary">
+                GlyphWiki already has {preview.glyphwikiCandidates.length} matching{' '}
+                {preview.glyphwikiCandidates.length === 1 ? 'glyph' : 'glyphs'} - adopt one instead
+                of composing a new one:
+              </Typography>
+              <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
+                {preview.glyphwikiCandidates.map((candidate) => {
+                  const unicodeChar = canonicalUnicodeChar(candidate.name);
+                  if (unicodeChar) {
+                    // This candidate already IS an ordinary encoded character -
+                    // show it as plain text in the document's own font, not a
+                    // KAGE-rendered SVG, and insert exactly that on click. No
+                    // gaiji object, no registry entry: Route A.
+                    const codepointLabel = `U+${unicodeChar.codePointAt(0)?.toString(16).toUpperCase()}`;
+                    return (
+                      <Tooltip
+                        key={candidate.name}
+                        title={`Insert ${codepointLabel} as plain text`}
+                      >
+                        <ButtonBase
+                          disabled={saving}
+                          onClick={() => handleInsertUnicode(unicodeChar, codepointLabel)}
+                          sx={{
+                            width: 64,
+                            height: 64,
+                            border: '2px solid',
+                            borderColor: 'success.main',
+                            borderRadius: 1,
+                            display: 'flex',
+                            flexDirection: 'column',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            gap: 0.25,
+                          }}
+                        >
+                          <Typography sx={{ fontSize: 32, lineHeight: 1 }}>
+                            {unicodeChar}
+                          </Typography>
+                          <Typography variant="caption" color="success.main">
+                            Unicode
+                          </Typography>
+                        </ButtonBase>
+                      </Tooltip>
+                    );
+                  }
+
+                  const { svg } = renderKageToSvg(candidate.kageData);
+                  return (
+                    <Tooltip key={candidate.name} title={`Adopt ${candidate.name}`}>
+                      <ButtonBase
+                        disabled={saving}
+                        onClick={() => void handleAdopt(candidate)}
+                        sx={{ border: '1px solid', borderColor: 'divider', borderRadius: 1 }}
+                      >
+                        <GlyphThumbnail svg={svg} size={64} />
+                      </ButtonBase>
+                    </Tooltip>
+                  );
+                })}
+              </Box>
+            </Box>
+          )}
+
+          {flattenNotice && <Alert severity="info">{flattenNotice}</Alert>}
+          {saveError && <Alert severity="error">{saveError}</Alert>}
+          {insertedMessage && !saveError && (
+            <Alert severity="success">
+              Inserted {insertedMessage} - compose another, or close this dialog.
+            </Alert>
+          )}
+
+          <Button variant="contained" disabled={!canSave} onClick={() => void handleSave()}>
+            Save and insert
+          </Button>
         </Box>
-      )}
-
-      {saveError && <Alert severity="error">{saveError}</Alert>}
-      {insertedMessage && !saveError && (
-        <Alert severity="success">
-          Inserted {insertedMessage} - compose another, or close this dialog.
-        </Alert>
-      )}
-
-      <Button variant="contained" disabled={!canSave} onClick={() => void handleSave()}>
-        Save and insert
-      </Button>
+      </Box>
     </Box>
   );
 };

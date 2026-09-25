@@ -296,18 +296,19 @@ describe('adoptGlyphwikiCandidateAndInsert', () => {
   });
 });
 
-describe('previewComposerTree (Phase D nesting)', () => {
+describe('previewComposerTree (Phase D nesting, Phase B three-part operators)', () => {
   it('renders a nested composition (a slot that is itself a two-part sub-composition)', () => {
     const nestedSlot: ComposerSlot = {
       kind: 'nested',
       operator: '⿱',
-      first: { kind: 'leaf', input: '攴' },
-      second: { kind: 'leaf', input: '女' },
+      parts: [
+        { kind: 'leaf', input: '攴' },
+        { kind: 'leaf', input: '女' },
+      ],
     };
     const preview = previewComposerTree(
       '⿰',
-      { kind: 'leaf', input: '言' },
-      nestedSlot,
+      [{ kind: 'leaf', input: '言' }, nestedSlot],
       emptyProjectGlyphRegistry(),
     );
     expect(preview.unresolvedComponents).toEqual([]);
@@ -318,13 +319,14 @@ describe('previewComposerTree (Phase D nesting)', () => {
     const nestedSlot: ComposerSlot = {
       kind: 'nested',
       operator: '⿱',
-      first: { kind: 'leaf', input: '攴' },
-      second: { kind: 'leaf', input: '女' },
+      parts: [
+        { kind: 'leaf', input: '攴' },
+        { kind: 'leaf', input: '女' },
+      ],
     };
     const preview = previewComposerTree(
       '⿰',
-      { kind: 'leaf', input: '言' },
-      nestedSlot,
+      [{ kind: 'leaf', input: '言' }, nestedSlot],
       emptyProjectGlyphRegistry(),
     );
     expect(preview.ids).toBe('⿰言⿱攴女');
@@ -334,13 +336,14 @@ describe('previewComposerTree (Phase D nesting)', () => {
     const nestedSlot: ComposerSlot = {
       kind: 'nested',
       operator: '⿱',
-      first: { kind: 'leaf', input: 'not-a-real-thing' },
-      second: { kind: 'leaf', input: '女' },
+      parts: [
+        { kind: 'leaf', input: 'not-a-real-thing' },
+        { kind: 'leaf', input: '女' },
+      ],
     };
     const preview = previewComposerTree(
       '⿰',
-      { kind: 'leaf', input: '言' },
-      nestedSlot,
+      [{ kind: 'leaf', input: '言' }, nestedSlot],
       emptyProjectGlyphRegistry(),
     );
     expect(preview.unresolvedComponents).toEqual(['not-a-real-thing']);
@@ -350,13 +353,14 @@ describe('previewComposerTree (Phase D nesting)', () => {
     const nestedSlot: ComposerSlot = {
       kind: 'nested',
       operator: '⿱',
-      first: { kind: 'leaf', input: '攴' },
-      second: { kind: 'leaf', input: '女' },
+      parts: [
+        { kind: 'leaf', input: '攴' },
+        { kind: 'leaf', input: '女' },
+      ],
     };
     const preview = previewComposerTree(
       '⿰',
-      { kind: 'leaf', input: '言' },
-      nestedSlot,
+      [{ kind: 'leaf', input: '言' }, nestedSlot],
       emptyProjectGlyphRegistry(),
     );
     expect(preview.glyphwikiCandidates).toEqual([]);
@@ -366,27 +370,60 @@ describe('previewComposerTree (Phase D nesting)', () => {
     const deepSlot: ComposerSlot = {
       kind: 'nested',
       operator: '⿰',
-      first: { kind: 'leaf', input: '言' },
-      second: {
-        kind: 'nested',
-        operator: '⿱',
-        first: { kind: 'leaf', input: '攴' },
-        second: {
+      parts: [
+        { kind: 'leaf', input: '言' },
+        {
           kind: 'nested',
-          operator: '⿰',
-          first: { kind: 'leaf', input: '一' },
-          second: { kind: 'leaf', input: '二' },
+          operator: '⿱',
+          parts: [
+            { kind: 'leaf', input: '攴' },
+            {
+              kind: 'nested',
+              operator: '⿰',
+              parts: [
+                { kind: 'leaf', input: '一' },
+                { kind: 'leaf', input: '二' },
+              ],
+            },
+          ],
         },
-      },
+      ],
     };
     const preview = previewComposerTree(
       '⿱',
-      deepSlot,
-      { kind: 'leaf', input: '女' },
+      [deepSlot, { kind: 'leaf', input: '女' }],
       emptyProjectGlyphRegistry(),
     );
     expect(preview.unresolvedComponents).toEqual([]);
     expect(preview.ids).toBe('⿱⿰言⿱攴⿰一二女');
+  });
+
+  it('renders a three-part composition (⿲/⿳)', () => {
+    const preview = previewComposerTree(
+      '⿲',
+      [
+        { kind: 'leaf', input: '一' },
+        { kind: 'leaf', input: '二' },
+        { kind: 'leaf', input: '三' },
+      ],
+      emptyProjectGlyphRegistry(),
+    );
+    expect(preview.unresolvedComponents).toEqual([]);
+    expect(preview.ids).toBe('⿲一二三');
+    expect(preview.kageData.split('$')).toHaveLength(3);
+  });
+
+  it('reports no GlyphWiki candidates for a three-part composition (the index is pairs only)', () => {
+    const preview = previewComposerTree(
+      '⿲',
+      [
+        { kind: 'leaf', input: '一' },
+        { kind: 'leaf', input: '二' },
+        { kind: 'leaf', input: '三' },
+      ],
+      emptyProjectGlyphRegistry(),
+    );
+    expect(preview.glyphwikiCandidates).toEqual([]);
   });
 });
 
@@ -449,15 +486,15 @@ describe('composeTreeAndInsertProjectGlyph (Phase D nesting)', () => {
     const nestedSlot: ComposerSlot = {
       kind: 'nested',
       operator: '⿱',
-      first: { kind: 'leaf', input: '攴' },
-      second: { kind: 'leaf', input: '女' },
+      parts: [
+        { kind: 'leaf', input: '攴' },
+        { kind: 'leaf', input: '女' },
+      ],
     };
-    const result = await composeTreeAndInsertProjectGlyph(
-      writer,
-      '⿰',
+    const result = await composeTreeAndInsertProjectGlyph(writer, '⿰', [
       { kind: 'leaf', input: '言' },
       nestedSlot,
-    );
+    ]);
     expect(result.ok).toBe(true);
     if (!result.ok) return;
 
@@ -493,16 +530,46 @@ describe('composeTreeAndInsertProjectGlyph (Phase D nesting)', () => {
     const brokenNestedSlot: ComposerSlot = {
       kind: 'nested',
       operator: '⿱',
-      first: { kind: 'leaf', input: 'not-a-real-thing' },
-      second: { kind: 'leaf', input: '女' },
+      parts: [
+        { kind: 'leaf', input: 'not-a-real-thing' },
+        { kind: 'leaf', input: '女' },
+      ],
     };
-    const result = await composeTreeAndInsertProjectGlyph(
-      writer,
-      '⿰',
+    const result = await composeTreeAndInsertProjectGlyph(writer, '⿰', [
       { kind: 'leaf', input: '言' },
       brokenNestedSlot,
-    );
+    ]);
     expect(result.ok).toBe(false);
     expect(files.has('/project/project-glyphs.json')).toBe(false);
+  });
+
+  it('composes and persists a three-part (⿲) composition, with all three component ids recorded', async () => {
+    const files = new Map<string, string>();
+    installFakeProjectApi(files);
+    const { writer, addStructureTag } = makeFakeWriter();
+    window.__desktopStoredDocumentXml = `<?xml version="1.0"?>
+<TEI xmlns="http://www.tei-c.org/ns/1.0">
+  <teiHeader><fileDesc><titleStmt><title>T</title></titleStmt><publicationStmt><p>U</p></publicationStmt><sourceDesc><p>N</p></sourceDesc></fileDesc></teiHeader>
+  <text><body><p>Hi</p></body></text>
+</TEI>`;
+
+    const result = await composeTreeAndInsertProjectGlyph(writer, '⿲', [
+      { kind: 'leaf', input: '一' },
+      { kind: 'leaf', input: '二' },
+      { kind: 'leaf', input: '三' },
+    ]);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+
+    expect(result.glyph.ids).toBe('⿲一二三');
+    expect(result.glyph.componentIds).toEqual(['u4e00', 'u4e8c', 'u4e09']);
+    expect(addStructureTag).toHaveBeenCalledWith(
+      expect.objectContaining({
+        tagName: 'g',
+        attributes: expect.objectContaining({ ref: '#chhiv-0001' }),
+      }),
+    );
+
+    window.__desktopStoredDocumentXml = undefined;
   });
 });

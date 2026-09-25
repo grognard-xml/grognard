@@ -17,7 +17,7 @@ describe('isKnownComponent', () => {
 
 describe('renderKageToSvg', () => {
   it('renders a composition of two bundled components to a well-formed SVG with no unresolved refs', () => {
-    const kageData = composeKageData('⿰', 'u8a00', 'u67d0'); // 言 / 某
+    const kageData = composeKageData('⿰', ['u8a00', 'u67d0']); // 言 / 某
     const result = renderKageToSvg(kageData);
     expect(result.unresolvedComponents).toEqual([]);
     expect(result.svg).toContain('<svg');
@@ -25,15 +25,15 @@ describe('renderKageToSvg', () => {
   });
 
   it('still renders, but reports the gap, when a referenced component is missing', () => {
-    const kageData = composeKageData('⿰', 'u8a00', 'totally-unknown-component');
+    const kageData = composeKageData('⿰', ['u8a00', 'totally-unknown-component']);
     const result = renderKageToSvg(kageData);
     expect(result.unresolvedComponents).toEqual(['totally-unknown-component']);
     expect(result.svg).toContain('<svg'); // kage-engine omits the gap rather than throwing
   });
 
   it('resolves a component supplied via extraComponents (a project-local composed glyph)', () => {
-    const previouslyComposed = composeKageData('⿱', 'u4e00', 'u4e8c'); // 一 / 二
-    const kageData = composeKageData('⿰', 'u8a00', 'chhiv-0001');
+    const previouslyComposed = composeKageData('⿱', ['u4e00', 'u4e8c']); // 一 / 二
+    const kageData = composeKageData('⿰', ['u8a00', 'chhiv-0001']);
     const result = renderKageToSvg(kageData, { 'chhiv-0001': previouslyComposed });
     expect(result.unresolvedComponents).toEqual([]);
     expect(result.svg).toContain('<svg');
@@ -61,8 +61,8 @@ describe('renderKageToSvg', () => {
     // down produced an empty unresolvedComponents list at the root - the
     // exact "clean render is not proof of resolution" failure mode this
     // module already exists to guard against, just one level removed.
-    const brokenNestedComponent = composeKageData('⿱', 'not-a-real-thing', 'u5973'); // 女
-    const kageData = composeKageData('⿰', 'u8a00', '__nested_0__');
+    const brokenNestedComponent = composeKageData('⿱', ['not-a-real-thing', 'u5973']); // 女
+    const kageData = composeKageData('⿰', ['u8a00', '__nested_0__']);
     const result = renderKageToSvg(kageData, { __nested_0__: brokenNestedComponent });
     expect(result.unresolvedComponents).toEqual(['not-a-real-thing']);
   });

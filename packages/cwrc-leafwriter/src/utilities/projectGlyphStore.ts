@@ -146,42 +146,49 @@ const resolveSlotForPreview = (
     const resolved = resolveComponentInput(slot.input, registry);
     return { name: resolved.name, ids: displayNameFor(resolved.name), components: {} };
   }
-  const first = resolveSlotForPreview(slot.first, registry);
-  const second = resolveSlotForPreview(slot.second, registry);
+  const parts = slot.parts.map((part) => resolveSlotForPreview(part, registry));
   const name = `__nested_${previewSyntheticCounter++}__`;
-  const kageData = composeKageData(slot.operator, first.name, second.name);
+  const kageData = composeKageData(
+    slot.operator,
+    parts.map((p) => p.name),
+  );
   return {
     name,
-    ids: `${slot.operator}${first.ids}${second.ids}`,
-    components: { ...first.components, ...second.components, [name]: kageData },
+    ids: `${slot.operator}${parts.map((p) => p.ids).join('')}`,
+    components: Object.assign({}, ...parts.map((p) => p.components), {
+      [name]: kageData,
+    }) as Record<string, string>,
   };
 };
 
 /**
  * Renders a live preview without saving anything - used by the composer
  * dialog on every operator/slot change. Phase D (composer-visual-redesign.md
- * §4): `firstSlot`/`secondSlot` may themselves be `nested` compositions, to
- * arbitrary depth - resolving one needs no changes to `kageCompose.ts` or
+ * §4): each of `parts` may itself be a `nested` composition, to arbitrary
+ * depth - resolving one needs no changes to `kageCompose.ts` or
  * `kageRenderer.ts` at all, it just synthesizes a temporary name for each
  * nested node and feeds its KAGE data through the same `extraComponents`
  * mechanism already used for reusing a saved project glyph as a component.
+ * `parts.length` must equal `partCountFor(operator)` (2, or 3 for ⿲/⿳) -
+ * see `resizePartsForOperator`.
  */
 export const previewComposerTree = (
   operator: IdsOperator,
-  firstSlot: ComposerSlot,
-  secondSlot: ComposerSlot,
+  parts: ComposerSlot[],
   registry: ProjectGlyphRegistry,
 ): ComposePreview => {
   previewSyntheticCounter = 0;
-  const first = resolveSlotForPreview(firstSlot, registry);
-  const second = resolveSlotForPreview(secondSlot, registry);
-  const kageData = composeKageData(operator, first.name, second.name);
-  const ids = `${operator}${first.ids}${second.ids}`;
-  const extraComponents = {
-    ...projectGlyphKageComponentMap(registry),
-    ...first.components,
-    ...second.components,
-  };
+  const resolvedParts = parts.map((part) => resolveSlotForPreview(part, registry));
+  const kageData = composeKageData(
+    operator,
+    resolvedParts.map((p) => p.name),
+  );
+  const ids = `${operator}${resolvedParts.map((p) => p.ids).join('')}`;
+  const extraComponents = Object.assign(
+    {},
+    projectGlyphKageComponentMap(registry),
+    ...resolvedParts.map((p) => p.components),
+  ) as Record<string, string>;
   const { svg, unresolvedComponents } = renderKageToSvg(kageData, extraComponents);
   return {
     svg,
@@ -189,12 +196,13 @@ export const previewComposerTree = (
     ids,
     unresolvedComponents,
     existingUnicodeChar: findEncodedCharacterForIds(ids),
-    // A direct component-pair search only makes sense when both slots are
-    // plain leaves - a nested sub-part isn't itself a known GlyphWiki
-    // component to search on, so there is no pair to look up.
+    // A direct component-pair search only makes sense for a plain two-leaf
+    // binary composition - the bundled GlyphWiki compound index is strictly
+    // pairs (see build-glyphwiki-compound-index.mjs), so a three-part (⿲/⿳)
+    // or nested composition has no matching shape to look up at all.
     glyphwikiCandidates:
-      firstSlot.kind === 'leaf' && secondSlot.kind === 'leaf'
-        ? findGlyphwikiCandidates(first.name, second.name)
+      parts.length === 2 && parts.every((p) => p.kind === 'leaf')
+        ? findGlyphwikiCandidates(resolvedParts[0].name, resolvedParts[1].name)
         : [],
   };
 };
@@ -210,8 +218,10 @@ export const previewComposition = (
 ): ComposePreview =>
   previewComposerTree(
     operator,
-    { kind: 'leaf', input: firstInput },
-    { kind: 'leaf', input: secondInput },
+    [
+      { kind: 'leaf', input: firstInput },
+      { kind: 'leaf', input: secondInput },
+    ],
     registry,
   );
 
@@ -298,20 +308,21 @@ const persistSlot = async (
     return { ok: true, name: resolved.name };
   }
 
-  const first = await persistSlot(slot.first, projectRoot, registry, writeSvg);
-  if (!first.ok) return first;
-  const second = await persistSlot(slot.second, projectRoot, registry, writeSvg);
-  if (!second.ok) return second;
+  const partNames: string[] = [];
+  for (const part of slot.parts) {
+    const result = await persistSlot(part, projectRoot, registry, writeSvg);
+    if (!result.ok) return result;
+    partNames.push(result.name);
+  }
 
   const extraComponents = projectGlyphKageComponentMap(registry.current);
-  if (!isKnownComponent(first.name, extraComponents)) {
-    return { ok: false, error: `"${first.name}" isn't a known component.` };
-  }
-  if (!isKnownComponent(second.name, extraComponents)) {
-    return { ok: false, error: `"${second.name}" isn't a known component.` };
+  for (const name of partNames) {
+    if (!isKnownComponent(name, extraComponents)) {
+      return { ok: false, error: `"${name}" isn't a known component.` };
+    }
   }
 
-  const kageData = composeKageData(slot.operator, first.name, second.name);
+  const kageData = composeKageData(slot.operator, partNames);
   const { svg, unresolvedComponents } = renderKageToSvg(kageData, extraComponents);
   if (unresolvedComponents.length > 0) {
     return {
@@ -324,11 +335,11 @@ const persistSlot = async (
   await writeSvg(id, svg);
   const glyph: ProjectGlyph = {
     id,
-    ids: composeIds(slot.operator, first.name, second.name),
+    ids: composeIds(slot.operator, partNames),
     kage: kageData,
     svgRelativeUrl: svgRelativeUrl(id),
     sourceType: 'composed',
-    componentIds: [first.name, second.name],
+    componentIds: partNames,
     createdAt: new Date().toISOString(),
   };
   registry.current = addProjectGlyph(registry.current, glyph);
@@ -348,8 +359,7 @@ const persistSlot = async (
 export const composeTreeAndInsertProjectGlyph = async (
   writer: Writer,
   operator: IdsOperator,
-  firstSlot: ComposerSlot,
-  secondSlot: ComposerSlot,
+  parts: ComposerSlot[],
 ): Promise<ComposeResult> => {
   const projectRoot = getProjectRootPath();
   if (!projectRoot) return { ok: false, error: 'No project is open.' };
@@ -365,20 +375,21 @@ export const composeTreeAndInsertProjectGlyph = async (
 
   const registry = { current: await loadProjectGlyphRegistryFromDisk(projectRoot) };
 
-  const first = await persistSlot(firstSlot, projectRoot, registry, writeSvg);
-  if (!first.ok) return { ok: false, error: first.error };
-  const second = await persistSlot(secondSlot, projectRoot, registry, writeSvg);
-  if (!second.ok) return { ok: false, error: second.error };
+  const partNames: string[] = [];
+  for (const part of parts) {
+    const result = await persistSlot(part, projectRoot, registry, writeSvg);
+    if (!result.ok) return { ok: false, error: result.error };
+    partNames.push(result.name);
+  }
 
   const extraComponents = projectGlyphKageComponentMap(registry.current);
-  if (!isKnownComponent(first.name, extraComponents)) {
-    return { ok: false, error: `"${first.name}" isn't a known component.` };
-  }
-  if (!isKnownComponent(second.name, extraComponents)) {
-    return { ok: false, error: `"${second.name}" isn't a known component.` };
+  for (const name of partNames) {
+    if (!isKnownComponent(name, extraComponents)) {
+      return { ok: false, error: `"${name}" isn't a known component.` };
+    }
   }
 
-  const kageData = composeKageData(operator, first.name, second.name);
+  const kageData = composeKageData(operator, partNames);
   const { svg, unresolvedComponents } = renderKageToSvg(kageData, extraComponents);
   if (unresolvedComponents.length > 0) {
     return {
@@ -393,10 +404,10 @@ export const composeTreeAndInsertProjectGlyph = async (
     registry.current,
     {
       id: nextProjectGlyphId(registry.current),
-      ids: composeIds(operator, first.name, second.name),
+      ids: composeIds(operator, partNames),
       kage: kageData,
       sourceType: 'composed',
-      componentIds: [first.name, second.name],
+      componentIds: partNames,
       createdAt: new Date().toISOString(),
     },
     svg,
@@ -411,12 +422,10 @@ export const composeAndInsertProjectGlyph = (
   firstInput: string,
   secondInput: string,
 ): Promise<ComposeResult> =>
-  composeTreeAndInsertProjectGlyph(
-    writer,
-    operator,
+  composeTreeAndInsertProjectGlyph(writer, operator, [
     { kind: 'leaf', input: firstInput },
     { kind: 'leaf', input: secondInput },
-  );
+  ]);
 
 /**
  * Adopts a GlyphWiki candidate (from `findGlyphwikiCandidates`/
@@ -451,7 +460,7 @@ export const adoptGlyphwikiCandidateAndInsert = async (
     registry,
     {
       id: nextProjectGlyphId(registry),
-      ids: composeIds(operator, candidate.componentA, candidate.componentB),
+      ids: composeIds(operator, [candidate.componentA, candidate.componentB]),
       kage: candidate.kageData,
       sourceType: 'glyphwiki',
       glyphwikiId: candidate.name,

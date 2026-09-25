@@ -19,17 +19,32 @@
  * that box.
  */
 
-export type IdsOperator = '⿰' | '⿱' | '⿴' | '⿸' | '⿹' | '⿺' | '⿻';
+/** All 12 standard Ideographic Description Characters (Phase B,
+ * composer-visual-redesign.md §4) - the full Unicode-defined set, not just
+ * the binary-operator subset Phase 1 shipped with. */
+export type IdsOperator =
+  '⿰' | '⿱' | '⿲' | '⿳' | '⿴' | '⿵' | '⿶' | '⿷' | '⿸' | '⿹' | '⿺' | '⿻';
 
-export const IDS_OPERATORS: { operator: IdsOperator; label: string }[] = [
-  { operator: '⿰', label: 'Left / right' },
-  { operator: '⿱', label: 'Above / below' },
-  { operator: '⿴', label: 'Full enclosure' },
-  { operator: '⿸', label: 'Upper-left enclosure' },
-  { operator: '⿹', label: 'Upper-right enclosure' },
-  { operator: '⿺', label: 'Lower-left enclosure' },
-  { operator: '⿻', label: 'Overlap' },
+export const IDS_OPERATORS: { operator: IdsOperator; label: string; partCount: 2 | 3 }[] = [
+  { operator: '⿰', label: 'Left / right', partCount: 2 },
+  { operator: '⿱', label: 'Above / below', partCount: 2 },
+  { operator: '⿲', label: 'Left / middle / right', partCount: 3 },
+  { operator: '⿳', label: 'Top / middle / bottom', partCount: 3 },
+  { operator: '⿴', label: 'Full enclosure', partCount: 2 },
+  { operator: '⿵', label: 'Surround from above', partCount: 2 },
+  { operator: '⿶', label: 'Surround from below', partCount: 2 },
+  { operator: '⿷', label: 'Surround from left', partCount: 2 },
+  { operator: '⿸', label: 'Upper-left enclosure', partCount: 2 },
+  { operator: '⿹', label: 'Upper-right enclosure', partCount: 2 },
+  { operator: '⿺', label: 'Lower-left enclosure', partCount: 2 },
+  { operator: '⿻', label: 'Overlap', partCount: 2 },
 ];
+
+/** How many components an operator describes - 2 for every binary operator,
+ * 3 only for ⿲/⿳. Falls back to 2 for anything not in `IDS_OPERATORS`
+ * (there is no such value today, but this keeps the function total). */
+export const partCountFor = (operator: IdsOperator): 2 | 3 =>
+  IDS_OPERATORS.find((o) => o.operator === operator)?.partCount ?? 2;
 
 interface Box {
   left: number;
@@ -41,20 +56,22 @@ interface Box {
 const FULL: Box = { left: 0, top: 0, right: 200, bottom: 200 };
 
 /**
- * Default bounding boxes for the first (outer/left/above) and second
- * (inner/right/below) component, per operator. Not palaeographically tuned,
- * but not arbitrary either: `⿰`/`⿱` are calibrated against real GlyphWiki
- * data (sampled ~6,000-6,600 genuine two-part left/right and above/below
- * compositions each from the bundled compound index) rather than a naive
- * even 50/50 split. A clean half/half split leaves each component visually
- * isolated with its own margins inside its own half - since kage-engine
- * doesn't stretch a component to fill its box (it preserves natural
- * proportions, `stretch-h`/`stretch-v` are `0` below), those two margins
- * stack into a gap that reads as too wide. Real compositions instead
- * overlap the two boxes by roughly 8-10% of the canvas (measured average:
- * ~16-21 units of 200 for both axes), which is what the values below do.
+ * Default bounding boxes for each component, per operator, in the order
+ * `composeKageData`'s `names` array should list them. Not palaeographically
+ * tuned, but not arbitrary either: `⿰`/`⿱` are calibrated against real
+ * GlyphWiki data (sampled ~6,000-6,600 genuine two-part left/right and
+ * above/below compositions each from the bundled compound index) rather
+ * than a naive even split - see the doc comment history in git blame for the
+ * measurement (a clean half/half split leaves each component visually
+ * isolated with its own margins, and since kage-engine doesn't stretch a
+ * component to fill its box, stretch-h/stretch-v are `0` below, those two
+ * margins stack into a gap that reads as too wide - real compositions
+ * overlap by roughly 8-10% of the canvas instead). The remaining operators
+ * (added in Phase B) use simple, reasonable geometric defaults in the same
+ * spirit as ⿴/⿸/⿹/⿺ already did in Phase 1 - worth the same real-data
+ * tuning pass later if visual feedback calls for it, same as ⿰/⿱ got.
  */
-const boxesFor = (operator: IdsOperator): [Box, Box] => {
+const boxesFor = (operator: IdsOperator): Box[] => {
   switch (operator) {
     case '⿰':
       return [
@@ -66,8 +83,26 @@ const boxesFor = (operator: IdsOperator): [Box, Box] => {
         { left: 0, top: 0, right: 200, bottom: 108 },
         { left: 0, top: 92, right: 200, bottom: 200 },
       ];
+    case '⿲':
+      return [
+        { left: 0, top: 0, right: 74, bottom: 200 },
+        { left: 63, top: 0, right: 137, bottom: 200 },
+        { left: 126, top: 0, right: 200, bottom: 200 },
+      ];
+    case '⿳':
+      return [
+        { left: 0, top: 0, right: 200, bottom: 74 },
+        { left: 0, top: 63, right: 200, bottom: 137 },
+        { left: 0, top: 126, right: 200, bottom: 200 },
+      ];
     case '⿴':
       return [FULL, { left: 40, top: 40, right: 160, bottom: 160 }];
+    case '⿵':
+      return [FULL, { left: 30, top: 60, right: 170, bottom: 200 }];
+    case '⿶':
+      return [FULL, { left: 30, top: 0, right: 170, bottom: 140 }];
+    case '⿷':
+      return [FULL, { left: 60, top: 30, right: 200, bottom: 170 }];
     case '⿸':
       return [FULL, { left: 60, top: 60, right: 200, bottom: 200 }];
     case '⿹':
@@ -87,17 +122,16 @@ const boxesFor = (operator: IdsOperator): [Box, Box] => {
 const componentRecord = (box: Box, name: string): string =>
   `99:0:0:${box.left}:${box.top}:${box.right}:${box.bottom}:${name}:0:0:0`;
 
-/** Builds the new glyph's own KAGE data - a `$`-joined pair of "99:" records
- * referencing `firstName`/`secondName`, which must already be resolvable
- * (either in the bundled kageCore.json or in an already-composed project
- * glyph's own KAGE data) for kage-engine to render the result. */
-export const composeKageData = (
-  operator: IdsOperator,
-  firstName: string,
-  secondName: string,
-): string => {
-  const [firstBox, secondBox] = boxesFor(operator);
-  return `${componentRecord(firstBox, firstName)}$${componentRecord(secondBox, secondName)}`;
+/** Builds the new glyph's own KAGE data - a `$`-joined list of "99:" records
+ * referencing `names` in order (2 names for a binary operator, 3 for ⿲/⿳ -
+ * see `partCountFor`), each of which must already be resolvable (either in
+ * the bundled kageCore.json or in an already-composed project glyph's own
+ * KAGE data) for kage-engine to render the result. */
+export const composeKageData = (operator: IdsOperator, names: string[]): string => {
+  const boxes = boxesFor(operator);
+  return names
+    .map((name, i) => componentRecord(boxes[i] ?? boxes[boxes.length - 1], name))
+    .join('$');
 };
 
 const BARE_UNICODE_NAME_RE = /^u([0-9a-f]{4,6})$/i;
@@ -127,8 +161,8 @@ export const displayNameFor = (name: string): string => canonicalUnicodeChar(nam
 
 /** The IDS string for the composition, e.g. "⿰言某" - stored as the
  * `<mapping type="ids">` value per the agreed `<charDecl><glyph>` schema. */
-export const composeIds = (operator: IdsOperator, firstName: string, secondName: string): string =>
-  `${operator}${displayNameFor(firstName)}${displayNameFor(secondName)}`;
+export const composeIds = (operator: IdsOperator, names: string[]): string =>
+  `${operator}${names.map(displayNameFor).join('')}`;
 
 const parseBox = (record: string): Box => {
   const fields = record.split(':');

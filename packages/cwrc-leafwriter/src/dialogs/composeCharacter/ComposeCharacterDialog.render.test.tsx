@@ -4,18 +4,11 @@ import { ComposeCharacterDialog } from './ComposeCharacterDialog';
 import { renderWithOvermind } from '../../../test/renderWithOvermind';
 
 /**
- * Render smoke test for the glyph composer dialog. See
- * apps/commons/src/desktop/sidebar/SidebarDatabaseTab.render.test.tsx for why
- * these exist - mounting exercises every hook body/dependency array, which
- * catches real render-time bugs `tsc` can't (a stale closure, a
- * temporal-dead-zone reference, a hook called conditionally). This dialog in
- * particular gained a recursive `SlotEditor` in Phase D, exactly the kind of
- * change (a component that renders itself) worth a render-path check for.
- *
- * Deliberately shallow: asserts the dialog mounts, and that clicking "Compose
- * this part" successfully mounts the nested sub-editor too - not that any
- * particular composition behaves correctly (that's projectGlyphStore.test.ts's
- * job, against the real bundled data, without a DOM in the loop at all).
+ * Render smoke test for the glyph composer dialog. Mounting exercises every
+ * hook, which catches render-time bugs `tsc` can't. Phase C replaced the
+ * dropdown and stacked fields with a layout palette and a square, so these
+ * checks follow that interaction: a palette click changes the selected
+ * region, and focusing a field makes the next click nest inside it.
  */
 const makeFakeWriter = (): Writer =>
   ({
@@ -36,6 +29,10 @@ const makeFakeWriter = (): Writer =>
     overmindActions: { document: { updateXMLHeader: () => {}, setDocumentXml: () => {} } },
   }) as unknown as Writer;
 
+const pickLayout = (name: RegExp) => {
+  fireEvent.click(screen.getByRole('button', { name }));
+};
+
 describe('ComposeCharacterDialog', () => {
   it('mounts without throwing', () => {
     expect(() =>
@@ -43,22 +40,64 @@ describe('ComposeCharacterDialog', () => {
     ).not.toThrow();
   });
 
-  it('mounts the nested SlotEditor when "Compose this part" is clicked', () => {
+  it('shows a left/right square and a draft IDS string', () => {
     renderWithOvermind(<ComposeCharacterDialog writer={makeFakeWriter()} />);
 
-    const composeButtons = screen.getAllByRole('button', { name: /compose this part/i });
-    expect(composeButtons.length).toBeGreaterThan(0);
+    expect(screen.getByRole('group', { name: 'Composition' })).toBeTruthy();
+    expect(screen.getByLabelText('Left')).toBeTruthy();
+    expect(screen.getByLabelText('Right')).toBeTruthy();
+    expect(screen.getByText('⿰??')).toBeTruthy();
+  });
 
-    expect(() => fireEvent.click(composeButtons[1])).not.toThrow();
+  it('adds a third box when the outer layout is the three-part left/middle/right', () => {
+    renderWithOvermind(<ComposeCharacterDialog writer={makeFakeWriter()} />);
 
-    // The second slot is now `nested`, replacing its own leaf field with an
-    // operator picker (a <Select>, rendered as a combobox) plus a fresh pair
-    // of child fields: "First component" appears twice (the still-leaf top
-    // first slot, plus the nested slot's own first child), "Second
-    // component" appears once (only the nested slot's second child - the
-    // top-level second slot's leaf field is gone, replaced by the nesting).
-    expect(screen.getAllByRole('combobox').length).toBeGreaterThanOrEqual(2);
-    expect(screen.getAllByLabelText('First component')).toHaveLength(2);
-    expect(screen.getAllByLabelText('Second component')).toHaveLength(1);
+    pickLayout(/left \/ middle \/ right/i);
+
+    expect(screen.getByLabelText('Left')).toBeTruthy();
+    expect(screen.getByLabelText('Middle')).toBeTruthy();
+    expect(screen.getByLabelText('Right')).toBeTruthy();
+    expect(screen.getByText('⿲???')).toBeTruthy();
+  });
+
+  it('nests a layout inside the field that is focused', () => {
+    renderWithOvermind(<ComposeCharacterDialog writer={makeFakeWriter()} />);
+
+    fireEvent.focus(screen.getByLabelText('Right'));
+    pickLayout(/above \/ below/i);
+
+    expect(screen.getByLabelText('Left')).toBeTruthy();
+    expect(screen.getByLabelText('Above')).toBeTruthy();
+    expect(screen.getByLabelText('Below')).toBeTruthy();
+    expect(screen.queryByLabelText('Right')).toBeNull();
+    expect(screen.getByRole('button', { name: 'Remove this layout' })).toBeTruthy();
+    expect(screen.getByText('⿰?⿱??')).toBeTruthy();
+  });
+
+  it('changes the inner layout when that region, not a field, is selected', () => {
+    renderWithOvermind(<ComposeCharacterDialog writer={makeFakeWriter()} />);
+
+    fireEvent.focus(screen.getByLabelText('Right'));
+    pickLayout(/above \/ below/i);
+    fireEvent.click(screen.getByRole('group', { name: /above \/ below layout/i }));
+    pickLayout(/full enclosure/i);
+
+    expect(screen.getByLabelText('Left')).toBeTruthy();
+    expect(screen.getByLabelText('Surround')).toBeTruthy();
+    expect(screen.getByLabelText('Inside')).toBeTruthy();
+    expect(screen.queryByLabelText('Above')).toBeNull();
+  });
+
+  it('returns palette clicks to the outer square when the square is clicked', () => {
+    renderWithOvermind(<ComposeCharacterDialog writer={makeFakeWriter()} />);
+
+    fireEvent.focus(screen.getByLabelText('Right'));
+    fireEvent.click(screen.getByRole('group', { name: 'Composition' }));
+    pickLayout(/above \/ below/i);
+
+    expect(screen.getByLabelText('Above')).toBeTruthy();
+    expect(screen.getByLabelText('Below')).toBeTruthy();
+    expect(screen.queryByLabelText('Left')).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Remove this layout' })).toBeNull();
   });
 });
