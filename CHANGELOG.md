@@ -728,7 +728,7 @@ Paste/drop a character image now works in the translation pane and its footnotes
 
 - DILA place records almost never carry their own `<geo>` point (~0.6% do), but many carry a `<district>` field naming the modern administrative equivalent (e.g. `中國-河南省-商丘市-民權縣`). The authority-extraction pipeline (see the authority-extraction changelog) now resolves that chain against a vendored province/city/county centroid gazetteer and attaches the match as `metadata.geo` when DILA's own `<geo>` is absent, lifting DILA place-geo coverage from ~0.6% to ~2%. The resulting point is a present-day administrative centroid, not the historical site, so it is markedly coarser than a direct CBDB/CHGIS/DILA `<geo>` point (see the caveat in [`placename-geo-disambiguation-planning.md`](docs/placename-geo-disambiguation-planning.md)) — this is documented once there and in the authority-extraction package's README rather than tagged per record.
 
-### Upstream
+### 0.1.1-beta.4
 
 - Updated Structure, CHHIV, and Advanced Tag Transform icons
 
