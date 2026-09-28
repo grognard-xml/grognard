@@ -1236,7 +1236,6 @@ export const KanripoImportDialog = ({
             );
           }
         }
-        await window.__leafWriterProject?.openFile?.(bar.outputPath);
       } else if (!outcome.cancelled) {
         setError(outcome.message);
       } else {
@@ -1940,6 +1939,15 @@ export const KanripoImportDialog = ({
               AI fill gaps
             </Button>
           </>
+        ) : !busy && report && report.failed.length === 0 ? (
+          // A finished, all-succeeded import leaves the dialog sitting on a
+          // static coverage bar per juan (not a progress indicator) with no
+          // other visual change — easy to mistake for a hang. Swapping the
+          // primary action to "Close" once there's nothing left to run here
+          // makes the finished state unambiguous.
+          <Button variant="contained" onClick={() => onClose?.('cancel')}>
+            Close
+          </Button>
         ) : (
           <Button variant="contained" disabled={!canRunImport} onClick={() => void runImport()}>
             Import

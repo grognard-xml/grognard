@@ -9,6 +9,7 @@ import {
   nativeTheme,
   net,
   Notification,
+  powerSaveBlocker,
   protocol,
   type WebContents,
   shell,
@@ -2620,6 +2621,35 @@ const registerIpcHandlers = () => {
   ipcMain.handle('extractDocxTextWithImages', async (_event, filePath: string) => {
     await assertRendererReadPath(filePath);
     return extractDocxTextWithImages(filePath);
+  });
+
+  // Long unattended AI runs (fill-gaps, auto-tagging, translation, ...) can
+  // get abandoned mid-flight by a system sleep: Chromium suspends the
+  // renderer's timers/network activity, and TinyMCE's editor internals
+  // (addUndoLevel and friends) aren't robust to resuming after that,
+  // producing null-dereference crashes with no partial write ever having
+  // happened. 'prevent-app-suspension' keeps the system (not necessarily
+  // the display) awake for exactly the run's duration. Ref-counted since
+  // aiRunProgress is a single shared store several independent features
+  // start/stop against; each start/stop pairs 1:1 on the renderer side, but
+  // counting here too means a stray extra stop can never release a blocker
+  // that a still-active run still needs.
+  let aiRunPowerSaveBlockerId: number | null = null;
+  let aiRunPowerSaveBlockerRefCount = 0;
+
+  ipcMain.handle('aiRunPowerSaveBlocker:start', () => {
+    aiRunPowerSaveBlockerRefCount += 1;
+    if (aiRunPowerSaveBlockerId === null) {
+      aiRunPowerSaveBlockerId = powerSaveBlocker.start('prevent-app-suspension');
+    }
+  });
+
+  ipcMain.handle('aiRunPowerSaveBlocker:stop', () => {
+    aiRunPowerSaveBlockerRefCount = Math.max(0, aiRunPowerSaveBlockerRefCount - 1);
+    if (aiRunPowerSaveBlockerRefCount === 0 && aiRunPowerSaveBlockerId !== null) {
+      powerSaveBlocker.stop(aiRunPowerSaveBlockerId);
+      aiRunPowerSaveBlockerId = null;
+    }
   });
 
   ipcMain.handle('writeFile', async (_event, filePath: string, content: string) => {

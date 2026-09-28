@@ -290,6 +290,12 @@ export interface ElectronAPI {
   writeClipboardRich: (flavors: { text: string; html?: string; rtf?: string }) => Promise<void>;
   writeFile: (filePath: string, content: string) => Promise<void>;
   writeBinaryFile: (filePath: string, bytes: Uint8Array) => Promise<void>;
+  /** Keep the system awake for the duration of a long unattended AI run
+   * (fill-gaps, auto-tagging, translation, ...) — see aiRunProgress.ts.
+   * Ref-counted in the main process; every start must be paired with a
+   * stop. */
+  startAiRunPowerSaveBlocker: () => Promise<void>;
+  stopAiRunPowerSaveBlocker: () => Promise<void>;
   vectorizeGlyphImage: (
     bytes: Uint8Array,
     options?: { threshold?: number; minBlobPixels?: number; marginPixels?: number },
@@ -1048,6 +1054,8 @@ const electronAPI: ElectronAPI = {
     ipcRenderer.invoke('writeFile', filePath, content),
   writeBinaryFile: (filePath: string, bytes: Uint8Array) =>
     ipcRenderer.invoke('writeBinaryFile', filePath, bytes),
+  startAiRunPowerSaveBlocker: () => ipcRenderer.invoke('aiRunPowerSaveBlocker:start'),
+  stopAiRunPowerSaveBlocker: () => ipcRenderer.invoke('aiRunPowerSaveBlocker:stop'),
   vectorizeGlyphImage: (
     bytes: Uint8Array,
     options?: { threshold?: number; minBlobPixels?: number; marginPixels?: number },

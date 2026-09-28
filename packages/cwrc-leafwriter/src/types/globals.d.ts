@@ -819,6 +819,8 @@ declare global {
     readFileAutoEncoding?: (filePath: string) => Promise<{ encoding: string; text: string }>;
     writeFile?: (filePath: string, content: string) => Promise<void>;
     writeBinaryFile?: (filePath: string, bytes: Uint8Array) => Promise<void>;
+    startAiRunPowerSaveBlocker?: () => Promise<void>;
+    stopAiRunPowerSaveBlocker?: () => Promise<void>;
     vectorizeGlyphImage?: (
       bytes: Uint8Array,
       options?: { threshold?: number; minBlobPixels?: number; marginPixels?: number },
