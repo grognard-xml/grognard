@@ -1,6 +1,10 @@
 import { webcrypto } from 'crypto';
 
-import { convertImportedGaiji, gaijiModeForCatalog } from './documentImportGaiji';
+import {
+  convertImportedGaiji,
+  convertKanripoGaiji,
+  gaijiModeForCatalog,
+} from './documentImportGaiji';
 
 const TEI = `<?xml version="1.0" encoding="UTF-8"?>
 <TEI xmlns="http://www.tei-c.org/ns/1.0"><teiHeader><fileDesc><titleStmt><title>t</title></titleStmt></fileDesc></teiHeader>
@@ -101,5 +105,40 @@ describe('gaijiModeForCatalog', () => {
     expect(gaijiModeForCatalog('teiAll')).toBe('charDecl');
     expect(gaijiModeForCatalog('teiLite')).toBe('graphic');
     expect(gaijiModeForCatalog('orlando')).toBeNull();
+  });
+});
+
+describe('convertKanripoGaiji', () => {
+  beforeAll(() => {
+    if (!globalThis.crypto?.subtle) {
+      Object.defineProperty(globalThis, 'crypto', { value: webcrypto, configurable: true });
+    }
+  });
+
+  const g = (id: string) =>
+    `<g type="kanripo" n="${id}"><graphic url="_gaiji/${id}.png" height="1em"/></g>`;
+  const xml = TEI.replace(/<p>.*<\/p>/, `<p>天${g('KR0001')}地${g('KR0002')}人${g('KR0001')}</p>`);
+
+  it('vectorises the PNGs into glyphs and keeps the PNG form for failures', async () => {
+    const { api } = fakeApi();
+    const readBytes = jest.fn(async (filePath: string) => {
+      if (filePath.endsWith('KR0002.png')) throw new Error('missing');
+      return PNG_A;
+    });
+    const result = await convertKanripoGaiji({
+      api,
+      readBytes,
+      gaijiDir: '/project/imported/_gaiji/',
+      mode: 'charDecl',
+      outputPath: '/project/imported/doc.xml',
+      xml,
+    });
+    expect(result.converted).toBe(1);
+    expect(result.failed).toBe(1);
+    expect(readBytes).toHaveBeenCalledWith('/project/imported/_gaiji/KR0001.png');
+    expect(result.xml.match(/<g type="glyph"/g)).toHaveLength(2);
+    expect(result.xml).toContain(g('KR0002'));
+    expect(result.xml).not.toContain(g('KR0001'));
+    expect(result.xml).toContain('<charDecl');
   });
 });

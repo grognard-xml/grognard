@@ -464,6 +464,7 @@ export interface ElectronAPI {
   extractOdtText: (filePath: string) => Promise<{ text: string; warnings: string[] }>;
   writeClipboardRich: (flavors: { text: string; html?: string; rtf?: string }) => Promise<void>;
   writeFile: (filePath: string, content: string) => Promise<void>;
+  readBinaryFile?: (filePath: string) => Promise<Uint8Array>;
   writeBinaryFile?: (filePath: string, bytes: Uint8Array) => Promise<void>;
   readPastedImageFile?: (fileUrl: string) => Promise<Uint8Array | null>;
   readClipboardRtfImages?: () => Promise<(Uint8Array | null)[]>;

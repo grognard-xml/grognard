@@ -21,6 +21,8 @@ export interface KanripoTeiMeta {
   title: string;
   kanripo_id: string;
   juan: string;
+  /** KR ids the converter left as `_gaiji/` PNGs. */
+  gaiji_ids?: string[];
   source: string;
   dzid: string;
   normalize: KanripoNormalizeMode;

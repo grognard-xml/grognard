@@ -2657,6 +2657,11 @@ const registerIpcHandlers = () => {
     await fs.writeFile(filePath, content, 'utf-8');
   });
 
+  ipcMain.handle('readBinaryFile', async (_event, filePath: string) => {
+    await assertRendererReadPath(filePath);
+    return new Uint8Array(await fs.readFile(filePath));
+  });
+
   ipcMain.handle('writeBinaryFile', async (_event, filePath: string, bytes: Uint8Array) => {
     await assertRendererWritePath(filePath);
     await fs.writeFile(filePath, Buffer.from(bytes));

@@ -30,6 +30,10 @@ import {
   type KanripoNormalizeMode,
   type KanripoTeiMeta,
 } from '../../../../../apps/commons/src/desktop/kanripoImportXml';
+import {
+  convertKanripoGaiji,
+  gaijiModeForCatalog,
+} from '../../../../../apps/commons/src/desktop/documentImportGaiji';
 import { ensureImportHeaderEntitiesForPaths } from '../../../../../apps/commons/src/desktop/ensureImportHeaderEntities';
 import { loadParallelPlainText } from '../../../../../apps/commons/src/desktop/kanripoParallelText';
 import {
@@ -65,6 +69,7 @@ import {
   aiApiSettingsFromDesktop,
 } from '../../autoTagging/llmClientFromSettings';
 import { fetchPunctCoverage } from '../../aiPunctuation/pluginBridge';
+import { matchJuanDiv } from '../../aiPunctuation/selectionScope';
 import {
   runAiFillGapsEditorCommand,
   runAiFillGapsOnFile,
@@ -187,16 +192,15 @@ const xmlLooksWellFormed = (xml: string): boolean => {
 };
 
 const extractJuanDiv = (xml: string): string | null => {
-  const juan = xml.match(/<div\b[^>]*type="juan"[^>]*>[\s\S]*?<\/div>/);
-  if (juan) return juan[0];
+  const juan = matchJuanDiv(xml);
+  if (juan) return xml.slice(juan.start, juan.end);
   const body = xml.match(/<body\b[^>]*>([\s\S]*?)<\/body>/);
   return body?.[1]?.trim() || null;
 };
 
 const replaceJuanDiv = (xml: string, bodyXml: string): string => {
-  if (/<div\b[^>]*type="juan"/.test(xml)) {
-    return xml.replace(/<div\b[^>]*type="juan"[^>]*>[\s\S]*?<\/div>/, bodyXml.trim());
-  }
+  const juan = matchJuanDiv(xml);
+  if (juan) return xml.slice(0, juan.start) + bodyXml.trim() + xml.slice(juan.end);
   return xml.replace(/<body\b[^>]*>[\s\S]*?<\/body>/, `<body>\n${bodyXml.trim()}\n</body>`);
 };
 
@@ -1021,7 +1025,7 @@ export const KanripoImportDialog = ({
               });
             }
           }
-          const xml = wrapKanripoTeiDocument({
+          let xml = wrapKanripoTeiDocument({
             config,
             meta: {
               ...converted.meta,
@@ -1039,6 +1043,19 @@ export const KanripoImportDialog = ({
           const outputPath = uniqueKanripoXmlPath(destDir, converted.meta.stem || stem, used);
           const dir = parentDir(outputPath);
           if (dir) await api.ensureDirectory(dir);
+          const gaijiMode = gaijiModeForCatalog(config.schema?.catalogId);
+          if (gaijiMode && converted.meta.gaiji_ids?.length) {
+            setStatus(`Vectorising gaiji in ${stem} (${i + 1} of ${files.length})…`);
+            const glyphs = await convertKanripoGaiji({
+              api,
+              readBytes: api.readBinaryFile,
+              gaijiDir: joinPath(destDir, '_gaiji'),
+              mode: gaijiMode,
+              outputPath,
+              xml,
+            });
+            if (xmlLooksWellFormed(glyphs.xml)) xml = glyphs.xml;
+          }
           await api.writeFile(outputPath, xml);
           written.push(outputPath);
           if (barCoverage) {

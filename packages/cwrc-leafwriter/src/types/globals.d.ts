@@ -818,6 +818,7 @@ declare global {
     readFile?: (filePath: string) => Promise<string>;
     readFileAutoEncoding?: (filePath: string) => Promise<{ encoding: string; text: string }>;
     writeFile?: (filePath: string, content: string) => Promise<void>;
+    readBinaryFile?: (filePath: string) => Promise<Uint8Array>;
     writeBinaryFile?: (filePath: string, bytes: Uint8Array) => Promise<void>;
     startAiRunPowerSaveBlocker?: () => Promise<void>;
     stopAiRunPowerSaveBlocker?: () => Promise<void>;

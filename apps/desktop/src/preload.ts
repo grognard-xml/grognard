@@ -289,6 +289,7 @@ export interface ElectronAPI {
   extractOdtText: (filePath: string) => Promise<{ text: string; warnings: string[] }>;
   writeClipboardRich: (flavors: { text: string; html?: string; rtf?: string }) => Promise<void>;
   writeFile: (filePath: string, content: string) => Promise<void>;
+  readBinaryFile: (filePath: string) => Promise<Uint8Array>;
   writeBinaryFile: (filePath: string, bytes: Uint8Array) => Promise<void>;
   /** Keep the system awake for the duration of a long unattended AI run
    * (fill-gaps, auto-tagging, translation, ...) — see aiRunProgress.ts.
@@ -1052,6 +1053,7 @@ const electronAPI: ElectronAPI = {
     ipcRenderer.invoke('writeClipboardRich', flavors),
   writeFile: (filePath: string, content: string) =>
     ipcRenderer.invoke('writeFile', filePath, content),
+  readBinaryFile: (filePath: string) => ipcRenderer.invoke('readBinaryFile', filePath),
   writeBinaryFile: (filePath: string, bytes: Uint8Array) =>
     ipcRenderer.invoke('writeBinaryFile', filePath, bytes),
   startAiRunPowerSaveBlocker: () => ipcRenderer.invoke('aiRunPowerSaveBlocker:start'),
