@@ -9,6 +9,7 @@ import { promisify } from 'node:util';
 import { app } from 'electron';
 import {
   getCachedPluginHostSnapshot,
+  getPluginHostSnapshot,
   isPluginEnabledInMain,
   resolveDevPluginSourcePath,
   resolvePluginPythonBinary,
@@ -473,6 +474,9 @@ const runPluginPythonCli = async (
   payload: Record<string, unknown>,
   onProgress?: PluginPythonProgressCallback,
 ): Promise<string> => {
+  // setPluginProject() clears the snapshot cache (e.g. on opening a project) and
+  // nothing guarantees it is rebuilt before the first plugin call.
+  if (!getCachedPluginHostSnapshot()) await getPluginHostSnapshot();
   const useStream = Boolean(onProgress && (payload.chunks || payload.dates));
   const moduleName = pythonModuleForPlugin(pluginId);
 

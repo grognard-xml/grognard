@@ -99,6 +99,50 @@ export const splitElementAtRange = (writer: Writer, el: Element, range: Range): 
   return secondHalf;
 };
 
+const divTypeOf = (el: Element): string => {
+  const direct = el.getAttribute('type');
+  if (direct) return direct;
+  const raw = el.getAttribute('_attributes');
+  if (!raw) return '';
+  try {
+    return String(JSON.parse(raw.replace(/&quot;/g, '"')).type ?? '');
+  } catch {
+    return '';
+  }
+};
+
+/**
+ * Moves everything from `range` to the end of `el` into a new, untyped child
+ * `<div>` appended inside `el` (instead of a sibling clone, see
+ * `splitElementAtRange`), so a `type="juan"` wrapper is never duplicated.
+ */
+const nestTailInNewDiv = (writer: Writer, el: Element, range: Range): Element => {
+  const doc = el.ownerDocument;
+  const tailRange = doc.createRange();
+  tailRange.setStart(range.startContainer, range.startOffset);
+  tailRange.setEnd(el, el.childNodes.length);
+  const tailFragment = tailRange.extractContents();
+  deduplicateClonedIds(writer, tailFragment);
+
+  const child = el.cloneNode(false) as Element;
+  rekeyClone(writer, child);
+  child.removeAttribute('type');
+  const rawAttrs = child.getAttribute('_attributes');
+  if (rawAttrs) {
+    try {
+      const attrs = JSON.parse(rawAttrs.replace(/&quot;/g, '"'));
+      delete attrs.type;
+      child.setAttribute('_attributes', JSON.stringify(attrs).replace(/"/g, '&quot;'));
+    } catch {
+      // Leave _attributes as-is if it doesn't parse.
+    }
+  }
+  child.appendChild(tailFragment);
+  el.appendChild(child);
+  seedIfEmpty(child);
+  return child;
+};
+
 /**
  * Splits the nearest `paragraphTagName`-tagged ancestor of the cursor into
  * two siblings at the cursor position - a plain structural break, nothing
@@ -138,6 +182,64 @@ export const splitParagraphAtCursor = (writer: Writer, paragraphTagName = 'p'): 
 };
 
 /**
+ * The text of a non-collapsed selection that lies within a single
+ * structural block (e.g. one paragraph), or null. Used to turn selected
+ * paragraph text into a heading; selections spanning several blocks are
+ * ignored since deleting them would merge or mangle the structure.
+ */
+/**
+ * Shrinks `range` to the text it actually covers. Browsers (and TinyMCE)
+ * report whole-line / triple-click selections with the end at offset 0 of
+ * the *next* block, or the start at the end of the previous one, which
+ * would make a one-paragraph selection look like it spans several.
+ */
+const trimRangeToText = (range: Range, body: Node): Range => {
+  const trimmed = range.cloneRange();
+  const doc = body.ownerDocument ?? document;
+  const walker = doc.createTreeWalker(body, NodeFilter.SHOW_TEXT);
+  const textNodes: Text[] = [];
+  for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+    if (trimmed.intersectsNode(n)) textNodes.push(n as Text);
+  }
+  const isEmptyText = (n: Text) => n.data.replace(/\uFEFF/g, '') === '';
+  const within = (n: Text) => {
+    const from = n === trimmed.startContainer ? trimmed.startOffset : 0;
+    const to = n === trimmed.endContainer ? trimmed.endOffset : n.length;
+    return to > from && n.data.slice(from, to).replace(/\uFEFF/g, '') !== '';
+  };
+  const real = textNodes.filter((n) => !isEmptyText(n) && within(n));
+  if (real.length === 0) return trimmed;
+  const first = real[0];
+  const last = real[real.length - 1];
+  trimmed.setStart(first, first === range.startContainer ? range.startOffset : 0);
+  trimmed.setEnd(last, last === range.endContainer ? range.endOffset : last.length);
+  return trimmed;
+};
+
+export const getSingleBlockSelectionText = (writer: Writer): string | null => {
+  const editor = writer.editor;
+  const body = editor?.getBody();
+  if (!editor || !body) return null;
+  //@ts-expect-error tinymce types omit getRng(true), which still exists at runtime
+  const raw: Range = editor.selection.getRng(true);
+  if (raw.collapsed) return null;
+  const range = trimRangeToText(raw, body);
+  const startOwner = taggedAncestors(range.startContainer, body)[0];
+  const endOwner = taggedAncestors(range.endContainer, body)[0];
+  if (!startOwner || startOwner !== endOwner) return null;
+  const text = range
+    .toString()
+    .replace(/\uFEFF/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  return text || null;
+};
+
+const isEmptyShell = (el: Element): boolean =>
+  (el.textContent ?? '').replace(/[\uFEFF\s]/g, '') === '' &&
+  Array.from(el.querySelectorAll('[_tag]')).every((d) => ['p', 'div'].includes(tagOf(d)));
+
+/**
  * Inserts `tagName` at the cursor in the position the active schema
  * actually allows it, rather than wherever the cursor happens to be. Walks
  * outward from the innermost structural ancestor and splits every level
@@ -152,14 +254,21 @@ export const insertStructuralElementAtCursor = (
   writer: Writer,
   tagName: string,
   attributes: Record<string, unknown> = {},
-  options: { text?: string } = {},
+  options: { text?: string; replaceSelection?: boolean } = {},
 ): boolean => {
   const editor = writer.editor;
   const body = editor?.getBody();
   if (!editor || !body) return false;
 
   //@ts-expect-error tinymce types omit getRng(true), which still exists at runtime
-  const range: Range = editor.selection.getRng(true);
+  const rawRange: Range = editor.selection.getRng(true);
+  const replacing = Boolean(options.replaceSelection) && !rawRange.collapsed;
+  const range = replacing ? trimRangeToText(rawRange, body) : rawRange;
+  if (replacing) {
+    // The selected text becomes the heading (passed in as options.text), so
+    // remove it from the paragraph; the range collapses to where it was.
+    range.deleteContents();
+  }
   const cursor = range.collapsed
     ? range
     : (() => {
@@ -187,6 +296,35 @@ export const insertStructuralElementAtCursor = (
     nextBoundary.setStart(parent, index);
     nextBoundary.collapse(true);
     boundary = nextBoundary;
+  }
+
+  // In TEI a `<head>` must open its `<div>`: it's schema-valid as a child of
+  // `<div>` but not after body content. When the cursor sits mid-section,
+  // split the div too so the heading starts a new section instead of
+  // landing after the preceding paragraphs ("Tag head not allowed in div").
+  const container = chain[targetIndex];
+  if (tagName === 'head' && tagOf(container) === 'div') {
+    const before = container.ownerDocument.createRange();
+    before.setStart(container, 0);
+    before.setEnd(boundary.startContainer, boundary.startOffset);
+    const prefix = before.cloneContents();
+    const hasLeadingContent =
+      Array.from(prefix.querySelectorAll('[_tag]')).some((el) => tagOf(el) !== 'head') ||
+      (prefix.textContent ?? '').replace(/\uFEFF/g, '').trim() !== '';
+    if (hasLeadingContent) {
+      // A `type="juan"` div is the document's top-level wrapper (the Kanripo
+      // dialogs and importers address "the juan div" by that attribute), so
+      // it must stay unique: nest the new section inside it rather than
+      // cloning it into a sibling juan.
+      const secondDiv =
+        divTypeOf(container) === 'juan'
+          ? nestTailInNewDiv(writer, container, boundary)
+          : splitElementAtRange(writer, container, boundary);
+      const nextBoundary = editor.dom.createRng();
+      nextBoundary.setStart(secondDiv, 0);
+      nextBoundary.collapse(true);
+      boundary = nextBoundary;
+    }
   }
   writer.tagger.processNewContent(body);
 
@@ -253,6 +391,22 @@ export const insertStructuralElementAtCursor = (
       rng.setStart(nextParagraph, 0);
       rng.collapse(true);
       editor.selection.setRng(rng);
+    }
+  }
+
+  if (replacing) {
+    // Selecting from the start of a paragraph leaves an empty shell before
+    // the heading (an empty <p>, or a whole <div> holding only one).
+    const before =
+      newTag.previousElementSibling ??
+      (newTag.parentElement && !newTag.previousElementSibling
+        ? newTag.parentElement.previousElementSibling
+        : null);
+    if (before && isEmptyShell(before)) before.remove();
+    // ...and likewise when the selection ran to the end of the paragraph.
+    const after = newTag.nextElementSibling;
+    if (after && tagOf(after) === 'p' && isEmptyShell(after) && after !== trailingParagraph) {
+      after.remove();
     }
   }
 

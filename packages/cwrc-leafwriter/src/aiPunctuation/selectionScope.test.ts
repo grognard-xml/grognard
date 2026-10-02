@@ -8,6 +8,8 @@ import {
   selectionHanOnly,
   segmentNeedsAiGap,
   punctPer100Han,
+  extractJuanDiv,
+  replaceJuanDiv,
 } from './selectionScope';
 
 describe('chunkHanText', () => {
@@ -103,5 +105,33 @@ describe('findSelectionHanRange', () => {
 
   it('strips non-Han from selection', () => {
     expect(selectionHanOnly('甲，乙。丙')).toBe('甲乙丙');
+  });
+});
+
+describe('extractJuanDiv / replaceJuanDiv with nested divs', () => {
+  const xml =
+    '<body><div type="juan"><p>a</p><div><head>H</head><p>b</p></div><p>c</p></div></body>';
+
+  it('returns the whole juan div, not just up to the first inner </div>', () => {
+    expect(extractJuanDiv(xml)).toBe(
+      '<div type="juan"><p>a</p><div><head>H</head><p>b</p></div><p>c</p></div>',
+    );
+  });
+
+  it('replaces the whole juan div', () => {
+    expect(replaceJuanDiv(xml, '<div type="juan">X</div>')).toBe(
+      '<body><div type="juan">X</div></body>',
+    );
+  });
+
+  it('spans consecutive sibling juan divs (a file with several headings)', () => {
+    const multi =
+      '<body>\n<div type="juan"><p>a</p></div>\n<div type="juan"><head>H</head><p>b</p></div>\n</body>';
+    expect(extractJuanDiv(multi)).toBe(
+      '<div type="juan"><p>a</p></div>\n<div type="juan"><head>H</head><p>b</p></div>',
+    );
+    expect(replaceJuanDiv(multi, '<div type="juan">X</div>')).toBe(
+      '<body>\n<div type="juan">X</div>\n</body>',
+    );
   });
 });

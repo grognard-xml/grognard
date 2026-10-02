@@ -810,6 +810,23 @@ Paste/drop a character image now works in the translation pane and its footnotes
 - Added a power-save blocker (`prevent-app-suspension`, ref-counted across every long AI run — fill-gaps, auto-tagging, translation, disambiguation review, not just Kanripo import) for the duration of any AI run. A separate, harder-to-pin-down crash turned up in the same area after a system sleep during an unattended long-running fill-gaps pass: Chromium suspends the renderer's timers and network activity during sleep, and TinyMCE's undo-manager internals aren't robust to resuming cleanly afterward — a known, still-open class of upstream bug, not something fixable from Grognard's side. Keeping the system from sleeping for the run's duration (the display can still turn off) sidesteps the trigger.
 - The import dialog gave no clear "finished" signal beyond a per-juan coverage bar sitting at its final value, easy to mistake for a hang on a long batch. Once a batch import finishes with no failures, the dialog's primary button now reads **Close** instead of **Import**.
 
+### Plugin Python calls could fail right after opening a project
+
+- Fixed `Plugin kanripo-import has no manifest.entry.python.module` when running **AI punctuate** (or any other plugin Python call) shortly after opening a project. Opening a project clears the cached plugin list, and nothing guaranteed it was rebuilt before the first Python call, so the plugin looked uninstalled. `runPluginPythonCli` now reloads the plugin list when the cache is empty.
+
+### Structure → Heading
+
+- **Heading no longer lands in an invalid place.** Inserting a heading mid-section produced `Tag head not allowed in div` because TEI only allows `<head>` as the opening element of a `<div>`. When the cursor is mid-section the `<div>` is now split so the heading starts a new section.
+- **A `type="juan"` div is never duplicated.** Splitting a juan div used to clone `type="juan"` onto every half, leaving several sibling juan divs and breaking everything that addresses "the juan div". The new section is now nested inside the juan as an untyped `<div>`.
+- **Selected text becomes the heading.** Select text inside one paragraph and choose Structure → Heading: the selection (trimmed, whitespace collapsed) becomes the heading, with no prompt. Whole-line and triple-click selections that end at the start of the next paragraph are handled, and no empty `<p>` is left on either side. Selections spanning several paragraphs still fall back to the prompt.
+
+### Kanripo parallel punctuation: multiple divs, Wikisource fetch
+
+- **The dialog now sees every juan div.** Segment-and-punctuate, Fill gaps and AI punctuate located "the juan" with a non-greedy regex that stopped at the first `</div>`, so a file with several headings (several divs, or nested divs) was truncated to its first div and the transfer reported 0% overlap. The lookup (`matchJuanDiv`) now spans all consecutive top-level `type="juan"` divs, matches nested divs by depth, and writes the result back over the whole region.
+- **Wikisource licence boilerplate is stripped** from fetched text ("此…作品在全世界都属于公有领域…", "Public domain"). The nested licence banner defeated the old regex, so ~40 stray characters diluted the reference text and could push it under the 80% match threshold.
+- **Poem pages that link to an edition are no longer mistaken for a work index.** `zh.wikisource.org/zh-hant/江賦` transcludes 昭明文選 卷12 and so was rejected as "a work index (60 卷)". A page whose own text is running prose or verse (enough Han with sentence-ending marks, whether set as paragraphs or one short verse line per line, so `巫咸山賦`, which links to 藝文類聚 卷007, fetches too) is now fetched as a single work; real indexes (昭明文選, 藝文類聚, 後漢書, 史記) still raise the index error.
+- **A trailing editorial source note is no longer treated as text.** Reconstructed Wikisource texts end with a line like "（《藝文類聚》九，又《書鈔》一百四十六引六條）" (`鹽池賦`); its characters counted against the match and pushed a correct poem under the 80% coverage threshold. A whole-line parenthetical containing a `《…》` citation at the end of the page is now dropped (in-text citations are kept).
+
 ### Kanripo import: gaiji use the glyph pipeline
 
 - Unresolved `&KRnnnn;` gaiji were imported as bare PNGs in `_gaiji/` (`<g type="kanripo"><graphic/></g>`), so unlike pasted or .docx images they were not vectorised, sized or aligned. After conversion, each is now run through the same pipeline as image import: traced to SVG, written under `_glyphs/`, and referenced as `<g ref="#glyph-…">` with a `<charDecl>` entry (inline `<graphic>` on TEI Lite, nothing on Orlando). Identical gaiji share one glyph. A gaiji that can't be converted keeps its PNG form. Files imported earlier are unchanged.

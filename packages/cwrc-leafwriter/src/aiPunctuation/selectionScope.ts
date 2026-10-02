@@ -130,17 +130,51 @@ export function selectTargetsForAi<
   return filterSegmentsForAi(segments, options?.segmentIds);
 }
 
+/**
+ * Span of the juan content: the first `<div type="juan">` through its
+ * matching close, extended over any further `<div type="juan">` siblings that
+ * follow it directly. A file with several headings can legitimately hold
+ * several top-level divs, and parallel punctuation / AI fill must see all of
+ * them, not just the first. Nested `<div>`s are matched by depth.
+ */
+export const matchJuanDiv = (xml: string): { start: number; end: number } | null => {
+  const openRe = /<div\b[^>]*type="juan"[^>]*>/gi;
+  const first = openRe.exec(xml);
+  if (!first) return null;
+  const closeOf = (from: number): number | null => {
+    const tagRe = /<(\/?)div\b[^>]*>/gi;
+    tagRe.lastIndex = from;
+    let depth = 0;
+    for (let t = tagRe.exec(xml); t; t = tagRe.exec(xml)) {
+      if (/\/>\s*$/.test(t[0])) continue; // self-closing <div/>
+      depth += t[1] ? -1 : 1;
+      if (depth === 0) return t.index + t[0].length;
+    }
+    return null;
+  };
+  let end = closeOf(first.index);
+  if (end === null) return null;
+  for (;;) {
+    const next = /^\s*(<div\b[^>]*type="juan"[^>]*>)/i.exec(xml.slice(end));
+    if (!next) break;
+    const nextStart = end + next[0].length - next[1].length;
+    const nextEnd = closeOf(nextStart);
+    if (nextEnd === null) break;
+    end = nextEnd;
+  }
+  return { start: first.index, end };
+};
+
 export function extractJuanDiv(xml: string): string | null {
-  const juan = xml.match(/<div\b[^>]*type="juan"[^>]*>[\s\S]*?<\/div>/i);
-  if (juan) return juan[0];
+  const juan = matchJuanDiv(xml);
+  if (juan) return xml.slice(juan.start, juan.end);
   const body = xml.match(/<body\b[^>]*>([\s\S]*?)<\/body>/i);
   return body?.[1]?.trim() || null;
 }
 
 export function replaceJuanDiv(xml: string, bodyXml: string): string {
-  if (/<div\b[^>]*type="juan"/i.test(xml)) {
-    return xml.replace(/<div\b[^>]*type="juan"[^>]*>[\s\S]*?<\/div>/i, bodyXml.trim());
-  }
+  const juan = matchJuanDiv(xml);
+  if (juan) return xml.slice(0, juan.start) + bodyXml.trim() + xml.slice(juan.end);
   return xml.replace(/<body\b[^>]*>[\s\S]*?<\/body>/i, `<body>\n${bodyXml.trim()}\n</body>`);
 }
 

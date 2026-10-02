@@ -44,6 +44,18 @@ const BLOCKED_TITLE_PREFIXES = [
 export const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 export const getFetchDelayMs = () => FETCH_DELAY_MS;
 
+/**
+ * True when `text` is running prose/verse (enough Han with sentence-ending
+ * punctuation, whether set as paragraphs or one short verse line per line),
+ * not a list of chapter/poem titles.
+ */
+export function hasRunningText(text) {
+  const body = String(text || '');
+  const han = (body.match(/[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]/g) ?? []).length;
+  const stops = (body.match(/[。！？]/g) ?? []).length;
+  return han >= 60 && stops >= 3 && han / stops <= 60;
+}
+
 /** True when the title is a subpage (卷, 篇, etc.), not a bare work index like ``後漢書``. */
 export function isWikisourceSubPageTitle(title) {
   return String(title || '').includes('/');
@@ -256,8 +268,45 @@ export function resolveEditionRoot(pageTitle, linkTitles) {
   return title;
 }
 
+/**
+ * Removes every `<div>` whose class list contains one of `classNames`,
+ * balancing nested `<div>`s (a lazy regex stops at the first inner `</div>`).
+ */
+function stripDivsByClass(html, classNames) {
+  const openRe = /<div\b[^>]*>/gi;
+  const wanted = (tag) => {
+    const m = tag.match(/\bclass="([^"]*)"/i);
+    return Boolean(m) && m[1].split(/\s+/).some((c) => classNames.includes(c));
+  };
+  let out = '';
+  let pos = 0;
+  let match;
+  while ((match = openRe.exec(html))) {
+    if (match.index < pos || !wanted(match[0])) continue;
+    const tagRe = /<(\/?)div\b[^>]*>/gi;
+    tagRe.lastIndex = match.index;
+    let depth = 0;
+    let end = html.length;
+    let t;
+    while ((t = tagRe.exec(html))) {
+      depth += t[1] ? -1 : 1;
+      if (depth === 0) {
+        end = t.index + t[0].length;
+        break;
+      }
+    }
+    out += html.slice(pos, match.index);
+    pos = end;
+    openRe.lastIndex = end;
+  }
+  return out + html.slice(pos);
+}
+
 export function htmlToParallelText(html) {
-  const withoutNoise = html
+  // Licence banner / template boilerplate ("此…作品在全世界都属于公有领域…",
+  // "Public domain", "false") is not part of the work; left in, it dilutes the
+  // sticker and can make the aligner reject or mis-span a correct match.
+  const withoutNoise = stripDivsByClass(html, ['licenseContainer', 'licensetpl'])
     .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, '')
     .replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, '')
     .replace(/<!--[\s\S]*?-->/g, '')
@@ -281,10 +330,15 @@ export function htmlToParallelText(html) {
       return Number.isFinite(code) ? String.fromCharCode(code) : '';
     });
 
-  return text
-    .replace(/[ \t]+\n/g, '\n')
-    .replace(/\n{3,}/g, '\n\n')
-    .trim();
+  return (
+    text
+      .replace(/[ \t]+\n/g, '\n')
+      .replace(/\n{3,}/g, '\n\n')
+      .trim()
+      // Editorial source note closing a reconstructed text, e.g.
+      // "（《藝文類聚》九，又《書鈔》一百四十六引六條）": apparatus, not the work.
+      .replace(/\n+[（(][^）)\n]*《[^》\n]*》[^）)\n]*[）)]$/, '')
+  );
 }
 
 export async function mediaWikiGet(apiHost, params) {
@@ -489,6 +543,27 @@ export async function fetchWikisourceParallel(url, options = {}) {
   }
 
   if (!fetchAll) {
+    // A page that itself carries running text (e.g. a poem that transcludes
+    // its 昭明文選 卷 and so links to that 60-卷 edition) is a work, not an
+    // index: an index page is just a list of short chapter titles.
+    const own = await fetchPageText(parsed.apiHost, parsed.title).catch(() => null);
+    if (own && hasRunningText(own.text)) {
+      return {
+        text: own.text,
+        label: `Wikisource: ${own.pageTitle}`,
+        kind: 'wikisource',
+        url: url.trim(),
+        pageTitle: own.pageTitle,
+        sections: catalogToSections(catalog),
+        chapters: [
+          {
+            id: parsed.title,
+            title: parsed.title.split('/').pop() || parsed.title,
+            text: own.text,
+          },
+        ],
+      };
+    }
     throw new Error(
       `This Wikisource URL is a work index (${volumes.length} 卷 under “${editionRoot}”). ` +
         'On import, Fetch URL loads the whole edition automatically. In the editor, open a single 卷 page instead.',

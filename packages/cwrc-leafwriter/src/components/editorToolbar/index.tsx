@@ -14,6 +14,7 @@ import {
 } from '../../autoTagging/llmClientFromSettings';
 import { readPersistedDisambiguationSettings } from '../../autoTagging/disambiguationSettings';
 import {
+  getSingleBlockSelectionText,
   insertStructuralElementAtCursor,
   splitParagraphAtCursor,
 } from '../../utilities/structuralInsert';
@@ -339,6 +340,17 @@ export const EditorToolbar = () => {
           onClick: async () => {
             const writer = window.writer;
             if (!writer) return;
+            // Selected paragraph text becomes the heading, no prompt needed.
+            const selected = getSingleBlockSelectionText(writer);
+            if (selected) {
+              insertStructuralElementAtCursor(
+                writer,
+                'head',
+                {},
+                { text: selected, replaceSelection: true },
+              );
+              return;
+            }
             const text = await promptForText(
               t('LW.editorToolbar.Insert Heading'),
               t('LW.editorToolbar.Heading Text'),

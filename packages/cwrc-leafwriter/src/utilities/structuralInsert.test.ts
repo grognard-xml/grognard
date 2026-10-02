@@ -2,6 +2,7 @@ import {
   splitElementAtRange,
   splitParagraphAtCursor,
   insertStructuralElementAtCursor,
+  getSingleBlockSelectionText,
 } from './structuralInsert';
 import type Writer from '../js/Writer';
 
@@ -237,14 +238,20 @@ describe('insertStructuralElementAtCursor', () => {
     const result = insertStructuralElementAtCursor(writer, 'head');
 
     expect(result).toBe(true);
-    const div = document.getElementById('d1')!;
-    const children = Array.from(div.children).map((el) => el.getAttribute('_tag'));
-    expect(children).toEqual(['p', 'head', 'p']);
-    expect(div.children[0].textContent).toBe('Hello');
-    expect(div.children[2].textContent).toBe(' World');
+    // head must open its div, so the section splits around the heading
+    const divs = Array.from(document.querySelectorAll('[_tag="div"]'));
+    expect(divs).toHaveLength(2);
+    expect(Array.from(divs[0].children).map((el) => el.getAttribute('_tag'))).toEqual(['p']);
+    expect(Array.from(divs[1].children).map((el) => el.getAttribute('_tag'))).toEqual([
+      'head',
+      'p',
+    ]);
+    const div = divs[1];
+    expect(divs[0].children[0].textContent).toBe('Hello');
+    expect(div.children[1].textContent).toBe(' World');
     // head can hold text, so unlike the milestone case its sentinel stays
     // (that's where the user types the heading).
-    expect(div.children[1].getAttribute('contenteditable')).not.toBe('false');
+    expect(div.children[0].getAttribute('contenteditable')).not.toBe('false');
   });
 
   it('returns false without changing the document when no ancestor can contain the element', () => {
@@ -278,18 +285,20 @@ describe('insertStructuralElementAtCursor', () => {
   });
 
   it('appends an empty trailing paragraph after a heading inserted at the end of a section, when none follows', () => {
-    document.body.innerHTML = '<span id="d1" _tag="div">Section Title</span>';
+    document.body.innerHTML =
+      '<span id="d1" _tag="div"><span id="p1" _tag="p">Section Title</span></span>';
     const writer = makeFakeWriter(document.body, {
       validParents: { head: ['div'], p: ['div'] },
       textContaining: ['head'],
     });
-    const div = document.getElementById('d1')!;
-    setCursor(writer, div.firstChild!, div.firstChild!.textContent!.length); // cursor at the very end
+    const p1 = document.getElementById('p1')!;
+    setCursor(writer, p1.firstChild!, p1.firstChild!.textContent!.length); // cursor at the very end
 
     const result = insertStructuralElementAtCursor(writer, 'head');
 
     expect(result).toBe(true);
-    const children = Array.from(div.children).map((el) => el.getAttribute('_tag'));
+    const newDiv = document.querySelectorAll('[_tag="div"]')[1];
+    const children = Array.from(newDiv.children).map((el) => el.getAttribute('_tag'));
     expect(children).toEqual(['head', 'p']);
   });
 
@@ -304,10 +313,10 @@ describe('insertStructuralElementAtCursor', () => {
 
     insertStructuralElementAtCursor(writer, 'head');
 
-    const div = document.getElementById('d1')!;
-    const children = Array.from(div.children).map((el) => el.getAttribute('_tag'));
+    const newDiv = document.querySelectorAll('[_tag="div"]')[1];
+    const children = Array.from(newDiv.children).map((el) => el.getAttribute('_tag'));
     // the split already produced a trailing <p> - no extra one should appear
-    expect(children).toEqual(['p', 'head', 'p']);
+    expect(children).toEqual(['head', 'p']);
   });
 
   it('fills a heading with prefilled text (from the heading-text prompt) instead of an empty sentinel', () => {
@@ -344,5 +353,107 @@ describe('insertStructuralElementAtCursor', () => {
     ).selection.getRng();
     expect(rng.startContainer).toBe(followingParagraph);
     expect(rng.startOffset).toBe(0);
+  });
+});
+
+describe('selection to heading', () => {
+  const setSel = (writer: Writer, rng: Range) =>
+    (writer.editor as unknown as { selection: { setRng: (r: Range) => void } }).selection.setRng(
+      rng,
+    );
+  const setSelection = (writer: Writer, node: Node, start: number, end: number) => {
+    const rng = document.createRange();
+    rng.setStart(node, start);
+    rng.setEnd(node, end);
+    setSel(writer, rng);
+  };
+  const fakeOpts = { validParents: { head: ['div'], p: ['div'] }, textContaining: ['head'] };
+
+  it('turns a mid-paragraph selection into a heading, splitting the paragraph', () => {
+    document.body.innerHTML =
+      '<span id="d1" _tag="div"><span id="p1" _tag="p">Intro Title Rest</span></span>';
+    const writer = makeFakeWriter(document.body, fakeOpts);
+    setSelection(writer, document.getElementById('p1')!.firstChild!, 6, 11);
+    expect(getSingleBlockSelectionText(writer)).toBe('Title');
+
+    insertStructuralElementAtCursor(writer, 'head', {}, { text: 'Title', replaceSelection: true });
+
+    const divs = Array.from(document.querySelectorAll('[_tag="div"]'));
+    expect(divs[0].textContent).toBe('Intro ');
+    expect(divs[1].querySelector('[_tag="head"]')!.textContent).toBe('Title');
+    expect(divs[1].querySelector('[_tag="p"]')!.textContent).toBe(' Rest');
+  });
+
+  it('leaves no empty paragraph when the selection starts the paragraph', () => {
+    document.body.innerHTML =
+      '<span id="d1" _tag="div"><span id="p1" _tag="p">Title Rest</span></span>';
+    const writer = makeFakeWriter(document.body, fakeOpts);
+    setSelection(writer, document.getElementById('p1')!.firstChild!, 0, 5);
+
+    insertStructuralElementAtCursor(writer, 'head', {}, { text: 'Title', replaceSelection: true });
+
+    const divs = document.querySelectorAll('[_tag="div"]');
+    expect(divs).toHaveLength(1);
+    expect(Array.from(divs[0].children).map((el) => el.getAttribute('_tag'))).toEqual([
+      'head',
+      'p',
+    ]);
+  });
+
+  it('ignores selections spanning several paragraphs', () => {
+    document.body.innerHTML =
+      '<span id="d1" _tag="div"><span id="p1" _tag="p">One</span><span id="p2" _tag="p">Two</span></span>';
+    const writer = makeFakeWriter(document.body, fakeOpts);
+    const rng = document.createRange();
+    rng.setStart(document.getElementById('p1')!.firstChild!, 1);
+    rng.setEnd(document.getElementById('p2')!.firstChild!, 2);
+    setSel(writer, rng);
+    expect(getSingleBlockSelectionText(writer)).toBeNull();
+  });
+
+  it('treats a whole-line selection ending at the next paragraph start as one block', () => {
+    document.body.innerHTML =
+      '<span id="d1" _tag="div"><span id="p1" _tag="p">Title</span><span id="p2" _tag="p">Body</span></span>';
+    const writer = makeFakeWriter(document.body, fakeOpts);
+    const rng = document.createRange();
+    rng.setStart(document.getElementById('p1')!.firstChild!, 0);
+    rng.setEnd(document.getElementById('p2')!.firstChild!, 0);
+    setSel(writer, rng);
+    expect(getSingleBlockSelectionText(writer)).toBe('Title');
+
+    insertStructuralElementAtCursor(writer, 'head', {}, { text: 'Title', replaceSelection: true });
+    expect(document.querySelector('[_tag="head"]')!.textContent).toBe('Title');
+    expect(document.body.textContent).toContain('Body');
+    const div = document.querySelector('[_tag="head"]')!.parentElement!;
+    expect(Array.from(div.children).map((el) => el.getAttribute('_tag'))).toEqual(['head', 'p']);
+  });
+});
+
+describe('heading inside a juan div', () => {
+  it('nests the new section in the juan div instead of cloning type="juan"', () => {
+    document.body.innerHTML =
+      '<span id="d1" _tag="div" type="juan" _attributes="{&quot;type&quot;:&quot;juan&quot;}">' +
+      '<span id="p1" _tag="p">Intro Title</span><span id="p2" _tag="p">Rest</span></span>';
+    const writer = makeFakeWriter(document.body, {
+      validParents: { head: ['div'], p: ['div'] },
+      textContaining: ['head'],
+    });
+    setCursor(writer, document.getElementById('p1')!.firstChild!, 6);
+
+    insertStructuralElementAtCursor(writer, 'head', {}, { text: 'Title' });
+
+    const divs = Array.from(document.querySelectorAll('[_tag="div"]'));
+    expect(divs).toHaveLength(2);
+    expect(divs.filter((d) => d.getAttribute('type') === 'juan')).toHaveLength(1);
+    const inner = divs[1];
+    expect(inner.parentElement).toBe(divs[0]);
+    expect(inner.hasAttribute('type')).toBe(false);
+    expect(inner.getAttribute('_attributes')).not.toContain('juan');
+    expect(Array.from(inner.children).map((el) => el.getAttribute('_tag'))).toEqual([
+      'head',
+      'p',
+      'p',
+    ]);
+    expect(inner.textContent).toContain('Rest');
   });
 });
