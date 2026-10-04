@@ -1,3 +1,4 @@
+import { loadGaijiOverrides } from '../../utilities/gaijiOverrides';
 import {
   Alert,
   Box,
@@ -862,6 +863,7 @@ export const KanripoImportDialog = ({
 
       const destDir = joinPath(rootPath, 'imported', 'kanripo', selected.id);
       await api.ensureDirectory(destDir);
+      const gaijiOverrides = await loadGaijiOverrides(rootPath);
       const used = new Set<string>();
       const existingEntries = (await api.readDirectory?.(destDir, { allFiles: true })) ?? [];
       for (const entry of existingEntries) {
@@ -892,6 +894,7 @@ export const KanripoImportDialog = ({
             path: filePath,
             normalize,
             gaiji_dest_dir: joinPath(destDir, '_gaiji'),
+            gaiji_overrides: gaijiOverrides,
           })) as ConvertPayload;
           if (!converted?.body_xml || !converted.meta) continue;
           convertedByFile.set(filePath, converted);
@@ -965,6 +968,7 @@ export const KanripoImportDialog = ({
               path: filePath,
               normalize,
               gaiji_dest_dir: joinPath(destDir, '_gaiji'),
+              gaiji_overrides: gaijiOverrides,
             })) as ConvertPayload);
           if (!converted?.body_xml || !converted.meta) {
             throw new Error('Python conversion returned no TEI body.');

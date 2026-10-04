@@ -831,3 +831,25 @@ Paste/drop a character image now works in the translation pane and its footnotes
 
 - Unresolved `&KRnnnn;` gaiji were imported as bare PNGs in `_gaiji/` (`<g type="kanripo"><graphic/></g>`), so unlike pasted or .docx images they were not vectorised, sized or aligned. After conversion, each is now run through the same pipeline as image import: traced to SVG, written under `_glyphs/`, and referenced as `<g ref="#glyph-…">` with a `<charDecl>` entry (inline `<graphic>` on TEI Lite, nothing on Orlando). Identical gaiji share one glyph. A gaiji that can't be converted keeps its PNG form. Files imported earlier are unchanged.
 - Added a `readBinaryFile` IPC (read-path guarded) so the renderer can read the copied PNGs.
+
+### Find and replace: stale hit positions in Visual mode
+
+- Match positions drifted after any edit in Visual mode, so results pointed to the wrong places, even after re-searching or reopening the panel. Search measured offsets against the tab's saved copy of the XML, which only refreshes on save or tab switch, not as you type. Search and Replace / Replace All now read the live editor content (with the stored `teiHeader` re-attached, as on save) and sync it into the tab first. Replace could previously apply a hit at stale offsets and overwrite recent edits.
+- Clicking a result, or stepping with next/previous, re-syncs too: if the document changed since the results were computed, the search is re-run and lands on the same match (by index within its file).
+
+### Structure → Subsection
+
+- New **Subsection** item in the Structure menu. It moves everything from the cursor to the end of the current `<div>` into a new child `<div type="subsection">` opened by a `<head>`, as a plain nested section. Selected paragraph text becomes the heading, as with Heading; otherwise it asks for the text.
+- Inserted inside an existing `type="subsection"` div, the new subsection is a sibling of it rather than a child, so a run of subsections stays at one level. Heading is unchanged.
+
+### AI punctuate: no more merging with the next paragraph
+
+- AI punctuate on a selected paragraph merged it with the following paragraph. The selection-scoped match treated the `</p>` right after the last selected character as a Kanripo line wrap and dropped it. The scoped match now takes an opt-in `keep_end_boundary` flag, enabled for AI runs only, because the paragraph-aligned import path relies on adjacent matches rejoining.
+- The fallback retry used when a scoped match fails no longer reflows the whole juan for a selection, which could also merge paragraphs outside it.
+
+### Kanripo gaiji: project table and ids kept through vectorising
+
+- New project-level table, `gaiji-overrides.json` at the project root, mapping `KRnnnn` to a character. The bundled KR-Gaiji charlist is blank for about two thirds of entries (3,565 of 5,254), and lossy (a normalised variant) for another 706. The Kanripo importer now applies the table ahead of the charlist, so those gaiji import as text instead of images. Values must be one code point or a bracketed IDS; anything containing markup is dropped.
+- New context-menu action **Set Kanripo gaiji character** on a Kanripo gaiji: saves the entry to the table and replaces every occurrence in the open document.
+- New **Apply gaiji table to project…** in the Kanripo menu: replaces matching gaiji across all project files. It takes a Time Machine snapshot first, uses the live text of the active file, and skips other open tabs with unsaved changes (reported, so they can be saved and re-run).
+- Vectorised gaiji now keep their Kanripo id as `<mapping type="kanripo">KRnnnn</mapping>` on the `<charDecl>` glyph (identical images share one glyph and carry every id), so the context-menu action and the project-wide command work on them too. A glyph declaration left with no references is removed. Files imported before this have no mapping; the TEI Lite inline-`<graphic>` form has nowhere to hold one.

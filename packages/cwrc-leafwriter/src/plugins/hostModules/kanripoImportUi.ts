@@ -5,6 +5,7 @@ import {
   runPurgePunctEditorCommand,
   runReflowParagraphsEditorCommand,
 } from '../../aiPunctuation/aiPunctuateEditor';
+import { runApplyGaijiTableToProject } from '../../utilities/applyGaijiOverridesToProject';
 import { isPluginEnabled } from '../registry';
 import type { PluginRegisterContext } from '../registerContext';
 
@@ -146,7 +147,21 @@ export function registerKanripoImportUi(context: PluginRegisterContext): void {
     }
   };
 
+  const openApplyGaijiTable = async ({ notify }: { notify: (message: string) => void }) => {
+    if (!isPluginEnabled('kanripo-import')) {
+      notify('Enable the “Kanripo import” plugin in Tools → Plugins.');
+      return;
+    }
+    try {
+      const outcome = await runApplyGaijiTableToProject();
+      if (outcome.ok || !outcome.cancelled) notify(outcome.message);
+    } catch (error) {
+      notify(error instanceof Error ? error.message : String(error));
+    }
+  };
+
   context.registerToolAction('kanripo-import.open', openImport);
+  context.registerToolAction('kanripo-import.apply-gaiji-table', openApplyGaijiTable);
   context.registerToolAction('kanripo-import.punctuate', openPunctuate);
   context.registerToolAction('kanripo-import.ai-punctuate', openAiPunctuate);
   context.registerToolAction('kanripo-import.ai-fill-gaps', openAiFillGaps);
@@ -185,6 +200,11 @@ export function registerKanripoImportUi(context: PluginRegisterContext): void {
         id: 'purge-punct',
         label: 'Purge punctuation…',
         onClick: () => openPurgePunct({ notify: hostNotify }),
+      },
+      {
+        id: 'apply-gaiji-table',
+        label: 'Apply gaiji table to project…',
+        onClick: () => openApplyGaijiTable({ notify: hostNotify }),
       },
       {
         id: 'reflow-paragraphs',

@@ -83,7 +83,8 @@ export async function runAiPunctuate(
     applied = await applyAiParallelPunct(
       xml,
       segmentParallels.map(({ parallel_text }) => ({ parallel_text })),
-      { reflow: true },
+      // Never reflow a selection-scoped run: it would merge paragraphs outside the selection.
+      { reflow: false },
     );
   }
   xml = applied.body_xml;

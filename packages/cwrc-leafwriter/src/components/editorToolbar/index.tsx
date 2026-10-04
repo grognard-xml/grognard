@@ -360,6 +360,32 @@ export const EditorToolbar = () => {
           },
         },
         {
+          id: 'structure-subsection',
+          label: t('LW.editorToolbar.Insert Subsection'),
+          onClick: async () => {
+            const writer = window.writer;
+            if (!writer) return;
+            const options = { nestSubsection: true };
+            // Selected paragraph text becomes the subsection heading, no prompt needed.
+            const selected = getSingleBlockSelectionText(writer);
+            if (selected) {
+              insertStructuralElementAtCursor(
+                writer,
+                'head',
+                {},
+                { ...options, text: selected, replaceSelection: true },
+              );
+              return;
+            }
+            const text = await promptForText(
+              t('LW.editorToolbar.Insert Subsection'),
+              t('LW.editorToolbar.Heading Text'),
+            );
+            if (text === null) return;
+            insertStructuralElementAtCursor(writer, 'head', {}, { ...options, text });
+          },
+        },
+        {
           id: 'structure-page-break',
           label: t('LW.editorToolbar.Insert Page Break'),
           onClick: async () => {

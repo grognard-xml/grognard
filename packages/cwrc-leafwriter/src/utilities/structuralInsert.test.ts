@@ -457,3 +457,84 @@ describe('heading inside a juan div', () => {
     expect(inner.textContent).toContain('Rest');
   });
 });
+
+describe('subsection inside a section div', () => {
+  it('nests a new child div (not a sibling) when nestSubsection is set', () => {
+    document.body.innerHTML =
+      '<span id="d1" _tag="div"><span id="h1" _tag="head">Sec</span>' +
+      '<span id="p1" _tag="p">Intro Title</span><span id="p2" _tag="p">Rest</span></span>';
+    const writer = makeFakeWriter(document.body, {
+      validParents: { head: ['div'], p: ['div'] },
+      textContaining: ['head'],
+    });
+    setCursor(writer, document.getElementById('p1')!.firstChild!, 6);
+
+    insertStructuralElementAtCursor(writer, 'head', {}, { text: 'Sub', nestSubsection: true });
+
+    const divs = Array.from(document.querySelectorAll('[_tag="div"]'));
+    expect(divs).toHaveLength(2);
+    expect(divs[1].parentElement).toBe(divs[0]);
+    expect(divs[1].getAttribute('type')).toBe('subsection');
+    expect(divs[1].getAttribute('_attributes')).toContain('subsection');
+    expect(divs[1].querySelector('[_tag="head"]')?.textContent).toBe('Sub');
+    expect(divs[1].textContent).toContain('Rest');
+  });
+});
+
+describe('second subsection', () => {
+  it('is a sibling of the first subsection, not nested in it', () => {
+    document.body.innerHTML =
+      '<span id="d1" _tag="div"><span id="h1" _tag="head">Sec</span>' +
+      '<span id="d2" _tag="div" type="subsection" _attributes="{&quot;type&quot;:&quot;subsection&quot;}">' +
+      '<span id="h2" _tag="head">Sub1</span>' +
+      '<span id="p1" _tag="p">Alpha Beta</span><span id="p2" _tag="p">Rest</span></span></span>';
+    const writer = makeFakeWriter(document.body, {
+      validParents: { head: ['div'], p: ['div'] },
+      textContaining: ['head'],
+    });
+    setCursor(writer, document.getElementById('p1')!.firstChild!, 6);
+
+    insertStructuralElementAtCursor(writer, 'head', {}, { text: 'Sub2', nestSubsection: true });
+
+    const outer = document.getElementById('d1')!;
+    const subs = Array.from(outer.children).filter((el) => el.getAttribute('_tag') === 'div');
+    expect(subs).toHaveLength(2);
+    expect(subs.every((d) => d.getAttribute('type') === 'subsection')).toBe(true);
+    expect(subs[0].querySelectorAll('[_tag="div"]')).toHaveLength(0);
+    expect(subs[1].querySelector('[_tag="head"]')?.textContent).toBe('Sub2');
+  });
+});
+
+describe('second subsection from a selected paragraph', () => {
+  it('stays a sibling when the whole last paragraph of a subsection is selected', () => {
+    document.body.innerHTML =
+      '<span id="d1" _tag="div"><span id="h1" _tag="head">Top</span>' +
+      '<span id="d2" _tag="div" type="subsection" _attributes=\'{"type":"subsection"}\'>' +
+      '<span id="h2" _tag="head">Sub1</span>' +
+      '<span id="p1" _tag="p">Alpha</span>' +
+      '<span id="p2" _tag="p">LastPara</span></span></span>';
+    const writer = makeFakeWriter(document.body, {
+      validParents: { head: ['div'], p: ['div'] },
+      textContaining: ['head'],
+    });
+    const text = document.getElementById('p2')!.firstChild!;
+    const rng = document.createRange();
+    rng.setStart(text, 0);
+    rng.setEnd(text, text.textContent!.length);
+    (writer.editor as unknown as { selection: { setRng: (r: Range) => void } }).selection.setRng(
+      rng,
+    );
+
+    insertStructuralElementAtCursor(
+      writer,
+      'head',
+      {},
+      { text: 'LastPara', replaceSelection: true, nestSubsection: true },
+    );
+
+    const outer = document.getElementById('d1')!;
+    const subs = Array.from(outer.children).filter((el) => el.getAttribute('_tag') === 'div');
+    expect(document.querySelectorAll('[_tag="div"] [_tag="div"] [_tag="div"]')).toHaveLength(0);
+    expect(subs).toHaveLength(2);
+  });
+});

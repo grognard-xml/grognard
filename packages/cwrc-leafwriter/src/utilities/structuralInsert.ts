@@ -116,7 +116,7 @@ const divTypeOf = (el: Element): string => {
  * `<div>` appended inside `el` (instead of a sibling clone, see
  * `splitElementAtRange`), so a `type="juan"` wrapper is never duplicated.
  */
-const nestTailInNewDiv = (writer: Writer, el: Element, range: Range): Element => {
+const nestTailInNewDiv = (writer: Writer, el: Element, range: Range, type?: string): Element => {
   const doc = el.ownerDocument;
   const tailRange = doc.createRange();
   tailRange.setStart(range.startContainer, range.startOffset);
@@ -127,11 +127,13 @@ const nestTailInNewDiv = (writer: Writer, el: Element, range: Range): Element =>
   const child = el.cloneNode(false) as Element;
   rekeyClone(writer, child);
   child.removeAttribute('type');
+  if (type) child.setAttribute('type', type);
   const rawAttrs = child.getAttribute('_attributes');
-  if (rawAttrs) {
+  if (rawAttrs || type) {
     try {
-      const attrs = JSON.parse(rawAttrs.replace(/&quot;/g, '"'));
+      const attrs = rawAttrs ? JSON.parse(rawAttrs.replace(/&quot;/g, '"')) : {};
       delete attrs.type;
+      if (type) attrs.type = type;
       child.setAttribute('_attributes', JSON.stringify(attrs).replace(/"/g, '&quot;'));
     } catch {
       // Leave _attributes as-is if it doesn't parse.
@@ -254,7 +256,7 @@ export const insertStructuralElementAtCursor = (
   writer: Writer,
   tagName: string,
   attributes: Record<string, unknown> = {},
-  options: { text?: string; replaceSelection?: boolean } = {},
+  options: { text?: string; replaceSelection?: boolean; nestSubsection?: boolean } = {},
 ): boolean => {
   const editor = writer.editor;
   const body = editor?.getBody();
@@ -311,14 +313,23 @@ export const insertStructuralElementAtCursor = (
     const hasLeadingContent =
       Array.from(prefix.querySelectorAll('[_tag]')).some((el) => tagOf(el) !== 'head') ||
       (prefix.textContent ?? '').replace(/\uFEFF/g, '').trim() !== '';
-    if (hasLeadingContent) {
+    // `nestSubsection` opens a subsection inside the current section div. When the cursor is
+    // already inside a subsection, the next one is its sibling (split, which keeps the type),
+    // not a child of it.
+    if (hasLeadingContent || options.nestSubsection) {
       // A `type="juan"` div is the document's top-level wrapper (the Kanripo
       // dialogs and importers address "the juan div" by that attribute), so
       // it must stay unique: nest the new section inside it rather than
       // cloning it into a sibling juan.
       const secondDiv =
-        divTypeOf(container) === 'juan'
-          ? nestTailInNewDiv(writer, container, boundary)
+        divTypeOf(container) === 'juan' ||
+        (options.nestSubsection && divTypeOf(container) !== 'subsection')
+          ? nestTailInNewDiv(
+              writer,
+              container,
+              boundary,
+              options.nestSubsection ? 'subsection' : undefined,
+            )
           : splitElementAtRange(writer, container, boundary);
       const nextBoundary = editor.dom.createRng();
       nextBoundary.setStart(secondDiv, 0);

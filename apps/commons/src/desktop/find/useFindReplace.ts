@@ -13,6 +13,7 @@ import {
 import type { DocScope } from './docScope';
 import type { OpenTab } from '@src/overmind/project/state';
 import { validateAndReplaceAll, validateAndReplaceHit } from './replaceValidation';
+import { syncActiveVisualTabContent } from './liveVisualContent';
 import { searchText } from './searchText';
 import type { FindFileResult } from './types';
 import { updateResultsAfterSingleReplace } from './updateResultsAfterReplace';
@@ -77,6 +78,9 @@ export const useFindReplace = ({
 
   const loadFileContent = useCallback(
     async (filePath: string): Promise<string | null> => {
+      const live = await syncActiveVisualTabContent(filePath);
+      if (live) return live;
+
       const fromMemory = getContentForReplace(
         filePath,
         openTabs,

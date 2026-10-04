@@ -141,4 +141,20 @@ describe('convertKanripoGaiji', () => {
     expect(result.xml).not.toContain(g('KR0001'));
     expect(result.xml).toContain('<charDecl');
   });
+
+  it('records the Kanripo id on the glyph declaration, merging ids that share an image', async () => {
+    const { api } = fakeApi();
+    const result = await convertKanripoGaiji({
+      api,
+      readBytes: async () => PNG_A,
+      gaijiDir: '/project/imported/_gaiji/',
+      mode: 'charDecl',
+      outputPath: '/project/imported/doc.xml',
+      xml,
+    });
+    // KR0001 and KR0002 resolve to identical bytes, so one glyph carries both ids.
+    expect(result.xml.match(/<glyph /g)).toHaveLength(1);
+    expect(result.xml).toContain('<mapping type="kanripo">KR0001</mapping>');
+    expect(result.xml).toContain('<mapping type="kanripo">KR0002</mapping>');
+  });
 });

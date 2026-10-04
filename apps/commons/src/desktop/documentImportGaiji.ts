@@ -113,14 +113,33 @@ export const convertKanripoGaiji = async ({
     }),
   );
 
+  // Keep each glyph's Kanripo id as a `<mapping type="kanripo">`, so the project gaiji table
+  // (KRnnnn -> character) can still reach it after vectorising. Identical images share one
+  // glyph, so a glyph can carry several ids.
+  const idsByGlyph = new Map<string, string[]>();
+  specs.forEach((spec, index) => {
+    if (spec) idsByGlyph.set(spec.glyphId, [...(idsByGlyph.get(spec.glyphId) ?? []), ids[index]]);
+  });
+  const mapped = specs.map((spec) =>
+    spec
+      ? {
+          ...spec,
+          mappings: (idsByGlyph.get(spec.glyphId) ?? []).map((value) => ({
+            type: 'kanripo',
+            value,
+          })),
+        }
+      : null,
+  );
+
   const marked = xml.replace(KANRIPO_GAIJI_PATTERN, (whole, id: string) => {
     const index = ids.indexOf(id);
-    return specs[index] ? gaijiMarker(index) : whole;
+    return mapped[index] ? gaijiMarker(index) : whole;
   });
-  const failed = specs.filter((spec) => !spec).length;
+  const failed = mapped.filter((spec) => !spec).length;
   return {
-    xml: applyGaijiGlyphsToXml(marked, specs, mode),
-    converted: specs.length - failed,
+    xml: applyGaijiGlyphsToXml(marked, mapped, mode),
+    converted: mapped.length - failed,
     failed,
   };
 };

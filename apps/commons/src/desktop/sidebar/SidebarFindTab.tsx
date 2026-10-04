@@ -28,6 +28,7 @@ import {
   DESKTOP_FIND_FOCUS_EVENT,
 } from '@src/desktop/desktopLeftPanelBridge';
 import { FindSnippetLine, formatSnippetLabel } from '@src/desktop/find/snippetDisplay';
+import { syncActiveVisualTabContent } from '@src/desktop/find/liveVisualContent';
 import { searchText } from '@src/desktop/find/searchText';
 import type { FindFileResult, FindHighlightMode } from '@src/desktop/find/types';
 import { useFindNavigation } from '@src/desktop/find/useFindNavigation';
@@ -163,13 +164,6 @@ export const SidebarFindTab = () => {
     [findQuery, ignoreCase, jumpToHit, jumpToTranslationHit, useRegex],
   );
 
-  const jumpToFlatResult = useCallback(
-    (index: number, options?: { contentForJump?: string; highlightMode?: FindHighlightMode }) => {
-      performJump(flatResults[index], options);
-    },
-    [flatResults, performJump],
-  );
-
   const buildSearchKey = useCallback(
     () =>
       JSON.stringify({
@@ -230,6 +224,74 @@ export const SidebarFindTab = () => {
     [buildSearchKey, collapsedFilePaths, performJump],
   );
 
+  /** Jumps to a result, first re-syncing with the live Visual editor. Visual edits don't touch
+   * the stored tab content, so results computed earlier may have stale offsets; when the live
+   * text differs, re-search and land on the same match (by index within its file). */
+  const jumpToFlatResult = useCallback(
+    async (
+      index: number,
+      options?: { contentForJump?: string; highlightMode?: FindHighlightMode },
+    ) => {
+      const item = flatResults[index];
+      if (!item) return;
+
+      if (!isTranslationFile(item.filePath)) {
+        const storedContent = openTabs.find((tab) => tab.filePath === item.filePath)?.content;
+        const live = await syncActiveVisualTabContent(item.filePath);
+        if (live && storedContent !== undefined && live !== storedContent) {
+          const {
+            results: nextResults,
+            totalMatches: count,
+            error: searchError,
+          } = await searchText({
+            activeTabPath,
+            customPath,
+            docScope,
+            openTabs,
+            query: findQuery,
+            rootPath,
+            scope,
+            ignoreCase,
+            useRegex,
+          });
+          const nextFlat = flattenResults(nextResults, collapsedFilePaths);
+          const sameFile = nextFlat
+            .map((hit, i) => ({ hit, i }))
+            .filter(({ hit }) => hit.filePath === item.filePath);
+          const target =
+            sameFile.find(({ hit }) => hit.matchIndexInFile === item.matchIndexInFile) ??
+            sameFile[sameFile.length - 1];
+
+          handleSearchComplete({
+            results: nextResults,
+            totalMatches: count,
+            error: searchError,
+            selectedIndex: target?.i ?? 0,
+            jumpToSelection: true,
+          });
+          return;
+        }
+      }
+
+      performJump(item, options);
+    },
+    [
+      activeTabPath,
+      collapsedFilePaths,
+      customPath,
+      docScope,
+      findQuery,
+      flatResults,
+      handleSearchComplete,
+      ignoreCase,
+      openTabs,
+      performJump,
+      rootPath,
+      scope,
+      useRegex,
+    ],
+  );
+
   const selectedHit = selectedIndex >= 0 ? (flatResults[selectedIndex] ?? null) : null;
 
   const { replaceAllInScope, replaceCurrentHit } = useFindReplace({
@@ -276,7 +338,7 @@ export const SidebarFindTab = () => {
       if (index < 0 || index >= flatResults.length) return;
       keyboardNavRef.current = true;
       setSelectedIndex(index);
-      jumpToFlatResult(index);
+      void jumpToFlatResult(index);
     },
     [flatResults.length, jumpToFlatResult],
   );
@@ -860,7 +922,7 @@ export const SidebarFindTab = () => {
                             tabIndex={-1}
                             onClick={() => {
                               setSelectedIndex(currentIndex);
-                              jumpToFlatResult(currentIndex);
+                              void jumpToFlatResult(currentIndex);
                             }}
                             onFocus={() => setSelectedIndex(currentIndex)}
                             sx={{ py: 0.125, minHeight: 26 }}

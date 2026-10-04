@@ -140,6 +140,20 @@ export const findGlyphCharDeclEntry = (xml: string, glyphId: string): GlyphGraph
   };
 };
 
+/** The Kanripo ids (`<mapping type="kanripo">KRnnnn</mapping>`) recorded on a glyph at import. */
+export const kanripoIdsForGlyph = (xml: string, glyphId: string): string[] => {
+  const doc = new DOMParser().parseFromString(xml, 'application/xml');
+  if (doc.querySelector('parsererror')) return [];
+  const glyph = Array.from(doc.getElementsByTagName('*')).find(
+    (el) => el.localName === 'glyph' && el.getAttributeNS(XML_NS, 'id') === glyphId,
+  );
+  if (!glyph) return [];
+  return childrenNamed(glyph, 'mapping')
+    .filter((el) => el.getAttribute('type') === 'kanripo')
+    .map((el) => (el.textContent ?? '').trim())
+    .filter((value) => /^KR\d{4}$/.test(value));
+};
+
 /**
  * A `<glyph>` Grognard itself wrote: an xml:id, only `<mapping>`/`<graphic>`
  * children, and both its graphics pointing into `_glyphs/`. Pasted, imported

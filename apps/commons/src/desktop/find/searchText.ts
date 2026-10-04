@@ -7,6 +7,7 @@ import { getCompanionTranslationFilePaths } from './translationCompanionResults'
 import { filterHitsForWysiwygEditor } from './wysiwygVisibleHits';
 import { tryCompileFindRegex } from './regexPatternUtils';
 import { searchInContent } from './textSearchUtils';
+import { syncActiveVisualTabContent } from './liveVisualContent';
 import type { FindFileResult } from './types';
 
 const getFilename = (filePath: string) => filePath.split(/[/\\]/).pop() ?? filePath;
@@ -14,9 +15,16 @@ const getFilename = (filePath: string) => filePath.split(/[/\\]/).pop() ?? fileP
 const isSourceEditorMode = () => window.writer?.overmindState?.ui?.editorViewMode === 'source';
 
 /** Live buffer for the active tab in Source mode; otherwise the tab snapshot. */
-const getContentForSearch = (tab: OpenTab, activeTabPath: string | null) => {
-  if (isSourceEditorMode() && tab.filePath === activeTabPath) {
-    return window.writer?.overmindState?.ui?.sourceCurrentContent || tab.content;
+const getContentForSearch = (
+  tab: OpenTab,
+  activeTabPath: string | null,
+  liveVisualContent: string | null,
+) => {
+  if (tab.filePath === activeTabPath) {
+    if (isSourceEditorMode()) {
+      return window.writer?.overmindState?.ui?.sourceCurrentContent || tab.content;
+    }
+    if (liveVisualContent) return liveVisualContent;
   }
   return tab.content;
 };
@@ -88,6 +96,7 @@ export const searchText = async ({
   }
 
   const results: FindFileResult[] = [];
+  const liveVisualContent = await syncActiveVisualTabContent(activeTabPath);
 
   const addResult = (result: FindFileResult | null) => {
     if (result) results.push(result);
@@ -124,7 +133,7 @@ export const searchText = async ({
         addResult(
           buildFileResult(
             activeTabPath,
-            getContentForSearch(tab, activeTabPath),
+            getContentForSearch(tab, activeTabPath, liveVisualContent),
             trimmed,
             useRegex,
             ignoreCase,
@@ -142,7 +151,7 @@ export const searchText = async ({
           addResult(
             buildFileResult(
               tab.filePath,
-              getContentForSearch(tab, activeTabPath),
+              getContentForSearch(tab, activeTabPath, liveVisualContent),
               trimmed,
               useRegex,
               ignoreCase,

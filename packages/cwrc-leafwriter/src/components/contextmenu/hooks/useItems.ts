@@ -12,7 +12,18 @@ import { useActions, useAppState } from '../../../overmind';
 import type { EntityType } from '../../../types';
 import { log } from '../../../utilities';
 import { pickImageFile } from '../../../utilities/clipboardImage';
-import { replaceGlyphImage, resolveGlyphContext } from '../../../utilities/glyphEditor';
+import {
+  isValidGaijiCharacter,
+  replaceGlyphWithCharacter,
+  replaceKanripoGaijiWithCharacter,
+  saveGaijiOverride,
+} from '../../../utilities/gaijiOverrides';
+import { promptForText } from '../../../utilities/promptForText';
+import {
+  kanripoIdsForStoredDocument,
+  replaceGlyphImage,
+  resolveGlyphContext,
+} from '../../../utilities/glyphEditor';
 import {
   graphicHeightEm,
   replaceKanripoGaijiImage,
@@ -435,6 +446,40 @@ export const useItems = (ctx: State) => {
       });
       items.push({
         type: 'action',
+        name: t('LW.Set Kanripo gaiji character'),
+        icon: 'edit',
+        onClick: async () => {
+          const body = writer.editor?.getBody();
+          if (!body) return;
+          const id = kanripoGaiji.gaijiId;
+          const entered = await promptForText(
+            t('LW.Set Kanripo gaiji character'),
+            t('LW.Unicode character for {{id}}', { id }),
+          );
+          if (entered === null) return;
+          if (!isValidGaijiCharacter(entered)) {
+            notifyViaSnackbar(t('LW.Enter a single character (or an IDS in [brackets]).'));
+            return;
+          }
+          const rootPath = window.__leafWriterProject?.getProjectRootPath?.();
+          const saved = await saveGaijiOverride(rootPath, id, entered);
+          const count = replaceKanripoGaijiWithCharacter(body, id, entered);
+          writer.editor?.undoManager.add();
+          writer.event('contentChanged').publish();
+          notifyViaSnackbar(
+            saved
+              ? t('LW.Replaced {{count}} and saved {{id}} to the project gaiji table.', {
+                  count,
+                  id,
+                })
+              : t('LW.Replaced {{count}}, but could not save the project gaiji table.', {
+                  count,
+                }),
+          );
+        },
+      });
+      items.push({
+        type: 'action',
         name: t('LW.Replace Kanripo gaiji image'),
         icon: 'edit',
         onClick: async () => {
@@ -455,6 +500,47 @@ export const useItems = (ctx: State) => {
 
     const glyph = ctx.element ? resolveGlyphContext(ctx.element) : null;
     if (glyph && !ctx.isEntity) {
+      // A glyph vectorised from a Kanripo gaiji remembers its KR id, so it can be set from
+      // the project gaiji table like an unconverted one.
+      const kanripoIds = kanripoIdsForStoredDocument(writer, glyph.glyphId);
+      if (kanripoIds.length > 0) {
+        items.push({
+          type: 'action',
+          name: t('LW.Set Kanripo gaiji character'),
+          icon: 'edit',
+          onClick: async () => {
+            const body = writer.editor?.getBody();
+            if (!body) return;
+            const label = kanripoIds.join(', ');
+            const entered = await promptForText(
+              t('LW.Set Kanripo gaiji character'),
+              t('LW.Unicode character for {{id}}', { id: label }),
+            );
+            if (entered === null) return;
+            if (!isValidGaijiCharacter(entered)) {
+              notifyViaSnackbar(t('LW.Enter a single character (or an IDS in [brackets]).'));
+              return;
+            }
+            const rootPath = window.__leafWriterProject?.getProjectRootPath?.();
+            const saved = (
+              await Promise.all(kanripoIds.map((id) => saveGaijiOverride(rootPath, id, entered)))
+            ).every(Boolean);
+            const count = replaceGlyphWithCharacter(body, glyph.glyphId, entered);
+            writer.editor?.undoManager.add();
+            writer.event('contentChanged').publish();
+            notifyViaSnackbar(
+              saved
+                ? t('LW.Replaced {{count}} and saved {{id}} to the project gaiji table.', {
+                    count,
+                    id: label,
+                  })
+                : t('LW.Replaced {{count}}, but could not save the project gaiji table.', {
+                    count,
+                  }),
+            );
+          },
+        });
+      }
       items.push({
         type: 'action',
         name: t('LW.Replace glyph image'),

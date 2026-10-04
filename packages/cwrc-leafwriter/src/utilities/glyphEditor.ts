@@ -16,6 +16,7 @@ import {
 import {
   ensureGlyphCharDeclEntry,
   findGlyphCharDeclEntry,
+  kanripoIdsForGlyph,
   type GlyphGraphicSpec,
 } from './glyphCharDecl';
 
@@ -371,6 +372,12 @@ export const insertGlyphFromRemoteImageUrl = async (
  * produced by insertGlyph). Returns null for the TEI Lite bare-`<graphic>`
  * fallback: with no `<g>`/`<charDecl>` for it to point into, there's no
  * escape hatch there yet beyond delete-and-repaste. */
+/** Kanripo ids recorded on `glyphId` at import (empty for pasted/composed glyphs). */
+export const kanripoIdsForStoredDocument = (writer: Writer, glyphId: string): string[] => {
+  const xml = getStoredDocumentXml(writer);
+  return xml ? kanripoIdsForGlyph(xml, glyphId) : [];
+};
+
 export const resolveGlyphContext = (element: Element | null | undefined): GlyphContext | null => {
   if (!element) return null;
 

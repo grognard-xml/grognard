@@ -943,6 +943,7 @@
       "Structure": "Structure",
       "Structure tooltip": "Insert a heading, page break, or line break, or split a paragraph - placed wherever the schema actually allows it",
       "Insert Heading": "Heading",
+      "Insert Subsection": "Subsection",
       "Insert Page Break": "Page break",
       "Insert Line Break": "Line break",
       "Split Paragraph": "Split paragraph",
