@@ -20,6 +20,8 @@ import {
   punctInHanRange,
   replaceJuanDiv,
   segmentsInSelection,
+  unpunctuatedRanges,
+  type HanRange,
 } from './selectionScope';
 import { AI_PUNCT_PROMPT_VERSION } from './prompts';
 import { MIN_SEGMENT_HAN } from './punctSchema';
@@ -45,6 +47,38 @@ function scopeHasPunct(
     if (idSet && !idSet.has(seg.id)) return false;
     return seg.has_punct;
   });
+}
+
+type ExistingPunctChoice = 'keep' | 'purge' | 'cancel';
+
+/** What to do when the target already carries punctuation. Keep is the safe default. */
+async function askExistingPunctChoice(inSelection: boolean): Promise<ExistingPunctChoice> {
+  const where = inSelection ? 'The selected text' : 'This juan';
+  const detail =
+    'Keep existing marks and punctuate only the paragraphs that have none (nothing already ' +
+    'punctuated is changed), or purge the marks and punctuate everything again. ' +
+    'Purging rewrites the file and cannot be undone from the editor.';
+  const api = window.electronAPI;
+  if (api?.showNativeMessageBox) {
+    const { response } = await api.showNativeMessageBox({
+      type: 'question',
+      title: 'AI punctuate',
+      message: `${where} already contains punctuation marks.`,
+      detail,
+      buttons: ['Keep existing', 'Purge and re-punctuate', 'Cancel'],
+      defaultId: 0,
+      cancelId: 2,
+    });
+    return response === 0 ? 'keep' : response === 1 ? 'purge' : 'cancel';
+  }
+  if (
+    window.confirm(
+      `${where} already contains punctuation marks.\n\n${detail}\n\nOK = keep existing.`,
+    )
+  ) {
+    return 'keep';
+  }
+  return window.confirm('Purge the punctuation and re-punctuate everything?') ? 'purge' : 'cancel';
 }
 
 async function writeActiveDocument(next: string): Promise<boolean> {
@@ -89,17 +123,41 @@ export async function runAiPunctuateEditorCommand(options?: {
 
   const selectionHasPunct = hanRange ? punctInHanRange(listed.segments, hanRange) : false;
   const juanHasPunct = scopeHasPunct(listed.segments);
-  const needsPurgePrompt = hanRange ? selectionHasPunct : listed.has_any_punct && juanHasPunct;
+  const scopeHasMarks = hanRange ? selectionHasPunct : listed.has_any_punct && juanHasPunct;
 
-  if (needsPurgePrompt && !options?.forcePurge && !options?.skipPurgePrompt) {
-    const purge = window.confirm(
-      hanRange
-        ? 'The selected text contains punctuation marks.\n\nPurge punctuation in the selection and re-punctuate?\n(Cancel to back out.)'
-        : 'This juan contains punctuation marks.\n\nPurge punctuation and re-punctuate?\n(Cancel to back out.)',
-    );
-    if (!purge) {
+  let choice: ExistingPunctChoice = 'purge';
+  if (scopeHasMarks) {
+    choice = options?.forcePurge
+      ? 'purge'
+      : options?.skipPurgePrompt
+        ? 'keep'
+        : await askExistingPunctChoice(Boolean(hanRange));
+    if (choice === 'cancel') {
       return { ok: false, message: 'Cancelled.', cancelled: true };
     }
+  }
+
+  // Keep: AI sees only the paragraphs that carry no marks. Segments span adjacent paragraphs, so
+  // paragraph spans (not segments) are what say which part of the scope is still bare.
+  let keepRanges: HanRange[] | undefined;
+  if (scopeHasMarks && choice === 'keep') {
+    const tapeEnd = listed.segments[listed.segments.length - 1]?.han_end ?? 0;
+    const scope: HanRange = hanRange ?? { start: 0, end: tapeEnd };
+    keepRanges = listed.paragraphs ? unpunctuatedRanges(listed.paragraphs, scope) : undefined;
+    if (!keepRanges) {
+      return {
+        ok: false,
+        message:
+          'Keeping existing punctuation needs a newer Kanripo plugin. Update it, or purge first.',
+      };
+    }
+    if (keepRanges.length === 0) {
+      return {
+        ok: false,
+        message: `Nothing to do: every paragraph ${hanRange ? 'in the selection' : 'in the juan'} is already punctuated.`,
+      };
+    }
+  } else if (scopeHasMarks) {
     listed.body_xml = await purgePunctuation(
       listed.body_xml,
       hanRange ? 'han_range' : 'whole_juan',
@@ -115,8 +173,9 @@ export async function runAiPunctuateEditorCommand(options?: {
   try {
     result = await runAiPunctuate(listed.body_xml, {
       client,
-      segmentIds,
-      hanRange: hanRange ?? undefined,
+      segmentIds: keepRanges ? undefined : segmentIds,
+      hanRange: keepRanges ? undefined : (hanRange ?? undefined),
+      hanRanges: keepRanges,
       signal: abortController.signal,
       onProgress: (done, total) => updateAiRunProgress(done, total),
     });
@@ -170,9 +229,11 @@ export async function runAiPunctuateEditorCommand(options?: {
   }
   return {
     ok: true,
-    message: hanRange
-      ? `Applied ${result.stats.applied} mark(s) in the selection.`
-      : `Applied ${result.stats.applied} mark(s) across ${result.stats.segments_applied} segment(s).`,
+    message: keepRanges
+      ? `Applied ${result.stats.applied} mark(s) to the unpunctuated paragraphs${hanRange ? ' in the selection' : ''}; existing punctuation was left as it was.`
+      : hanRange
+        ? `Applied ${result.stats.applied} mark(s) in the selection.`
+        : `Applied ${result.stats.applied} mark(s) across ${result.stats.segments_applied} segment(s).`,
   };
 }
 

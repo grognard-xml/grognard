@@ -10,6 +10,9 @@ import {
   punctPer100Han,
   extractJuanDiv,
   replaceJuanDiv,
+  clipTextToHanRange,
+  punctInHanRange,
+  unpunctuatedRanges,
 } from './selectionScope';
 
 describe('chunkHanText', () => {
@@ -133,5 +136,69 @@ describe('extractJuanDiv / replaceJuanDiv with nested divs', () => {
     expect(replaceJuanDiv(multi, '<div type="juan">X</div>')).toBe(
       '<body>\n<div type="juan">X</div>\n</body>',
     );
+  });
+});
+
+describe('existing punctuation in a selection', () => {
+  // One segment (adjacent paragraphs share a segment): 2 punctuated paragraph + 1 bare one.
+  const seg = {
+    han: '甲乙丙丁戊己庚辛壬癸',
+    text: '甲乙，丙丁。戊己庚辛壬癸',
+    han_start: 0,
+    han_end: 10,
+  };
+
+  it('clipTextToHanRange keeps marks that follow selected characters', () => {
+    expect(clipTextToHanRange(seg, { start: 0, end: 4 })).toBe('甲乙，丙丁。');
+    expect(clipTextToHanRange(seg, { start: 4, end: 10 })).toBe('戊己庚辛壬癸');
+    expect(clipTextToHanRange(seg, { start: 2, end: 3 })).toBe('丙');
+  });
+
+  it('punctInHanRange sees marks in `text` (han never holds any) and respects the range', () => {
+    expect(punctInHanRange([seg], { start: 0, end: 10 })).toBe(true);
+    expect(punctInHanRange([seg], { start: 0, end: 4 })).toBe(true);
+    expect(punctInHanRange([seg], { start: 4, end: 10 })).toBe(false);
+    expect(
+      punctInHanRange([{ ...seg, text: undefined as unknown as string }], { start: 0, end: 10 }),
+    ).toBe(false);
+  });
+});
+
+describe('unpunctuatedRanges', () => {
+  const p = (start: number, end: number, marks: number) => ({
+    han_start: start,
+    han_end: end,
+    han_count: end - start,
+    punct_count: marks,
+  });
+
+  it('selecting a punctuated and a bare paragraph yields only the bare one', () => {
+    expect(unpunctuatedRanges([p(0, 40, 6), p(40, 80, 0)], { start: 0, end: 80 })).toEqual([
+      { start: 40, end: 80 },
+    ]);
+  });
+
+  it('returns nothing when everything in range is punctuated', () => {
+    expect(unpunctuatedRanges([p(0, 40, 6), p(40, 80, 5)], { start: 0, end: 80 })).toEqual([]);
+  });
+
+  it('merges touching bare paragraphs and keeps separated runs apart', () => {
+    const paragraphs = [p(0, 40, 0), p(40, 80, 0), p(80, 120, 6), p(120, 160, 0)];
+    expect(unpunctuatedRanges(paragraphs, { start: 0, end: 160 })).toEqual([
+      { start: 0, end: 80 },
+      { start: 120, end: 160 },
+    ]);
+  });
+
+  it('clips a partly selected paragraph to the selection', () => {
+    expect(unpunctuatedRanges([p(0, 100, 0)], { start: 30, end: 60 })).toEqual([
+      { start: 30, end: 60 },
+    ]);
+  });
+
+  it('treats a sparsely punctuated paragraph as bare (same threshold as fill-gaps)', () => {
+    expect(unpunctuatedRanges([p(0, 400, 1)], { start: 0, end: 400 })).toEqual([
+      { start: 0, end: 400 },
+    ]);
   });
 });

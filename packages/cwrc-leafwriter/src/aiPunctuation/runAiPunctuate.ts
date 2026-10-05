@@ -11,6 +11,8 @@ export interface RunAiPunctuateOptions {
   segmentIds?: number[];
   /** When set, only punctuate this Han index range (editor selection). */
   hanRange?: HanRange;
+  /** Several ranges (e.g. only the still-unpunctuated paragraphs of a selection). */
+  hanRanges?: HanRange[];
   /** Hybrid import: only segments still unpunctuated or below punct-density threshold. */
   gapsOnly?: boolean;
   signal?: AbortSignal;
@@ -32,11 +34,14 @@ export async function runAiPunctuate(
   const listed = await listAiPunctSegments(bodyXml);
   let xml = listed.body_xml;
   const segments = listed.segments;
-  const targets = selectTargetsForAi(segments, {
-    segmentIds: options.segmentIds,
-    hanRange: options.hanRange,
-    gapsOnly: options.gapsOnly,
-  });
+  const targets = options.hanRanges
+    ? options.hanRanges.flatMap((hanRange) => selectTargetsForAi(segments, { hanRange }))
+    : selectTargetsForAi(segments, {
+        segmentIds: options.segmentIds,
+        hanRange: options.hanRange,
+        gapsOnly: options.gapsOnly,
+      });
+  const scoped = Boolean(options.hanRange || options.hanRanges);
   const skipped = options.gapsOnly
     ? segments.filter((s) => !segmentNeedsAiGap(s)).length
     : segments.filter((s) => s.has_punct).length;
@@ -75,9 +80,9 @@ export async function runAiPunctuate(
   }
 
   let applied = await applyAiParallelPunct(xml, segmentParallels, {
-    reflow: !options.hanRange,
+    reflow: !scoped,
   });
-  if (!applied.applied && options.hanRange) {
+  if (!applied.applied && scoped) {
     // Scoped Han range can disagree with model output (extra context, selection drift).
     // Retry with global infix overlap — same path as parallel import paste.
     applied = await applyAiParallelPunct(

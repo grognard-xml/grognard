@@ -12,10 +12,21 @@ export interface AiPunctSegment {
   following_comm?: string;
 }
 
+/** A `<p>`'s Han range and existing-mark count, in the segments' Han index space. Segments span
+ * adjacent paragraphs, so only these can say which paragraph of a selection is punctuated. */
+export interface AiPunctParagraph {
+  han_start: number;
+  han_end: number;
+  han_count: number;
+  punct_count: number;
+}
+
 export interface ListSegmentsResult {
   segments: AiPunctSegment[];
   has_any_punct: boolean;
   body_xml: string;
+  /** Absent from older plugin builds. */
+  paragraphs?: AiPunctParagraph[];
 }
 
 export interface ApplyInsertionsResult {

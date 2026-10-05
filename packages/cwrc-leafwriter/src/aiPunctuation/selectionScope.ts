@@ -119,10 +119,7 @@ export function selectTargetsForAi<
     return segments
       .filter((seg) => !idSet || idSet.has(seg.id))
       .map((seg) => clipSegmentToHanRange(seg, options.hanRange!))
-      .filter((seg): seg is T => {
-        if (!seg || seg.han.length < MIN_SEGMENT_HAN) return false;
-        return !hanTextHasPunct(seg.han);
-      });
+      .filter((seg): seg is T => Boolean(seg && seg.han.length >= MIN_SEGMENT_HAN));
   }
   if (options?.gapsOnly) {
     return filterSegmentsForAiGaps(segments, options.segmentIds);
@@ -271,17 +268,69 @@ export function clipSegmentToHanRange<
   };
 }
 
+/**
+ * The span of `seg.text` (Han plus its punctuation) covering Han indices [range.start, range.end).
+ * A mark belongs to the range when it follows a selected Han character, so a mark right after the
+ * last selected character counts and one right before the first does not.
+ */
+export function clipTextToHanRange(
+  seg: { text: string; han_start: number; han_end: number },
+  range: HanRange,
+): string {
+  const start = Math.max(seg.han_start, range.start) - seg.han_start;
+  const end = Math.min(seg.han_end, range.end) - seg.han_start;
+  if (start >= end) return '';
+  let hanSeen = 0;
+  let out = '';
+  for (const ch of seg.text) {
+    if (selectionHanOnly(ch)) {
+      if (hanSeen >= start && hanSeen < end) out += ch;
+      hanSeen += 1;
+    } else if (hanSeen > start && hanSeen <= end) {
+      out += ch;
+    }
+  }
+  return out;
+}
+
+/**
+ * Whether the Han range already carries punctuation. Reads each segment's `text`: `han` is
+ * Han-only by construction and can never contain a mark, which is why this used to always say no
+ * and let AI punctuate pile marks on top of existing ones.
+ */
 export function punctInHanRange(
-  segments: { han: string; han_start: number; han_end: number }[],
+  segments: { han: string; text?: string; han_start: number; han_end: number }[],
   range: HanRange,
 ): boolean {
   for (const seg of segments) {
-    const clipped = clipSegmentToHanRange(seg, range);
-    if (clipped && hanTextHasPunct(clipped.han)) {
-      return true;
-    }
+    const clipped = clipTextToHanRange({ ...seg, text: seg.text ?? seg.han }, range);
+    if (clipped && hanTextHasPunct(clipped)) return true;
   }
   return false;
+}
+
+/**
+ * The parts of `range` that are still unpunctuated, paragraph by paragraph, with touching runs
+ * merged so the model gets one stretch of context. A paragraph counts as unpunctuated when its
+ * mark density is under the same threshold fill-gaps uses. Paragraphs only partly inside the
+ * range contribute just the part inside it.
+ */
+export function unpunctuatedRanges(
+  paragraphs: { han_start: number; han_end: number; han_count: number; punct_count: number }[],
+  range: HanRange,
+  minPer100Han = MIN_PUNCT_PER_100_HAN,
+): HanRange[] {
+  const runs: HanRange[] = [];
+  for (const paragraph of paragraphs) {
+    const start = Math.max(paragraph.han_start, range.start);
+    const end = Math.min(paragraph.han_end, range.end);
+    if (start >= end || paragraph.han_count === 0) continue;
+    if ((paragraph.punct_count / paragraph.han_count) * 100 >= minPer100Han) continue;
+    const last = runs[runs.length - 1];
+    if (last && start <= last.end) last.end = Math.max(last.end, end);
+    else runs.push({ start, end });
+  }
+  return runs;
 }
 
 export function segmentsInSelection(
