@@ -2657,6 +2657,18 @@ const registerIpcHandlers = () => {
     await fs.writeFile(filePath, content, 'utf-8');
   });
 
+  // A folder opens in the OS file manager; a file is revealed (selected) inside its folder.
+  ipcMain.handle('showItemInFolder', async (_event, targetPath: string) => {
+    await assertRendererReadPath(targetPath);
+    const stats = await fs.stat(targetPath);
+    if (stats.isDirectory()) {
+      const error = await shell.openPath(targetPath);
+      if (error) throw new Error(error);
+      return;
+    }
+    shell.showItemInFolder(targetPath);
+  });
+
   ipcMain.handle('readBinaryFile', async (_event, filePath: string) => {
     await assertRendererReadPath(filePath);
     return new Uint8Array(await fs.readFile(filePath));

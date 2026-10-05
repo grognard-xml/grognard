@@ -194,6 +194,16 @@ export const useExplorerContextMenu = () => {
     setTarget(null);
   };
 
+  const handleShowInFolderClick = async () => {
+    if (!target || !window.electronAPI?.showItemInFolder) return;
+    closeMenu();
+    try {
+      await window.electronAPI.showItemInFolder(target.path);
+    } catch (error) {
+      showError(error instanceof Error ? error.message : 'failed');
+    }
+  };
+
   const handleDeleteClick = async () => {
     if (!target) return;
     closeMenu();
@@ -213,6 +223,7 @@ export const useExplorerContextMenu = () => {
     handleNewFolderConfirm,
     handleRenameClick,
     handleRenameConfirm,
+    handleShowInFolderClick,
     isProtected,
     menuOpen: Boolean(anchorPos),
     newFolderOpen,

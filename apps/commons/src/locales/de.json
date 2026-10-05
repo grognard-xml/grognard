@@ -261,6 +261,7 @@
         "filter_no_results": "Keine Dateien entsprechen „{{query}}“.",
         "filter_placeholder": "Dateien filtern…",
         "move": "Verschieben nach…",
+        "show_in_folder": "Im Ordner anzeigen",
         "new_folder": "Neuer Ordner",
         "new_folder_placeholder": "Ordnername",
         "new_folder_title": "Neuer Ordner",

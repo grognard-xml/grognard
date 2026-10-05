@@ -688,6 +688,7 @@
         "filter_no_results": "No files match “{{query}}”.",
         "filter_placeholder": "ファイルを絞り込む…",
         "move": "移動先…",
+        "show_in_folder": "フォルダーで表示",
         "new_folder": "新しいフォルダー",
         "new_folder_placeholder": "フォルダー名",
         "new_folder_title": "新しいフォルダー",

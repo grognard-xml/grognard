@@ -203,6 +203,7 @@ export const SidebarExplorerTab = () => {
     handleNewFolderClick,
     handleNewFolderConfirm,
     handleRenameClick,
+    handleShowInFolderClick,
     handleRenameConfirm,
     isProtected,
     menuOpen,
@@ -447,6 +448,11 @@ export const SidebarExplorerTab = () => {
         {target?.isDirectory ? (
           <MenuItem onClick={() => void handleNewFolderClick()}>
             {t('LWC.desktop.explorer.new_folder')}
+          </MenuItem>
+        ) : null}
+        {target ? (
+          <MenuItem onClick={() => void handleShowInFolderClick()}>
+            {t('LWC.desktop.explorer.show_in_folder')}
           </MenuItem>
         ) : null}
         {!showRootOnlyMenu ? (

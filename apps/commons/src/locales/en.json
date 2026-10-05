@@ -742,6 +742,7 @@
         "filter_no_results": "No files match “{{query}}”.",
         "filter_placeholder": "Filter files…",
         "move": "Move to…",
+        "show_in_folder": "Show in folder",
         "new_folder": "New folder",
         "new_folder_placeholder": "Folder name",
         "new_folder_title": "New folder",

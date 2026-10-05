@@ -696,6 +696,7 @@
         "filter_no_results": "No files match “{{query}}”.",
         "filter_placeholder": "篩選檔案…",
         "move": "移動到…",
+        "show_in_folder": "在資料夾中顯示",
         "new_folder": "新資料夾",
         "new_folder_placeholder": "資料夾名稱",
         "new_folder_title": "新資料夾",

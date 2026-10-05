@@ -639,6 +639,7 @@
         "filter_no_results": "Aucun fichier ne correspond à « {{query}} ».",
         "filter_placeholder": "Filtrer les fichiers…",
         "move": "Déplacer vers…",
+        "show_in_folder": "Afficher dans le dossier",
         "new_folder": "Nouveau dossier",
         "new_folder_placeholder": "Nom du dossier",
         "new_folder_title": "Nouveau dossier",

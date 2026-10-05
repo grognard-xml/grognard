@@ -465,6 +465,8 @@ export interface ElectronAPI {
   writeClipboardRich: (flavors: { text: string; html?: string; rtf?: string }) => Promise<void>;
   writeFile: (filePath: string, content: string) => Promise<void>;
   readBinaryFile?: (filePath: string) => Promise<Uint8Array>;
+  /** Opens a folder in the OS file manager, or reveals a file inside its folder. */
+  showItemInFolder?: (targetPath: string) => Promise<void>;
   writeBinaryFile?: (filePath: string, bytes: Uint8Array) => Promise<void>;
   readPastedImageFile?: (fileUrl: string) => Promise<Uint8Array | null>;
   readClipboardRtfImages?: () => Promise<(Uint8Array | null)[]>;
