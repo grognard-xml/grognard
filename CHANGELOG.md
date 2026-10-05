@@ -867,3 +867,7 @@ Paste/drop a character image now works in the translation pane and its footnotes
 
 - A document counted as a temporary, unsaved one if its path contained a directory named exactly `grognard` anywhere, so any file in such a folder (a checkout called `grognard`, say) asked where to save on every save instead of saving itself. Real temporary documents live at `<temp>/grognard/<timestamp>/untitled.xml`, and the check now matches only that layout.
 - The same check guarded the cleanup that deletes a temporary document's parent directory when its tab is closed, so a project inside a `grognard` folder risked having its folder deleted on close. That is fixed by the same change.
+
+### Find: results no longer go stale after the document changes
+
+- Search results kept being reused when the query, scope and options were unchanged, so after the file was reloaded from disk after an external change, or after a `<p>` was turned into a `<head>`, the stored offsets pointed at the wrong text: Visual-mode highlights landed on other words and line numbers were off, and re-running Find or reopening the panel only stepped through the same stale list. Each search now records a fingerprint of every open file it searched. Find, Enter, walk mode, and clicking or stepping through a result compare it with the file's current text and re-run the search when it differs, landing on the same match by index within its file. Files that are not open are not tracked.

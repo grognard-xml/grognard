@@ -28,7 +28,7 @@ import {
   DESKTOP_FIND_FOCUS_EVENT,
 } from '@src/desktop/desktopLeftPanelBridge';
 import { FindSnippetLine, formatSnippetLabel } from '@src/desktop/find/snippetDisplay';
-import { syncActiveVisualTabContent } from '@src/desktop/find/liveVisualContent';
+import { resultsAreStale, signaturesForFiles } from '@src/desktop/find/resultsFreshness';
 import { searchText } from '@src/desktop/find/searchText';
 import type { FindFileResult, FindHighlightMode } from '@src/desktop/find/types';
 import { useFindNavigation } from '@src/desktop/find/useFindNavigation';
@@ -114,6 +114,8 @@ export const SidebarFindTab = () => {
   const keyboardNavRef = useRef(false);
   const selectedIndexRef = useRef(selectedIndex);
   const lastSearchKeyRef = useRef('');
+  /** Text fingerprint of each open file as of the last search, to spot results gone stale. */
+  const searchedSignaturesRef = useRef<Map<string, string>>(new Map());
   selectedIndexRef.current = selectedIndex;
 
   const refocusSelectedItem = useCallback(() => {
@@ -196,6 +198,7 @@ export const SidebarFindTab = () => {
       totalMatches: number;
     }) => {
       lastSearchKeyRef.current = buildSearchKey();
+      searchedSignaturesRef.current = signaturesForFiles(nextResults.map((file) => file.filePath));
       setResults(nextResults);
       setTotalMatches(count);
       setError(searchError ?? (count === 0 ? 'No results.' : null));
@@ -225,8 +228,8 @@ export const SidebarFindTab = () => {
   );
 
   /** Jumps to a result, first re-syncing with the live Visual editor. Visual edits don't touch
-   * the stored tab content, so results computed earlier may have stale offsets; when the live
-   * text differs, re-search and land on the same match (by index within its file). */
+   * the stored tab content, and an external reload replaces it, so results computed earlier may
+   * have stale offsets; when the file's text differs from what they were computed on, re-search and land on the same match (by index within its file). */
   const jumpToFlatResult = useCallback(
     async (
       index: number,
@@ -236,9 +239,9 @@ export const SidebarFindTab = () => {
       if (!item) return;
 
       if (!isTranslationFile(item.filePath)) {
-        const storedContent = openTabs.find((tab) => tab.filePath === item.filePath)?.content;
-        const live = await syncActiveVisualTabContent(item.filePath);
-        if (live && storedContent !== undefined && live !== storedContent) {
+        // Stale = the file's text differs from what these results were computed on (edited,
+        // tag changed, or reloaded from disk), not merely from the tab's current snapshot.
+        if (await resultsAreStale(searchedSignaturesRef.current, [item.filePath])) {
           const {
             results: nextResults,
             totalMatches: count,
@@ -346,6 +349,7 @@ export const SidebarFindTab = () => {
   const resetFindPanel = useCallback(() => {
     clearFindHighlights();
     lastSearchKeyRef.current = '';
+    searchedSignaturesRef.current = new Map();
     setWalkMode(null);
     walkOriginRef.current = null;
     setFindQuery('');
@@ -365,6 +369,7 @@ export const SidebarFindTab = () => {
     // user isn't forced to retype them after toggling modes.
     clearFindHighlights();
     lastSearchKeyRef.current = '';
+    searchedSignaturesRef.current = new Map();
     setWalkMode(null);
     walkOriginRef.current = null;
     setResults([]);
@@ -565,11 +570,18 @@ export const SidebarFindTab = () => {
       walkOriginRef.current = origin;
       setWalkMode(mode);
       const searchKey = buildSearchKey();
-      if (lastSearchKeyRef.current === searchKey && flatResults.length > 0) {
-        cycleFind();
-      } else {
-        void handleSearch();
-      }
+      void (async () => {
+        // Same query is not enough to reuse results: the document may have changed since.
+        if (
+          lastSearchKeyRef.current === searchKey &&
+          flatResults.length > 0 &&
+          !(await resultsAreStale(searchedSignaturesRef.current))
+        ) {
+          cycleFind();
+        } else {
+          void handleSearch();
+        }
+      })();
     },
     [buildSearchKey, cycleFind, findQuery, flatResults.length, handleSearch, loading, replacing],
   );
@@ -578,12 +590,18 @@ export const SidebarFindTab = () => {
     if (loading || replacing || !findQuery.trim()) return;
 
     const searchKey = buildSearchKey();
-    if (lastSearchKeyRef.current === searchKey && flatResults.length > 0) {
-      cycleFind();
-      return;
-    }
-
-    void handleSearch();
+    void (async () => {
+      // Same query is not enough to reuse results: the document may have changed since.
+      if (
+        lastSearchKeyRef.current === searchKey &&
+        flatResults.length > 0 &&
+        !(await resultsAreStale(searchedSignaturesRef.current))
+      ) {
+        cycleFind();
+        return;
+      }
+      void handleSearch();
+    })();
   }, [buildSearchKey, cycleFind, findQuery, flatResults.length, handleSearch, loading, replacing]);
 
   const handleReplace = useCallback(async () => {
