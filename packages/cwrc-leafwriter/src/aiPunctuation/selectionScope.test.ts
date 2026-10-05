@@ -13,6 +13,7 @@ import {
   clipTextToHanRange,
   punctInHanRange,
   unpunctuatedRanges,
+  cpLength,
 } from './selectionScope';
 
 describe('chunkHanText', () => {
@@ -200,5 +201,45 @@ describe('unpunctuatedRanges', () => {
     expect(unpunctuatedRanges([p(0, 400, 1)], { start: 0, end: 400 })).toEqual([
       { start: 0, end: 400 },
     ]);
+  });
+});
+
+describe('astral-plane Han (Extension B and later)', () => {
+  const han = '祝荼草旋龜𪁺𩿧魚'; // 8 Han: 𪁺 U+2A07A and 𩿧 U+29FE7 are outside the BMP
+
+  it('counts one Han index per character, not per UTF-16 unit', () => {
+    expect(han.length).toBe(10);
+    expect(cpLength(han)).toBe(8);
+    expect(cpLength(selectionHanOnly(`${han}，。`))).toBe(8);
+    expect(selectionHanOnly('甲𪁺，乙')).toBe('甲𪁺乙');
+  });
+
+  it('rebuilds the tape and locates a selection after astral characters in code points', () => {
+    const segments = [
+      { han, han_start: 0, han_end: 8 },
+      { han: '戊己庚辛壬癸', han_start: 8, han_end: 14 },
+    ];
+    expect(buildJuanHanTape(segments)).toBe(`${han}戊己庚辛壬癸`);
+    expect(findSelectionHanRange(segments, '戊己庚辛壬癸')).toEqual({ start: 8, end: 14 });
+    expect(findSelectionHanRange(segments, '旋龜𪁺𩿧魚')).toEqual({ start: 3, end: 8 });
+  });
+
+  it('clips a segment by code points without splitting a surrogate pair', () => {
+    const clipped = clipSegmentToHanRange({ han, han_start: 0, han_end: 8 }, { start: 4, end: 7 });
+    expect(clipped?.han).toBe('龜𪁺𩿧');
+    expect(clipped).toMatchObject({ han_start: 4, han_end: 7 });
+  });
+
+  it('chunks without splitting a pair and counts offsets in code points', () => {
+    const chunks = chunkHanText(han, 5, 0);
+    expect(chunks.map((c) => c.text)).toEqual(['祝荼草旋龜', '𪁺𩿧魚']);
+    expect(chunks.map((c) => c.offset)).toEqual([0, 5]);
+  });
+
+  it('reads punctuation in the clipped text of a range after astral characters', () => {
+    const seg = { han: '甲𪁺丙丁', text: '甲𪁺，丙丁。', han_start: 0, han_end: 4 };
+    expect(clipTextToHanRange(seg, { start: 2, end: 4 })).toBe('丙丁。');
+    expect(punctInHanRange([seg], { start: 2, end: 4 })).toBe(true);
+    expect(punctInHanRange([seg], { start: 0, end: 1 })).toBe(false);
   });
 });

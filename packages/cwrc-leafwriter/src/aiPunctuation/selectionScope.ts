@@ -12,6 +12,25 @@ import {
 
 const PUNCT_SET = new Set<string>(AI_PUNCT_MARKS);
 
+/**
+ * Han indices are Unicode code points: the Kanripo plugin (Python) counts them that way, and a
+ * character outside the BMP (Extension B and later, e.g. 𪁺) is one index but two UTF-16 units in
+ * JavaScript. Every length, slice and offset on Han text here goes through these so the two sides
+ * stay in step; plain `.length` / `.slice` / `[i]` would drift by one per astral character.
+ */
+export const cpLength = (text: string): number => {
+  let count = 0;
+  for (const _ of text) count += 1;
+  return count;
+};
+
+const cpSlice = (text: string, start: number, end?: number): string =>
+  Array.from(text).slice(start, end).join('');
+
+/** Han: Ext A, the main block, CJK compatibility ideographs, and planes 2-3 (Ext B through H). */
+const HAN_CLASS = '\\u3400-\\u4dbf\\u4e00-\\u9fff\\uf900-\\ufaff\\u{20000}-\\u{323af}';
+const NON_HAN = new RegExp(`[^${HAN_CLASS}]`, 'gu');
+
 /** Match Python `MIN_PUNCT_PER_100_HAN` in parallel quality assessment. */
 export const MIN_PUNCT_PER_100_HAN = 0.75;
 
@@ -29,7 +48,7 @@ export function hanTextHasPunct(han: string): boolean {
  * the previous (broken) behavior rather than throwing.
  */
 export function punctPer100Han(han: string, text?: string): number {
-  const hanChars = selectionHanOnly(han).length;
+  const hanChars = cpLength(selectionHanOnly(han));
   if (hanChars === 0) return 0;
   const punctSource = text ?? han;
   const punctCount = [...punctSource].filter((ch) => PUNCT_SET.has(ch as AiPunctMark)).length;
@@ -42,7 +61,7 @@ export function segmentNeedsAiGap(seg: {
   has_punct: boolean;
   text?: string;
 }): boolean {
-  if (seg.han.length < MIN_SEGMENT_HAN) return false;
+  if (cpLength(seg.han) < MIN_SEGMENT_HAN) return false;
   if (!seg.has_punct) return true;
   return punctPer100Han(seg.han, seg.text) < MIN_PUNCT_PER_100_HAN;
 }
@@ -59,15 +78,16 @@ export interface HanRange {
 
 /** Split long Han strings at natural boundaries with overlap. */
 export function chunkHanText(han: string, maxLen = CHUNK_HAN, overlap = CHUNK_OVERLAP): HanChunk[] {
-  if (han.length <= maxLen) {
+  const chars = Array.from(han);
+  if (chars.length <= maxLen) {
     return [{ text: han, offset: 0 }];
   }
   const chunks: HanChunk[] = [];
   let start = 0;
-  while (start < han.length) {
-    let end = Math.min(start + maxLen, han.length);
-    if (end < han.length) {
-      const window = han.slice(start, end);
+  while (start < chars.length) {
+    let end = Math.min(start + maxLen, chars.length);
+    if (end < chars.length) {
+      const window = chars.slice(start, end);
       const breakAt = Math.max(
         window.lastIndexOf('。'),
         window.lastIndexOf('！'),
@@ -77,8 +97,8 @@ export function chunkHanText(han: string, maxLen = CHUNK_HAN, overlap = CHUNK_OV
         end = start + breakAt + 1;
       }
     }
-    chunks.push({ text: han.slice(start, end), offset: start });
-    if (end >= han.length) break;
+    chunks.push({ text: chars.slice(start, end).join(''), offset: start });
+    if (end >= chars.length) break;
     start = Math.max(end - overlap, start + 1);
   }
   return chunks;
@@ -92,7 +112,7 @@ export function filterSegmentsForAi<T extends { han: string; has_punct: boolean;
   return segments.filter((seg) => {
     if (idSet && !idSet.has(seg.id)) return false;
     if (seg.has_punct) return false;
-    if (seg.han.length < MIN_SEGMENT_HAN) return false;
+    if (cpLength(seg.han) < MIN_SEGMENT_HAN) return false;
     return true;
   });
 }
@@ -119,7 +139,7 @@ export function selectTargetsForAi<
     return segments
       .filter((seg) => !idSet || idSet.has(seg.id))
       .map((seg) => clipSegmentToHanRange(seg, options.hanRange!))
-      .filter((seg): seg is T => Boolean(seg && seg.han.length >= MIN_SEGMENT_HAN));
+      .filter((seg): seg is T => Boolean(seg && cpLength(seg.han) >= MIN_SEGMENT_HAN));
   }
   if (options?.gapsOnly) {
     return filterSegmentsForAiGaps(segments, options.segmentIds);
@@ -207,19 +227,20 @@ export function getEditorSelectedPlainText(): string {
 export { consumeCapturedEditorSelection };
 
 export function selectionHanOnly(text: string): string {
-  return text.replace(/[^\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]/g, '');
+  return text.replace(NON_HAN, '');
 }
 
 /** Reconstruct the juan Han tape from segment metadata (global han indices). */
 export function buildJuanHanTape(segments: { han: string; han_start: number }[]): string {
   if (!segments.length) return '';
-  const end = Math.max(...segments.map((seg) => seg.han_start + seg.han.length));
+  const hanBySegment = segments.map((seg) => Array.from(seg.han));
+  const end = Math.max(...segments.map((seg, i) => seg.han_start + hanBySegment[i]!.length));
   const chars = Array<string>(end).fill('');
-  for (const seg of segments) {
-    for (let index = 0; index < seg.han.length; index += 1) {
-      chars[seg.han_start + index] = seg.han[index]!;
-    }
-  }
+  segments.forEach((seg, i) => {
+    hanBySegment[i]!.forEach((ch, index) => {
+      chars[seg.han_start + index] = ch;
+    });
+  });
   return chars.join('');
 }
 
@@ -237,16 +258,24 @@ export function findSelectionHanRange(
   if (!selectedHan) return null;
 
   const tape = buildJuanHanTape(segments);
-  let index = tape.indexOf(selectedHan);
+  const tapeLength = cpLength(tape);
+  const selectedLength = cpLength(selectedHan);
+  // indexOf works in UTF-16 units; convert the hit back to a code-point index.
+  const cpIndexOf = (needle: string): number => {
+    const at = tape.indexOf(needle);
+    return at < 0 ? -1 : cpLength(tape.slice(0, at));
+  };
+
+  let index = cpIndexOf(selectedHan);
   if (index >= 0) {
-    return { start: index, end: index + selectedHan.length };
+    return { start: index, end: index + selectedLength };
   }
 
   // Anchor on a prefix when the selection includes display punctuation or minor mismatch.
-  for (let len = Math.min(selectedHan.length, 48); len >= 8; len -= 1) {
-    index = tape.indexOf(selectedHan.slice(0, len));
+  for (let len = Math.min(selectedLength, 48); len >= 8; len -= 1) {
+    index = cpIndexOf(cpSlice(selectedHan, 0, len));
     if (index >= 0) {
-      return { start: index, end: Math.min(index + selectedHan.length, tape.length) };
+      return { start: index, end: Math.min(index + selectedLength, tapeLength) };
     }
   }
   return null;
@@ -262,7 +291,7 @@ export function clipSegmentToHanRange<
   const length = end - start;
   return {
     ...segment,
-    han: segment.han.slice(offset, offset + length),
+    han: cpSlice(segment.han, offset, offset + length),
     han_start: start,
     han_end: end,
   };

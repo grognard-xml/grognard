@@ -1,6 +1,7 @@
 import type { LlmClient } from '../autoTagging/llmClient';
 import { buildPlainPunctPrompt, stripPlainPunctResponse, type PunctPromptSegment } from './prompts';
 import { PLAIN_CHUNK_HAN } from './punctSchema';
+import { cpLength } from './selectionScope';
 
 export interface LlmPunctuatePlainSegmentInput extends PunctPromptSegment {
   han_start: number;
@@ -11,16 +12,18 @@ interface HanChunk {
   offset: number;
 }
 
+/** Counts in code points (a 𪁺 is one Han, two UTF-16 units), so a chunk never splits a pair. */
 function chunkHanPlainText(han: string, maxLen = PLAIN_CHUNK_HAN): HanChunk[] {
-  if (han.length <= maxLen) {
+  const chars = Array.from(han);
+  if (chars.length <= maxLen) {
     return [{ text: han, offset: 0 }];
   }
   const chunks: HanChunk[] = [];
   let start = 0;
-  while (start < han.length) {
-    let end = Math.min(start + maxLen, han.length);
-    if (end < han.length) {
-      const window = han.slice(start, end);
+  while (start < chars.length) {
+    let end = Math.min(start + maxLen, chars.length);
+    if (end < chars.length) {
+      const window = chars.slice(start, end);
       const breakAt = Math.max(
         window.lastIndexOf('。'),
         window.lastIndexOf('！'),
@@ -30,8 +33,8 @@ function chunkHanPlainText(han: string, maxLen = PLAIN_CHUNK_HAN): HanChunk[] {
         end = start + breakAt + 1;
       }
     }
-    chunks.push({ text: han.slice(start, end), offset: start });
-    if (end >= han.length) break;
+    chunks.push({ text: chars.slice(start, end).join(''), offset: start });
+    if (end >= chars.length) break;
     start = end;
   }
   return chunks;
@@ -51,7 +54,9 @@ export async function llmPunctuatePlainSegment(
       han: chunk.text,
       preceding_comm: chunk.offset === 0 ? segment.preceding_comm : undefined,
       following_comm:
-        chunk.offset + chunk.text.length >= segment.han.length ? segment.following_comm : undefined,
+        chunk.offset + cpLength(chunk.text) >= cpLength(segment.han)
+          ? segment.following_comm
+          : undefined,
     });
     const response = await client.complete({ ...prompt, signal });
     parts.push(stripPlainPunctResponse(response.json));

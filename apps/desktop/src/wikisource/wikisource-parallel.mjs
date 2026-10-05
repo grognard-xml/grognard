@@ -51,7 +51,8 @@ export const getFetchDelayMs = () => FETCH_DELAY_MS;
  */
 export function hasRunningText(text) {
   const body = String(text || '');
-  const han = (body.match(/[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]/g) ?? []).length;
+  const han = (body.match(/[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff\u{20000}-\u{323af}]/gu) ?? [])
+    .length;
   const stops = (body.match(/[。！？]/g) ?? []).length;
   return han >= 60 && stops >= 3 && han / stops <= 60;
 }
