@@ -858,3 +858,12 @@ Paste/drop a character image now works in the translation pane and its footnotes
 
 - The **Asian font** setting only reached elements tagged `lang` / `xml:lang` as zh, ja or ko, so documents without language tags (Kanripo imports, for one) ignored it and drew Han text, including Extension B+ characters, in whatever fallback font the OS chose. That produced characters that sat off the line or came from a different font than their neighbours. The editor body now uses the Latin fonts followed by the Asian font, dropping the Latin list's trailing generic family so Han text is not captured by it.
 - A project stylesheet's root rule (for example `TEI { font-family: Georgia, serif }` in `tei.css`) overrode the inherited stack, because schema CSS is applied to the root element itself, so Han text fell to Georgia and then the OS default serif. The font settings are now also set on the root element with a more specific selector, so they win there while the stylesheet can still style elements below it.
+
+### File explorer: Show in folder
+
+- New **Show in folder** item in the explorer's right-click menu. On a folder it opens that folder in the OS file manager (Finder, Explorer, the Linux file manager); on a file it opens the containing folder with the file selected; on the empty area it opens the project root. It goes through a new `showItemInFolder` IPC that applies the same approved-path check as file reads, so the renderer can only reveal paths inside approved roots.
+
+### Save asked "Save as" for files inside a folder named grognard
+
+- A document counted as a temporary, unsaved one if its path contained a directory named exactly `grognard` anywhere, so any file in such a folder (a checkout called `grognard`, say) asked where to save on every save instead of saving itself. Real temporary documents live at `<temp>/grognard/<timestamp>/untitled.xml`, and the check now matches only that layout.
+- The same check guarded the cleanup that deletes a temporary document's parent directory when its tab is closed, so a project inside a `grognard` folder risked having its folder deleted on close. That is fixed by the same change.

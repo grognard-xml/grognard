@@ -1,3 +1,4 @@
+import { isTempDocumentPath } from '@src/desktop/tempDocumentPath';
 import type { Context } from '../';
 
 /** Skip debounced saves while restoring tabs so we do not persist partial/empty session state. */
@@ -102,8 +103,6 @@ const replaceExtension = (filePath: string, extension: string): string => {
   const name = (slash === -1 ? normalized : normalized.slice(slash + 1)).replace(/\.[^.]+$/, '');
   return joinPath(dir, `${name || 'Untitled'}.${extension.replace(/^\./, '')}`);
 };
-
-const isTempDocumentPath = (filePath: string): boolean => /[/\\]grognard[/\\]/.test(filePath);
 
 const isTempTab = (tab: { filePath: string; isTemp?: boolean }) =>
   tab.isTemp || isTempDocumentPath(tab.filePath);
