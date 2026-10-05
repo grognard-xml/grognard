@@ -4,7 +4,13 @@ import { Context } from '../';
 import { db } from '../../db';
 import { resetLookupPreferences } from '../../jotai/entity-lookup/utilities';
 import type { LeafWriterOptionsSettings, Schema } from '../../types';
-import { DEFAULT_ASIAN_FONT, DEFAULT_LATIN_FONT, getValidFontFamily } from './fontFamilies';
+import {
+  DEFAULT_ASIAN_FONT,
+  DEFAULT_LATIN_FONT,
+  buildEditorFontCss,
+  combineFontFamilies,
+  getValidFontFamily,
+} from './fontFamilies';
 import {
   DEFAULT_EDITOR_FONT_SIZE,
   type ChoiceDisplayMode,
@@ -97,7 +103,10 @@ const applyFontFamiliesToEditor = (latinFont: string, asianFont: string) => {
   const editor = window.writer?.editor;
   if (!editor) return;
 
-  editor.dom.setStyles(editor.dom.getRoot(), { fontFamily: latinFont });
+  // Latin fonts first, then the Asian font, so Han text in documents without lang tags still
+  // gets the Asian font (the lang-scoped rule below only matches tagged content).
+  const bodyFont = combineFontFamilies(latinFont, asianFont);
+  editor.dom.setStyles(editor.dom.getRoot(), { fontFamily: bodyFont });
 
   const doc = editor.getDoc();
   let style = doc.getElementById(FONT_FAMILY_STYLE_ID);
@@ -107,15 +116,7 @@ const applyFontFamiliesToEditor = (latinFont: string, asianFont: string) => {
     doc.head?.appendChild(style);
   }
 
-  style.textContent = `
-    body {
-      font-family: ${latinFont};
-    }
-
-    ${CJK_FONT_SELECTORS} {
-      font-family: ${asianFont};
-    }
-  `;
+  style.textContent = buildEditorFontCss(latinFont, asianFont, CJK_FONT_SELECTORS);
 };
 
 export const writerInitSettings = async (

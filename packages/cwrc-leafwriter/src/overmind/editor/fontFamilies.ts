@@ -48,3 +48,85 @@ export const getValidFontFamily = (value: string | null | undefined, fallback: s
   const trimmed = value?.trim();
   return trimmed ? trimmed : fallback;
 };
+
+const GENERIC_FAMILIES = new Set([
+  'serif',
+  'sans-serif',
+  'monospace',
+  'cursive',
+  'fantasy',
+  'system-ui',
+  'ui-serif',
+  'ui-sans-serif',
+  'ui-monospace',
+  'ui-rounded',
+  'emoji',
+  'math',
+  'fangsong',
+]);
+
+/** Splits a font-family list on top-level commas (commas inside quotes are kept). */
+const splitFontFamilies = (value: string): string[] => {
+  const parts: string[] = [];
+  let current = '';
+  let quote: string | null = null;
+  for (const ch of value) {
+    if (quote) {
+      current += ch;
+      if (ch === quote) quote = null;
+    } else if (ch === '"' || ch === "'") {
+      quote = ch;
+      current += ch;
+    } else if (ch === ',') {
+      parts.push(current.trim());
+      current = '';
+    } else {
+      current += ch;
+    }
+  }
+  if (current.trim()) parts.push(current.trim());
+  return parts.filter(Boolean);
+};
+
+/**
+ * The editor's body font stack: the Latin fonts first, then the Asian font. Dropping the Latin
+ * list's trailing generic family (`sans-serif`) matters: a generic always resolves to some
+ * installed font, so anything after it would never be reached and Han characters missing from the
+ * Latin fonts would fall to the OS default instead of the Asian font. This is what makes the
+ * Asian font apply to documents that carry no `lang` / `xml:lang`, such as Kanripo imports.
+ */
+export const combineFontFamilies = (latinFont: string, asianFont: string): string => {
+  const latin = splitFontFamilies(latinFont).filter(
+    (family) => !GENERIC_FAMILIES.has(family.toLowerCase()),
+  );
+  return [...latin, asianFont.trim()].filter(Boolean).join(', ');
+};
+
+/**
+ * Rules for the editor iframe. Schema CSS is rewritten to `*[_tag="TEI"] { ... }` and lands on the
+ * root element itself (a project `tei.css` commonly says `TEI { font-family: Georgia, serif }`),
+ * which beats anything inherited from `body` and silently overrides the user's font settings.
+ * `body > *[_tag]` is more specific than that attribute selector, so the settings win at the root
+ * while the stylesheet can still style individual elements below it. `cjkSelectors` keeps the
+ * Asian font on language-tagged content.
+ */
+export const buildEditorFontCss = (
+  latinFont: string,
+  asianFont: string,
+  cjkSelectors: string,
+): string => {
+  const bodyFont = combineFontFamilies(latinFont, asianFont);
+  return `
+    body {
+      font-family: ${bodyFont};
+    }
+
+    body > *[_tag] {
+      font-family: ${bodyFont};
+    }
+
+    ${cjkSelectors} {
+      font-family: ${asianFont};
+    }
+  `;
+};
