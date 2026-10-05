@@ -871,3 +871,10 @@ Paste/drop a character image now works in the translation pane and its footnotes
 ### Find: results no longer go stale after the document changes
 
 - Search results kept being reused when the query, scope and options were unchanged, so after the file was reloaded from disk after an external change, or after a `<p>` was turned into a `<head>`, the stored offsets pointed at the wrong text: Visual-mode highlights landed on other words and line numbers were off, and re-running Find or reopening the panel only stepped through the same stale list. Each search now records a fingerprint of every open file it searched. Find, Enter, walk mode, and clicking or stepping through a result compare it with the file's current text and re-run the search when it differs, landing on the same match by index within its file. Files that are not open are not tracked.
+
+### Change Tag menu: filtering, keyboard use, submenu and documentation
+
+- **Typing in the tag filter ranks the results.** Matches are ordered exact name, name prefix, name contains, then description only, so typing `quote` lists `quote` before `q` (whose description merely mentions it). An empty filter keeps schema order.
+- **The filter is keyboard-driven.** Typing pre-selects the best match; Arrow Down / Up move through the results (skipping dividers, wrapping), Enter picks the selected tag, Escape closes. The input also no longer lets the surrounding menu treat typed letters as type-ahead, which could pull focus out of the box while typing.
+- **A submenu no longer closes when the pointer drifts toward it.** Moving diagonally from an open submenu's row crosses other rows, and switching to them at once closed the submenu under the pointer. Another row now takes over only after the pointer has rested on it for 300 ms; reaching the submenu cancels the switch.
+- **Tag documentation opens in a card beside the menu** instead of a hover tooltip below the row, which covered the next item and intercepted clicks. The card follows the selected row, so it appears for keyboard navigation too, after a short pause, and never overlaps the list.

@@ -8,10 +8,18 @@ export interface NestProps {
   anchorEl: HTMLElement | null;
   isLoading?: boolean;
   items?: ItemProps[];
+  /** Pointer entered the submenu itself (cancels a pending switch to another row). */
+  onMouseEnter?: () => void;
   searchable?: boolean;
 }
 
-export const Nest = ({ anchorEl, isLoading = false, items = [], searchable }: NestProps) => {
+export const Nest = ({
+  anchorEl,
+  isLoading = false,
+  items = [],
+  onMouseEnter,
+  searchable,
+}: NestProps) => {
   const windowSize = useWindowSize();
 
   const anchorBoundingClientRect = anchorEl?.getBoundingClientRect();
@@ -29,14 +37,14 @@ export const Nest = ({ anchorEl, isLoading = false, items = [], searchable }: Ne
       anchorOrigin={{ vertical: 'top', horizontal: hasSpaceToTheRight() ? 'right' : 'left' }}
       MenuListProps={{ sx: { minWidth: MIN_WIDTH, py: 0, borderRadius: 1 } }}
       open={isOpen}
-      PaperProps={{ elevation: 4 }}
+      PaperProps={{ elevation: 4, onMouseEnter }}
       style={{ pointerEvents: 'none' }} // "pointerEvents: none" to prevent invisible Popover wrapper div to capture mouse events
       transitionDuration={0}
       transformOrigin={{ vertical: 'top', horizontal: hasSpaceToTheRight() ? 'left' : 'right' }}
       variant="menu"
       keepMounted
     >
-      <Collection isLoading={isLoading} list={items} searchable={searchable} />
+      <Collection isLoading={isLoading} list={items} open={isOpen} searchable={searchable} />
     </Menu>
   );
 };

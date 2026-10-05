@@ -2,16 +2,17 @@ import SearchIcon from '@mui/icons-material/Search';
 import { Box, InputBase, Stack, ToggleButton, Tooltip, useTheme } from '@mui/material';
 import { useAtom } from 'jotai';
 import { debounce } from 'lodash';
-import { useMemo, useState, type ChangeEvent } from 'react';
+import { useMemo, useState, type ChangeEvent, type KeyboardEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Icon } from '../../../../../icons';
 import { showOnlyValidAtom } from '../../../store';
 
 interface FilterProps {
+  onKeyDown?: (event: KeyboardEvent<HTMLInputElement>) => void;
   onQuery: (query: string) => void;
 }
 
-export const Filters = ({ onQuery }: FilterProps) => {
+export const Filters = ({ onKeyDown, onQuery }: FilterProps) => {
   const theme = useTheme();
   const { t } = useTranslation();
 
@@ -82,6 +83,7 @@ export const Filters = ({ onQuery }: FilterProps) => {
         autoFocus
         inputProps={{ 'aria-label': 'search' }}
         onChange={handleQueryChange}
+        onKeyDown={onKeyDown}
         placeholder={t('LW.commons.search').toString()}
         sx={[
           {

@@ -29,6 +29,8 @@ interface TagItemProps extends BaseProps {
 
 export interface CollectionItemProps extends BaseProps {
   active?: boolean;
+  /** Keyboard-selected row (arrow keys in the filter); styled like hover. */
+  highlighted?: boolean;
   children?: ItemProps[];
   getChildren?: () => Promise<ItemProps[]>;
   onMouseEnter?: (id?: string) => void;
@@ -46,6 +48,7 @@ export const Item = forwardRef<any, ItemProps>(
       documentation,
       fullName,
       getChildren,
+      highlighted = false,
       id,
       invalid,
       icon,
@@ -108,6 +111,7 @@ export const Item = forwardRef<any, ItemProps>(
         dense
         disabled={disabled}
         disableRipple
+        data-highlighted={highlighted || undefined}
         onClick={handleClick}
         onMouseEnter={handleMouseEnter}
         sx={[
@@ -123,6 +127,10 @@ export const Item = forwardRef<any, ItemProps>(
               color,
               backgroundColor: theme.alpha(color, theme.vars.palette.action.hoverOpacity),
             },
+          },
+          highlighted && {
+            color,
+            backgroundColor: theme.alpha(color, theme.vars.palette.action.hoverOpacity),
           },
           showNestedMenu && {
             backgroundColor: `rgba(${theme.vars.palette.primary.mainChannel}, ${theme.vars.palette.action.selectedOpacity})`,
@@ -149,6 +157,7 @@ export const Item = forwardRef<any, ItemProps>(
             anchorEl={anchorEl}
             isLoading={isLoading}
             items={nestedList}
+            onMouseEnter={() => onMouseEnter?.(id)}
             searchable={searchable}
           />
         )}
