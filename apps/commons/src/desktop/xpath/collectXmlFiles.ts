@@ -4,9 +4,11 @@ export const collectXmlFiles = async (
   dirPath: string,
   projectRoot: string = dirPath,
 ): Promise<string[]> => {
-  if (!window.electronAPI) return [];
+  // Optional in the leafwriter package's view of electronAPI (it is only complete in commons).
+  const readDirectory = window.electronAPI?.readDirectory;
+  if (!readDirectory) return [];
 
-  const entries = await window.electronAPI.readDirectory(dirPath, { allFiles: true });
+  const entries = await readDirectory(dirPath, { allFiles: true });
   const files: string[] = [];
 
   for (const entry of entries) {
