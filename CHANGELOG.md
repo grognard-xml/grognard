@@ -728,7 +728,7 @@ Paste/drop a character image now works in the translation pane and its footnotes
 
 - DILA place records almost never carry their own `<geo>` point (~0.6% do), but many carry a `<district>` field naming the modern administrative equivalent (e.g. `中國-河南省-商丘市-民權縣`). The authority-extraction pipeline (see the authority-extraction changelog) now resolves that chain against a vendored province/city/county centroid gazetteer and attaches the match as `metadata.geo` when DILA's own `<geo>` is absent, lifting DILA place-geo coverage from ~0.6% to ~2%. The resulting point is a present-day administrative centroid, not the historical site, so it is markedly coarser than a direct CBDB/CHGIS/DILA `<geo>` point (see the caveat in [`placename-geo-disambiguation-planning.md`](docs/placename-geo-disambiguation-planning.md)) — this is documented once there and in the authority-extraction package's README rather than tagged per record.
 
-### 0.1.1-beta.4
+## v0.1.1-beta.4
 
 - Updated Structure, CHHIV, and Advanced Tag Transform icons
 
@@ -810,7 +810,7 @@ Paste/drop a character image now works in the translation pane and its footnotes
 - Added a power-save blocker (`prevent-app-suspension`, ref-counted across every long AI run — fill-gaps, auto-tagging, translation, disambiguation review, not just Kanripo import) for the duration of any AI run. A separate, harder-to-pin-down crash turned up in the same area after a system sleep during an unattended long-running fill-gaps pass: Chromium suspends the renderer's timers and network activity during sleep, and TinyMCE's undo-manager internals aren't robust to resuming cleanly afterward — a known, still-open class of upstream bug, not something fixable from Grognard's side. Keeping the system from sleeping for the run's duration (the display can still turn off) sidesteps the trigger.
 - The import dialog gave no clear "finished" signal beyond a per-juan coverage bar sitting at its final value, easy to mistake for a hang on a long batch. Once a batch import finishes with no failures, the dialog's primary button now reads **Close** instead of **Import**.
 
-### 0.1.1-beta.5
+## v0.1.1-beta.5
 
 ### Plugin Python calls could fail right after opening a project
 
