@@ -685,7 +685,7 @@ export async function applyEntityDbMigrations(db: EntityDbBackend): Promise<void
   const current = await db.getSchemaVersion();
   if (current > ENTITY_DB_SCHEMA_VERSION) {
     throw new Error(
-      `Entity database schema ${current} is newer than this application supports (${ENTITY_DB_SCHEMA_VERSION}).`,
+      `This entity database was created by a newer version of Grognard (database schema ${current}; this version supports up to ${ENTITY_DB_SCHEMA_VERSION}). Please update Grognard to the latest version and try again.`,
     );
   }
   for (let version = current + 1; version <= ENTITY_DB_SCHEMA_VERSION; version += 1) {
