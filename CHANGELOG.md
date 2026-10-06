@@ -896,3 +896,11 @@ Paste/drop a character image now works in the translation pane and its footnotes
 ### Source editor: blank gap under the top of the pane
 
 - On deeply nested TEI, Monaco's sticky-scroll header (the pinned `<text>`, `<body>`, `<div>` lines) could be sized to hundreds of pixels of empty space, covering the text below it. Sticky scroll is now off in the source editor.
+
+### Source editor: collapse elements
+
+- The source editor can now fold elements. Fold ranges follow the XML tags rather than indentation, so they work on TEI where long mixed-content paragraphs do not indent with their nesting. Gutter controls are always visible. A close tag on its own line stays visible when its element is folded.
+- A collapsed division shows its heading and the number of quotations inside it (for example `日名體 · 13 cit`); a collapsed paragraph shows its quotation count.
+- New commands in the editor's right-click menu: **Fold All Paragraphs**, **Fold All Divisions** and **Fold TEI Header**. Monaco's own shortcuts keep working (Cmd+K Cmd+0 folds everything, Cmd+K Cmd+J unfolds everything, Cmd+K Cmd+1 … fold to a level).
+- The TEI header is folded the first time a document opens. After that, each document remembers which regions you collapsed, across restarts (restored only where a region of the same name still starts on the same line).
+- Single-line elements cannot fold, so each `<cit>` on one line stays open.
