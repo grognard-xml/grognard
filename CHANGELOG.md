@@ -888,3 +888,11 @@ Paste/drop a character image now works in the translation pane and its footnotes
 
 - Han characters outside the Basic Multilingual Plane (Extension B through H, such as 𪁺 and 𩿧, now common in Kanripo imports since the gaiji table resolves them to real Unicode) were not recognised as Han by the Kanripo plugin, so they dropped out of the text its punctuation alignment runs on and every Han index after one shifted. The editor also counted string positions in UTF-16 units, where such a character takes two, while the plugin counts code points. Together these threw off selection mapping, per-paragraph ranges and scoped punctuation for any juan containing one.
 - The plugin's Han pattern now covers U+20000–U+323AF. Every Han length, slice and offset in the editor's AI-punctuation code (tape rebuild, selection location, segment clipping, chunking, minimum-length checks, the plain-text chunker) now counts code points, so the two sides agree and a surrogate pair is never split. The dormant JSON-anchor fallback was brought in line too, and the Wikisource fetch's Han counter includes these characters.
+
+### Entity database newer than the app: clearer message
+
+- Opening an entity database written by a newer Grognard (for example schema 14 from beta.4 in beta.3, which supports 12) failed with "Entity database schema 14 is newer than this application supports (12)". The message now says the database was created by a newer version and asks the user to update Grognard.
+
+### Source editor: blank gap under the top of the pane
+
+- On deeply nested TEI, Monaco's sticky-scroll header (the pinned `<text>`, `<body>`, `<div>` lines) could be sized to hundreds of pixels of empty space, covering the text below it. Sticky scroll is now off in the source editor.
