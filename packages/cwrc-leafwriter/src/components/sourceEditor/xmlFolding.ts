@@ -173,6 +173,20 @@ export const registerXmlFoldingFeatures = (
   editor: monaco.editor.IStandaloneCodeEditor,
 ): monaco.IDisposable => {
   const actions = [
+    // VS Code's Cmd+Alt+[ / ] (fold / unfold at the cursor) and the Cmd+K chords
+    // are built into Monaco; these add single-chord fold-all / unfold-all.
+    editor.addAction({
+      id: 'xml-fold-all',
+      label: 'Fold All',
+      keybindings: [monaco.KeyMod.CtrlCmd | monaco.KeyMod.Alt | monaco.KeyCode.Digit0],
+      run: (ed) => void ed.getAction('editor.foldAll')?.run(),
+    }),
+    editor.addAction({
+      id: 'xml-unfold-all',
+      label: 'Unfold All',
+      keybindings: [monaco.KeyMod.CtrlCmd | monaco.KeyMod.Alt | monaco.KeyCode.Digit9],
+      run: (ed) => void ed.getAction('editor.unfoldAll')?.run(),
+    }),
     editor.addAction({
       id: 'xml-fold-paragraphs',
       label: 'Fold All Paragraphs',

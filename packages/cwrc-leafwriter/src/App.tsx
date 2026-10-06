@@ -31,6 +31,14 @@ const SourceEditorPane = lazy(() =>
   })),
 );
 
+// Same chunk as the editor: the toolbar drives Monaco and would otherwise drag it
+// into the main bundle.
+const SourceToolbar = lazy(() =>
+  import(
+    /* webpackChunkName: "leafwriter-monaco" */ './components/sourceEditor/SourceToolbar'
+  ).then((module) => ({ default: module.SourceToolbar })),
+);
+
 const CodePanel = lazy(() =>
   import(/* webpackChunkName: "leafwriter-monaco" */ './panels/code').then((module) => ({
     default: module.CodePanel,
@@ -358,6 +366,15 @@ const App = ({ document, settings, user }: LeafWriterOptions) => {
           {editorToobarContainer &&
             editorViewMode === 'visual' &&
             createPortal(<EditorToolbar />, editorToobarContainer)}
+          {editorToobarContainer &&
+            !isReadonly &&
+            editorViewMode === 'source' &&
+            createPortal(
+              <Suspense fallback={null}>
+                <SourceToolbar />
+              </Suspense>,
+              editorToobarContainer,
+            )}
           {sourceEditorPaneContainer &&
             !isReadonly &&
             (editorViewMode === 'source' || sourceEditorHasMounted) &&

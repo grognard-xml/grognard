@@ -280,6 +280,21 @@
     "view_mode_visual": "Visuel",
     "zoom_in": "Zoomer",
     "zoom_out": "Dézoomer",
+    "sourceToolbar": {
+      "pretty_print": "Mettre en forme",
+      "pretty_print_tooltip": "Ré-indenter le XML (Maj+Alt+F). Le texte et le contenu mixte ne sont jamais modifiés.",
+      "pretty_print_done": "XML ré-indenté. Annuler avec Cmd/Ctrl+Z.",
+      "pretty_print_unchanged": "Le XML est déjà indenté.",
+      "pretty_print_malformed": "Mise en forme impossible : le XML n'est pas bien formé.",
+      "collapse_all": "Tout replier",
+      "collapse_all_tooltip": "Replier toutes les régions (Cmd/Ctrl+Alt+0)",
+      "expand_all": "Tout déplier",
+      "expand_all_tooltip": "Déplier toutes les régions (Cmd/Ctrl+Alt+9)",
+      "collapse_menu": "Replier…",
+      "collapse_paragraphs": "Paragraphes",
+      "collapse_divisions": "Divisions",
+      "collapse_header": "En-tête TEI"
+    },
     "editorToolbar": {
       "Add Tag": "Ajouter une balise",
       "Add Translation": "Ajouter une traduction",

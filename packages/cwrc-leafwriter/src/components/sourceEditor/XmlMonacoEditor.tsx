@@ -11,9 +11,11 @@ import {
   registerSourceFindEditor,
 } from '../../sourceEditor/findInSourceEditor';
 import { SOURCE_CURSOR_MOVED_EVENT, type SourceCursorMovedDetail } from '../editorLocationBar';
+import { registerSourceEditorForCommands } from '../../sourceEditor/sourceEditorCommands';
 import { registerClosingTagAutoInsert } from './closingTagAutoInsert';
 import { registerClosingTagCompletion } from './closingTagCompletion';
 import { findEnclosingTagPair, getUnwrapEdits } from './closingTagParser';
+import { registerXmlFormatting } from './xmlFormatting';
 import { registerLinkedTagEditing } from './linkedTagEditing';
 import { registerPairedTagUnwrap } from './pairedTagUnwrap';
 import { useXmlLanguageClient } from './useXmlLanguageClient';
@@ -194,6 +196,7 @@ export const XmlMonacoEditor = ({
     const closingTagDisposable = registerClosingTagCompletion();
     const linkedTagDisposable = registerLinkedTagEditing();
     const foldingDisposable = registerXmlFolding();
+    const formattingDisposable = registerXmlFormatting();
 
     const monacoEditor = monaco.editor.create(divEl.current, {
       automaticLayout: true,
@@ -392,6 +395,7 @@ export const XmlMonacoEditor = ({
     });
 
     registerSourceFindEditor(monacoEditor);
+    registerSourceEditorForCommands(monacoEditor);
     const pairedTagUnwrapDisposable = registerPairedTagUnwrap(monacoEditor);
     const closingTagAutoInsertDisposable = registerClosingTagAutoInsert(monacoEditor);
     const foldingFeaturesDisposable = registerXmlFoldingFeatures(monacoEditor);
@@ -415,6 +419,7 @@ export const XmlMonacoEditor = ({
       closingTagDisposable.dispose();
       linkedTagDisposable.dispose();
       foldingDisposable.dispose();
+      formattingDisposable.dispose();
       foldingFeaturesDisposable.dispose();
       pairedTagUnwrapDisposable.dispose();
       closingTagAutoInsertDisposable.dispose();
@@ -423,6 +428,7 @@ export const XmlMonacoEditor = ({
         delete window.__leafWriterSourceZoom;
       }
       registerSourceFindEditor(null);
+      registerSourceEditorForCommands(null);
       onEditorInstanceRef.current?.(null);
       monacoEditor.dispose();
       setEditor(null);

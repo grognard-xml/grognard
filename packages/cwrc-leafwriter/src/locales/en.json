@@ -900,6 +900,21 @@
     "view_mode_visual_locked_hint": "This document has too many page and line breaks (<pb/>, <lb/>) for the visual editor — typical for BDRC imports. Continue in Source mode.",
     "zoom_in": "Zoom in",
     "zoom_out": "Zoom out",
+    "sourceToolbar": {
+      "pretty_print": "Pretty-print",
+      "pretty_print_tooltip": "Re-indent the XML (Shift+Alt+F). Text and mixed content are never changed.",
+      "pretty_print_done": "XML re-indented. Undo with Cmd/Ctrl+Z.",
+      "pretty_print_unchanged": "The XML is already indented.",
+      "pretty_print_malformed": "Cannot pretty-print: the XML is not well-formed.",
+      "collapse_all": "Collapse all",
+      "collapse_all_tooltip": "Collapse every region (Cmd/Ctrl+Alt+0)",
+      "expand_all": "Expand all",
+      "expand_all_tooltip": "Expand every region (Cmd/Ctrl+Alt+9)",
+      "collapse_menu": "Collapse…",
+      "collapse_paragraphs": "Paragraphs",
+      "collapse_divisions": "Divisions",
+      "collapse_header": "TEI header"
+    },
     "editorToolbar": {
       "Add Tag": "Add Tag",
       "Add Translation": "Add Translation",
