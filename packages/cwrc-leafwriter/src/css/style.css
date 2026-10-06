@@ -84,3 +84,11 @@ h3 {
 .monaco-editor-error-line {
   background-color: rgba(255, 0, 0, 0.2);
 }
+
+/* Summary shown after a collapsed region in the source editor. */
+.xml-fold-label {
+  color: #8a8a8a;
+  font-style: italic;
+  pointer-events: none;
+  user-select: none;
+}

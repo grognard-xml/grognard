@@ -17,6 +17,12 @@ import { findEnclosingTagPair, getUnwrapEdits } from './closingTagParser';
 import { registerLinkedTagEditing } from './linkedTagEditing';
 import { registerPairedTagUnwrap } from './pairedTagUnwrap';
 import { useXmlLanguageClient } from './useXmlLanguageClient';
+import {
+  registerFoldPersistence,
+  registerXmlFolding,
+  registerXmlFoldingFeatures,
+  restoreFolds,
+} from './xmlFolding';
 import type { LspStartOptions } from './lsp/ipcLspClient';
 import { isTibetanLanguageCode } from '../../utilities/languageCodes';
 import { TIBETAN_EDITOR_FONT_FAMILY } from '../../utilities/tibetanEditorFonts';
@@ -158,6 +164,10 @@ export const XmlMonacoEditor = ({
   const onChangeRef = useRef(onChange);
   const onEditorInstanceRef = useRef(onEditorInstance);
   const lastEditorValueRef = useRef(value);
+  // Document whose saved folds have been applied; fold changes are only saved
+  // for it (see registerFoldPersistence).
+  const foldsRestoredForRef = useRef<string | null>(null);
+  const foldsRestoringRef = useRef<string | null>(null);
   const [editor, setEditor] = useState<monaco.editor.IStandaloneCodeEditor | null>(null);
   const [tibetanFont, setTibetanFont] = useState(false);
   const [decorations, setDecorations] = useState<
@@ -183,6 +193,7 @@ export const XmlMonacoEditor = ({
 
     const closingTagDisposable = registerClosingTagCompletion();
     const linkedTagDisposable = registerLinkedTagEditing();
+    const foldingDisposable = registerXmlFolding();
 
     const monacoEditor = monaco.editor.create(divEl.current, {
       automaticLayout: true,
@@ -203,6 +214,8 @@ export const XmlMonacoEditor = ({
       // editor viewport to be scrolled past the document.
       scrollBeyondLastLine: false,
       padding: { bottom: 32 },
+      folding: true,
+      showFoldingControls: 'always',
       // Sticky scroll pins the enclosing <text>/<body>/<div> lines and, with
       // word wrap on deeply nested TEI, can size its widget to hundreds of
       // pixels of blank space over the text.
@@ -381,6 +394,7 @@ export const XmlMonacoEditor = ({
     registerSourceFindEditor(monacoEditor);
     const pairedTagUnwrapDisposable = registerPairedTagUnwrap(monacoEditor);
     const closingTagAutoInsertDisposable = registerClosingTagAutoInsert(monacoEditor);
+    const foldingFeaturesDisposable = registerXmlFoldingFeatures(monacoEditor);
     lastEditorValueRef.current = value;
     const model = monacoEditor.getModel();
     if (model) {
@@ -400,6 +414,8 @@ export const XmlMonacoEditor = ({
       if (layoutFrame !== null) window.cancelAnimationFrame(layoutFrame);
       closingTagDisposable.dispose();
       linkedTagDisposable.dispose();
+      foldingDisposable.dispose();
+      foldingFeaturesDisposable.dispose();
       pairedTagUnwrapDisposable.dispose();
       closingTagAutoInsertDisposable.dispose();
       unsubscribeFontZoom();
@@ -451,6 +467,28 @@ export const XmlMonacoEditor = ({
     }
     lastEditorValueRef.current = value;
   }, [editor, value]);
+
+  // Restore this document's collapsed regions (or fold its teiHeader the first
+  // time). Retried on content sync: the new document's text can arrive after its
+  // path, and a document with nothing foldable yet is not done.
+  useEffect(() => {
+    if (!editor || !value) return;
+    const key = documentPath ?? '';
+    if (foldsRestoredForRef.current === key || foldsRestoringRef.current === key) return;
+    foldsRestoringRef.current = key;
+    void restoreFolds(editor, key).then((done) => {
+      if (foldsRestoringRef.current === key) foldsRestoringRef.current = null;
+      if (done) foldsRestoredForRef.current = key;
+    });
+  }, [editor, documentPath, value]);
+
+  useEffect(() => {
+    if (!editor) return;
+    const persistence = registerFoldPersistence(editor, () =>
+      foldsRestoredForRef.current === (documentPath ?? '') ? (documentPath ?? '') : null,
+    );
+    return () => persistence.dispose();
+  }, [editor, documentPath]);
 
   useEffect(() => {
     if (!editor) return;

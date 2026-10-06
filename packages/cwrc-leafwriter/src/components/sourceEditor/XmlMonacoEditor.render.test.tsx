@@ -72,6 +72,7 @@ jest.mock(
     }),
     languages: {
       registerCompletionItemProvider: jest.fn(() => ({ dispose: jest.fn() })),
+      registerFoldingRangeProvider: jest.fn(() => ({ dispose: jest.fn() })),
       registerLinkedEditingRangeProvider: jest.fn(() => ({ dispose: jest.fn() })),
       registerDocumentFormattingEditProvider: jest.fn(() => ({ dispose: jest.fn() })),
       setLanguageConfiguration: jest.fn(() => ({ dispose: jest.fn() })),
