@@ -203,6 +203,10 @@ export const XmlMonacoEditor = ({
       // editor viewport to be scrolled past the document.
       scrollBeyondLastLine: false,
       padding: { bottom: 32 },
+      // Sticky scroll pins the enclosing <text>/<body>/<div> lines and, with
+      // word wrap on deeply nested TEI, can size its widget to hundreds of
+      // pixels of blank space over the text.
+      stickyScroll: { enabled: false },
     });
 
     // Monaco can be created while the Source pane is still hidden. Its
