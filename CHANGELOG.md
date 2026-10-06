@@ -810,6 +810,8 @@ Paste/drop a character image now works in the translation pane and its footnotes
 - Added a power-save blocker (`prevent-app-suspension`, ref-counted across every long AI run — fill-gaps, auto-tagging, translation, disambiguation review, not just Kanripo import) for the duration of any AI run. A separate, harder-to-pin-down crash turned up in the same area after a system sleep during an unattended long-running fill-gaps pass: Chromium suspends the renderer's timers and network activity during sleep, and TinyMCE's undo-manager internals aren't robust to resuming cleanly afterward — a known, still-open class of upstream bug, not something fixable from Grognard's side. Keeping the system from sleeping for the run's duration (the display can still turn off) sidesteps the trigger.
 - The import dialog gave no clear "finished" signal beyond a per-juan coverage bar sitting at its final value, easy to mistake for a hang on a long batch. Once a batch import finishes with no failures, the dialog's primary button now reads **Close** instead of **Import**.
 
+### 0.1.1-beta.5
+
 ### Plugin Python calls could fail right after opening a project
 
 - Fixed `Plugin kanripo-import has no manifest.entry.python.module` when running **AI punctuate** (or any other plugin Python call) shortly after opening a project. Opening a project clears the cached plugin list, and nothing guaranteed it was rebuilt before the first Python call, so the plugin looked uninstalled. `runPluginPythonCli` now reloads the plugin list when the cache is empty.
