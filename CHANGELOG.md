@@ -904,3 +904,9 @@ Paste/drop a character image now works in the translation pane and its footnotes
 - New commands in the editor's right-click menu: **Fold All Paragraphs**, **Fold All Divisions** and **Fold TEI Header**. Monaco's own shortcuts keep working (Cmd+K Cmd+0 folds everything, Cmd+K Cmd+J unfolds everything, Cmd+K Cmd+1 … fold to a level).
 - The TEI header is folded the first time a document opens. After that, each document remembers which regions you collapsed, across restarts (restored only where a region of the same name still starts on the same line).
 - Single-line elements cannot fold, so each `<cit>` on one line stays open.
+
+### Source editor: toolbar, fold shortcuts and pretty-print
+
+- Source view now has a toolbar (it was blank): **Pretty-print**, **Collapse all** (with a dropdown to collapse only paragraphs, divisions or the TEI header) and **Expand all**.
+- **Pretty-print** (also Shift+Alt+F, or Format Document in the right-click menu) re-indents the document as one undoable edit. It is deliberately conservative, because whitespace matters in mixed content: elements that contain text are copied exactly as written, and line breaks are only added between the children of elements the schema says cannot hold text (`div`, `cit`, `teiHeader`…). Where the schema is unknown it only re-indents lines that are already broken. It refuses, with a message, when the XML is not well-formed.
+- Fold shortcuts follow VS Code. Already built in: Cmd/Ctrl+Alt+[ and ] fold and unfold the region at the cursor (Ctrl+Shift+[ and ] on Windows), and the Cmd+K Cmd+0 / Cmd+K Cmd+J chords. New: Cmd/Ctrl+Alt+0 folds everything and Cmd/Ctrl+Alt+9 unfolds everything.
