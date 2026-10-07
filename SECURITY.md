@@ -44,8 +44,20 @@ release assets:
 
 ### Windows
 
-Windows builds are currently unsigned; SmartScreen will warn on install.
-Signed MSIX packages distributed through the Microsoft Store are planned.
+Starting with v0.1.1-beta.5, the Windows installers (`Grognard-win-Setup-*.exe`)
+are Authenticode-signed with SHA-256 and carry an RFC 3161 timestamp from
+Certum. The publisher shown by Windows is the signing certificate's subject,
+"Open Source Developer Daniel Patrick Morgan". Check the signature in the
+file's Properties → Digital Signatures tab, or on Windows with
+`Get-AuthenticodeSignature <file>`.
+
+The signing happens after the CI build, on the maintainer's machine, so the
+build provenance attestation (above) for these `.exe` files covers the
+unsigned CI build rather than the signed file you download. The `SHA256SUMS`
+digests match the signed files. Earlier releases are unsigned. This is an
+individual-validation certificate, so SmartScreen may still warn until the
+publisher builds reputation. Signed MSIX packages distributed through the
+Microsoft Store are planned.
 
 ## Signing keys
 

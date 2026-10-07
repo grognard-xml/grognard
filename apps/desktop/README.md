@@ -164,7 +164,7 @@ runtime (see above) before electron-builder assembles the installer.
 ### Notes
 
 - **Host platform:** `npm run package` builds the mac `.pkg` installer. Use `npm run package:linux` for the Linux `.deb`, `npm run package:win` for the Windows NSIS installer, or `npm run package:mac` to be explicit.
-- **No code signing:** Unsigned builds may require right-click → Open on first launch.
+- **Code signing:** Local mac builds are unsigned and may require right-click → Open on first launch. Windows installers are not signed by the build; release installers are Authenticode-signed afterwards by the maintainer (see `SECURITY.md`).
 - If the build fails with `unable to locate '...leafwriter-validator.worker.js'`, build the validator package first: `npm run build -w @cwrc/leafwriter-validator`.
 - The bundled LemMinX XML language server is currently downloaded for macOS only; Linux builds skip it, and the mac packaging hook will refuse to continue if it cannot stage the expected binary.
 - The packaged app starts a local Express server and loads the `/project` route.
