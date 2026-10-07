@@ -118,6 +118,13 @@ export interface MistralClientOptions {
   structuredOutput?: 'json_schema' | 'json_object' | 'prompt_only';
   /** Retries on HTTP 429 (rate limit), each waiting 30-60s. Defaults to 6. */
   maxRateLimitRetries?: number;
+  /**
+   * Retries on transient failures: network errors (connection reset, network
+   * changed, DNS) and HTTP 5xx. Exponential backoff. Defaults to 4.
+   */
+  maxTransientRetries?: number;
+  /** Base delay for transient-failure backoff (doubles per attempt). Defaults to 2000ms. */
+  transientRetryBaseDelayMs?: number;
 }
 
 function extractJsonContent(text: string): string {
@@ -164,6 +171,16 @@ export function rateLimitDelayMs(suggestedMs: number | null, attempt: number): n
   return Math.min(Math.max(suggestedMs, floorForAttempt), MAX_RATE_LIMIT_DELAY_MS);
 }
 
+const DEFAULT_TRANSIENT_RETRY_BASE_MS = 2_000;
+const MAX_TRANSIENT_DELAY_MS = 30_000;
+
+/** 5xx only: 4xx (other than 429, handled separately) will not succeed on resend. */
+const isTransientStatus = (status: number): boolean => status >= 500 && status <= 599;
+
+export function transientDelayMs(baseMs: number, attempt: number): number {
+  return Math.min(baseMs * 2 ** attempt, MAX_TRANSIENT_DELAY_MS);
+}
+
 /** Sleep that wakes up (and rejects) immediately when the signal aborts. */
 const sleep = (ms: number, signal?: AbortSignal): Promise<void> =>
   new Promise((resolve, reject) => {
@@ -192,6 +209,8 @@ export class MistralLlmClient implements LlmClient {
   private readonly structuredOutput: 'json_schema' | 'json_object' | 'prompt_only';
   private readonly isGroq: boolean;
   private readonly maxRateLimitRetries: number;
+  private readonly maxTransientRetries: number;
+  private readonly transientRetryBaseDelayMs: number;
 
   constructor(options: MistralClientOptions) {
     this.modelId = `mistral:${options.model}`;
@@ -202,6 +221,9 @@ export class MistralLlmClient implements LlmClient {
     this.structuredOutput =
       options.structuredOutput ?? (this.isGroq ? 'prompt_only' : 'json_schema');
     this.maxRateLimitRetries = options.maxRateLimitRetries ?? 6;
+    this.maxTransientRetries = options.maxTransientRetries ?? 4;
+    this.transientRetryBaseDelayMs =
+      options.transientRetryBaseDelayMs ?? DEFAULT_TRANSIENT_RETRY_BASE_MS;
   }
 
   private groqExtras(): Record<string, unknown> {
@@ -224,7 +246,47 @@ export class MistralLlmClient implements LlmClient {
     };
   }
 
+  /**
+   * One logical POST, resent on transient failures: a thrown fetch (connection
+   * reset, ERR_NETWORK_CHANGED after a Wi-Fi roam or wake from sleep, DNS) or a
+   * 5xx response. Aborts are never retried. After the final attempt a network
+   * error is rethrown with context and a 5xx is returned for the caller to report.
+   */
   private async postCompletion(
+    request: LlmRequest,
+    mode: 'json_schema' | 'json_object' | 'prompt_only' | 'plain_text',
+  ): Promise<{ ok: boolean; status: number; text: string }> {
+    for (let attempt = 0; ; attempt++) {
+      const canRetry = attempt < this.maxTransientRetries;
+      let result: { ok: boolean; status: number; text: string };
+      try {
+        result = await this.postCompletionOnce(request, mode);
+      } catch (error) {
+        if (
+          request.signal?.aborted ||
+          (error instanceof DOMException && error.name === 'AbortError')
+        ) {
+          throw error;
+        }
+        if (!canRetry) {
+          const detail = error instanceof Error ? error.message : String(error);
+          throw new Error(
+            `Network error reaching the AI endpoint after ${attempt + 1} attempts: ${detail}`,
+            { cause: error },
+          );
+        }
+        await sleep(transientDelayMs(this.transientRetryBaseDelayMs, attempt), request.signal);
+        continue;
+      }
+      if (isTransientStatus(result.status) && canRetry) {
+        await sleep(transientDelayMs(this.transientRetryBaseDelayMs, attempt), request.signal);
+        continue;
+      }
+      return result;
+    }
+  }
+
+  private async postCompletionOnce(
     request: LlmRequest,
     mode: 'json_schema' | 'json_object' | 'prompt_only' | 'plain_text',
   ): Promise<{ ok: boolean; status: number; text: string }> {

@@ -69,7 +69,7 @@ import {
   isAiSuggestReady,
   aiApiSettingsFromDesktop,
 } from '../../autoTagging/llmClientFromSettings';
-import { fetchPunctCoverage } from '../../aiPunctuation/pluginBridge';
+import { fetchPunctCoverage, finalizeKanripoBody } from '../../aiPunctuation/pluginBridge';
 import { matchJuanDiv } from '../../aiPunctuation/selectionScope';
 import {
   runAiFillGapsEditorCommand,
@@ -838,6 +838,12 @@ export const KanripoImportDialog = ({
     const bars: { stem: string; coverage: Coverage; outputPath: string }[] = [];
     const warnings: { stem: string; items: ParallelQualityWarning[] }[] = [];
 
+    // A system sleep mid-run drops in-flight LLM requests (ERR_NETWORK_IO_SUSPENDED /
+    // ERR_NETWORK_CHANGED) and fails every juan still pending, so keep the machine
+    // awake for the whole AI import. Ref-counted in main; no-op outside the desktop app.
+    const holdAwake = punctMode === 'ai';
+    if (holdAwake) void window.electronAPI?.startAiRunPowerSaveBlocker?.();
+
     try {
       let files: string[] = [];
       if (importScope === 'juan') {
@@ -1029,6 +1035,8 @@ export const KanripoImportDialog = ({
               });
             }
           }
+          // Deterministic clean-up after whichever punctuation mode ran (AI included).
+          bodyXml = await finalizeKanripoBody(bodyXml);
           let xml = wrapKanripoTeiDocument({
             config,
             meta: {
@@ -1126,6 +1134,7 @@ export const KanripoImportDialog = ({
         }
       }
     } finally {
+      if (holdAwake) void window.electronAPI?.stopAiRunPowerSaveBlocker?.();
       importAbortRef.current = null;
       setBusy(false);
     }
@@ -1174,7 +1183,7 @@ export const KanripoImportDialog = ({
       return;
     }
     const filePath = window.__leafWriterProject?.getActiveFilePath?.();
-    let next = replaceJuanDiv(editorPreview.xml, editorPreview.body);
+    let next = replaceJuanDiv(editorPreview.xml, await finalizeKanripoBody(editorPreview.body));
     next = appendTeiRevisionChange(next, formatParallelProvenance(sources, alignMode));
     if (!xmlLooksWellFormed(next)) {
       setError('Resulting XML is not well-formed.');
@@ -1806,7 +1815,11 @@ export const KanripoImportDialog = ({
               {punctMode === 'ai' && (
                 <Alert severity={aiReady ? 'info' : 'warning'} sx={{ mt: 1 }}>
                   {aiReady ? (
-                    'Select a work above.'
+                    selected ? (
+                      'Each juan will be punctuated by the AI model after it is fetched.'
+                    ) : (
+                      'Select a work above.'
+                    )
                   ) : (
                     <>
                       Configure your AI API in <strong>App Settings</strong> first.

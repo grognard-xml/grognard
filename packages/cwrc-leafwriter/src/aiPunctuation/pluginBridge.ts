@@ -2,7 +2,8 @@ const PLUGIN_ID = 'kanripo-import';
 
 export interface AiPunctSegment {
   id: number;
-  kind: 'text' | 'comm';
+  /** `head`: title block, section heading or colophon — never punctuated by the model. */
+  kind: 'text' | 'comm' | 'head';
   han: string;
   text: string;
   han_start: number;
@@ -93,6 +94,24 @@ export async function applyAiParallelPunct(
     segment_parallels: segmentParallels,
     reflow: options?.reflow !== false,
   });
+}
+
+/**
+ * Deterministic last step for a juan body: no paragraph break before inline commentary, every
+ * note ends in a terminal mark, headings carry no trailing punctuation. Must run after the AI
+ * step (a note that already ends in 。 would read as punctuated). An older plugin without the op
+ * leaves the body unchanged.
+ */
+export async function finalizeKanripoBody(bodyXml: string): Promise<string> {
+  try {
+    const result = await invokePython<{ body_xml?: string }>({
+      op: 'finalize_body',
+      body_xml: bodyXml,
+    });
+    return typeof result?.body_xml === 'string' && result.body_xml ? result.body_xml : bodyXml;
+  } catch {
+    return bodyXml;
+  }
 }
 
 export async function purgePunctuation(

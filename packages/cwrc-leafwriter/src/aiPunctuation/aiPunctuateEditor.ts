@@ -10,7 +10,12 @@ import {
   aiApiSettingsFromDesktop,
 } from '../autoTagging/llmClientFromSettings';
 import { formatAiProvenance } from './formatAiProvenance';
-import { listAiPunctSegments, purgePunctuation, reflowParagraphs } from './pluginBridge';
+import {
+  finalizeKanripoBody,
+  listAiPunctSegments,
+  purgePunctuation,
+  reflowParagraphs,
+} from './pluginBridge';
 import { runAiPunctuate } from './runAiPunctuate';
 import {
   extractJuanDiv,
@@ -211,7 +216,7 @@ export async function runAiPunctuateEditorCommand(options?: {
     };
   }
 
-  let next = replaceJuanDiv(xml, result.body_xml);
+  let next = replaceJuanDiv(xml, await finalizeKanripoBody(result.body_xml));
   next = appendTeiRevisionChange(
     next,
     formatAiProvenance({
@@ -286,7 +291,7 @@ async function fillGapsInKanripoXml(
     };
   }
 
-  let next = replaceJuanDiv(xml, result.body_xml);
+  let next = replaceJuanDiv(xml, await finalizeKanripoBody(result.body_xml));
   next = appendTeiRevisionChange(
     next,
     formatAiProvenance({

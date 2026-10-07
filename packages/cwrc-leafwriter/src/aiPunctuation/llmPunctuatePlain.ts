@@ -1,5 +1,16 @@
 import type { LlmClient } from '../autoTagging/llmClient';
-import { buildPlainPunctPrompt, stripPlainPunctResponse, type PunctPromptSegment } from './prompts';
+import {
+  buildPlainPunctPrompt,
+  buildRunPunctPrompt,
+  stripPlainPunctResponse,
+  type PunctPromptSegment,
+} from './prompts';
+import {
+  chunkRunFragments,
+  contentLength,
+  splitPunctuatedRun,
+  type PunctFragment,
+} from './punctRuns';
 import { PLAIN_CHUNK_HAN } from './punctSchema';
 import { cpLength } from './selectionScope';
 
@@ -62,4 +73,67 @@ export async function llmPunctuatePlainSegment(
     parts.push(stripPlainPunctResponse(response.json));
   }
   return { plainText: parts.join('') };
+}
+
+const PRECEDING_CONTEXT_HAN = 40;
+
+export interface LlmPunctuatePlainRunResult {
+  /** One punctuated string per input fragment; null when the model gave nothing usable for it. */
+  texts: (string | null)[];
+  /** Chunks whose output kept failing the character-count check and were left unpunctuated. */
+  failedChunks: number;
+}
+
+/**
+ * Punctuate a base-text run: fragments are joined across the notes that separate them, sent in
+ * chunks that never split a fragment, and the output is split back onto the fragments.
+ *
+ * Each chunk's output must contain exactly as many content characters as went in, otherwise the
+ * split would shift every later fragment. A miscount is retried once; a chunk that still fails is
+ * left unpunctuated (its fragments get null) so one bad answer cannot corrupt the rest of the run.
+ */
+export async function llmPunctuatePlainRun(
+  fragments: PunctFragment[],
+  client: LlmClient,
+  signal?: AbortSignal,
+  onCall?: () => void,
+): Promise<LlmPunctuatePlainRunResult> {
+  const texts: (string | null)[] = [];
+  let failedChunks = 0;
+  let precedingText = '';
+
+  for (const chunk of chunkRunFragments(fragments)) {
+    signal?.throwIfAborted();
+    const lengths = chunk.map((fragment) => contentLength(fragment.han));
+    const prompt = buildRunPunctPrompt({
+      han: chunk.map((fragment) => fragment.han).join(''),
+      preceding_text: precedingText || undefined,
+      notes: chunk.flatMap((fragment) =>
+        fragment.notes_after
+          ? [{ after: Array.from(fragment.han).slice(-6).join(''), note: fragment.notes_after }]
+          : [],
+      ),
+    });
+
+    let parts: string[] | null = null;
+    for (let attempt = 0; attempt < 2 && !parts; attempt++) {
+      signal?.throwIfAborted();
+      const response = await client.complete({ ...prompt, signal });
+      const punctuated = stripPlainPunctResponse(response.json);
+      if (contentLength(punctuated) === lengths.reduce((a, b) => a + b, 0)) {
+        parts = splitPunctuatedRun(punctuated, lengths);
+      }
+    }
+    onCall?.();
+
+    if (parts) {
+      texts.push(...parts);
+      precedingText = Array.from(parts.join('')).slice(-PRECEDING_CONTEXT_HAN).join('');
+    } else {
+      failedChunks += 1;
+      texts.push(...chunk.map(() => null));
+      precedingText = '';
+    }
+  }
+  return { texts, failedChunks };
 }

@@ -1,7 +1,8 @@
 import type { KanripoNormalizeMode } from '../../../../apps/commons/src/desktop/kanripoImportXml';
 import type { LlmClient } from '../autoTagging/llmClient';
 import { emptyAiPunctStats, mergeAiPunctStats, type AiPunctApplyStats } from './formatAiProvenance';
-import { llmPunctuatePlainSegment } from './llmPunctuatePlain';
+import { llmPunctuatePlainRun, llmPunctuatePlainSegment } from './llmPunctuatePlain';
+import { buildPunctUnits, chunkRunFragments } from './punctRuns';
 import { applyAiParallelPunct, listAiPunctSegments, type AiPunctSegment } from './pluginBridge';
 import { segmentNeedsAiGap, selectTargetsForAi, type HanRange } from './selectionScope';
 
@@ -49,34 +50,69 @@ export async function runAiPunctuate(
   let stats = emptyAiPunctStats(segments.length);
   stats = mergeAiPunctStats(stats, { skipped_punctuated: skipped });
 
-  if (!targets.length) {
+  const units = buildPunctUnits(segments, targets);
+  if (!units.length) {
     return { body_xml: xml, stats, applied: false, targets_considered: 0, llm_segments: 0 };
   }
 
   const segmentParallels: { parallel_text: string; han_start: number; han_end: number }[] = [];
+  // Progress counts model calls: a base-text run is several chunks, a note is one.
+  const total = units.reduce(
+    (sum, unit) => sum + (unit.kind === 'text' ? chunkRunFragments(unit.fragments).length : 1),
+    0,
+  );
   let done = 0;
-  const total = targets.length;
-
-  for (const seg of targets) {
-    options.signal?.throwIfAborted();
-    const { plainText } = await llmPunctuatePlainSegment(
-      {
-        kind: seg.kind,
-        han: seg.han,
-        han_start: seg.han_start,
-        preceding_comm: seg.preceding_comm,
-        following_comm: seg.following_comm,
-      },
-      options.client,
-      options.signal,
-    );
-    segmentParallels.push({
-      parallel_text: plainText,
-      han_start: seg.han_start,
-      han_end: seg.han_end,
-    });
+  const tick = () => {
     done += 1;
     options.onProgress?.(done, total);
+  };
+  let failedChunks = 0;
+
+  for (const unit of units) {
+    options.signal?.throwIfAborted();
+    if (unit.kind === 'comm') {
+      const seg = unit.segment;
+      const { plainText } = await llmPunctuatePlainSegment(
+        {
+          kind: 'comm',
+          han: seg.han,
+          han_start: seg.han_start,
+          preceding_comm: seg.preceding_comm,
+          following_comm: seg.following_comm,
+        },
+        options.client,
+        options.signal,
+      );
+      segmentParallels.push({
+        parallel_text: plainText,
+        han_start: seg.han_start,
+        han_end: seg.han_end,
+      });
+      tick();
+      continue;
+    }
+    const run = await llmPunctuatePlainRun(unit.fragments, options.client, options.signal, tick);
+    failedChunks += run.failedChunks;
+    unit.fragments.forEach((fragment, index) => {
+      const text = run.texts[index];
+      if (!text) return;
+      segmentParallels.push({
+        parallel_text: text,
+        han_start: fragment.han_start,
+        han_end: fragment.han_end,
+      });
+    });
+  }
+
+  if (!segmentParallels.length) {
+    stats = mergeAiPunctStats(stats, { align_failed: failedChunks });
+    return {
+      body_xml: xml,
+      stats,
+      applied: false,
+      targets_considered: targets.length,
+      llm_segments: 0,
+    };
   }
 
   let applied = await applyAiParallelPunct(xml, segmentParallels, {
@@ -96,7 +132,7 @@ export async function runAiPunctuate(
   stats = mergeAiPunctStats(stats, {
     applied: applied.stats.marks_added,
     segments_applied: applied.stats.segments_applied,
-    align_failed: applied.stats.align_failed,
+    align_failed: applied.stats.align_failed + failedChunks,
     reflowed: applied.stats.reflowed,
   });
 

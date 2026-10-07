@@ -912,3 +912,31 @@ Paste/drop a character image now works in the translation pane and its footnotes
 - Source view now has a toolbar (it was blank): **Pretty-print**, **Collapse all** (with a dropdown to collapse only paragraphs, divisions or the TEI header) and **Expand all**.
 - **Pretty-print** (also Shift+Alt+F, or Format Document in the right-click menu) re-indents the document as one undoable edit. It is deliberately conservative, because whitespace matters in mixed content: elements that contain text are copied exactly as written, and line breaks are only added between the children of elements the schema says cannot hold text (`div`, `cit`, `teiHeader`…). Where the schema is unknown it only re-indents lines that are already broken. It refuses, with a message, when the XML is not well-formed.
 - Fold shortcuts follow VS Code. Already built in: Cmd/Ctrl+Alt+[ and ] fold and unfold the region at the cursor (Ctrl+Shift+[ and ] on Windows), and the Cmd+K Cmd+0 / Cmd+K Cmd+J chords. New: Cmd/Ctrl+Alt+0 folds everything and Cmd/Ctrl+Alt+9 unfolds everything.
+
+## Unreleased
+
+### AI punctuation: base text is punctuated as runs across interlinear notes
+
+- Interlinear notes cut a work's base text into short fragments (`多桂`, `多金玉有草焉其狀如韭`, `而青花其名曰祝餘` …). Segments under 20 Han were skipped, so in a commentary edition about 40% of the base text (and 20% of all segments, counting notes) was never sent to the model: on the 19-juan Shanhaijing import only 52 of 241 segments in juan 1 were punctuated, with `align_failed 0`, so nothing in the provenance line showed the gap.
+- Consecutive base-text fragments with only notes between them are now sent as one passage, in chunks of about 400 Han that never split a fragment, and the result is split back onto the fragments by counting characters (marks go with the earlier fragment; opening brackets with the next). The notes in the passage are passed as context, anchored to the characters they follow, and the model is told never to output them. Each chunk also gets the tail of the previous chunk's output.
+- Every chunk is checked: the output must contain exactly as many content characters as went in. A miscount is retried once; a chunk that still fails is left unpunctuated and counted in `align_failed`, so one bad answer cannot shift the rest of the run.
+- Commentary notes are atomic and still go to the model one by one, with the 20-Han minimum.
+- Fill gaps now also covers short unpunctuated base-text fragments. A run shorter than 20 Han in total is skipped. Headings (`kind: head`) are never targets and always end a run.
+- Progress counts model calls instead of segments. The provenance line now says `ai-punct-v4`.
+
+### AI requests: retry on network errors and server errors
+
+- A request that failed at the network level (connection reset, network changed, suspended I/O after sleep) or with HTTP 5xx was never retried; only 429 was. A laptop sleeping mid-import failed every juan still pending, reported only as "Failed to fetch". These now retry with exponential backoff (2 s, 4 s, 8 s, 16 s; up to four retries), never on abort or on a 4xx other than 429. After the last attempt the error says what happened: "Network error reaching the AI endpoint after 5 attempts: …".
+
+### Kanripo import: the computer stays awake during AI punctuation
+
+- The AI branch of the Kanripo import did not take the sleep blocker that other AI runs hold, so a system sleep dropped in-flight requests. The blocker is now held for the whole run, clone included, and released on success, error or cancel.
+
+### Kanripo import: AI inference hint
+
+- The hint under **AI inference** said "Select a work above." even when a work was selected. It now says so only when nothing is selected.
+
+### Kanripo import: title block, notes and paragraphs (needs the matching plugin)
+
+- The import now asks the plugin for a final clean-up (`finalize_body`) once per juan, after whichever punctuation mode ran, and after the editor's AI punctuate and Fill gaps commands. It runs last on purpose: a note that already ends in 。 would look punctuated to the AI step and be skipped. With an older plugin the call is skipped and the body is left unchanged.
+- The segment list gains a `head` kind (title block, section heading, colophon). These are never sent to the model, never counted as unpunctuated, and never joined to the base text around them.

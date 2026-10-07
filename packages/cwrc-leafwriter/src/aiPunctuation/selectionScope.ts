@@ -60,7 +60,12 @@ export function segmentNeedsAiGap(seg: {
   han: string;
   has_punct: boolean;
   text?: string;
+  kind?: 'text' | 'comm' | 'head';
 }): boolean {
+  if (seg.kind === 'head') return false;
+  // Base-text fragments are punctuated as runs (see punctRuns.ts), so a short unpunctuated one is
+  // a gap however short; the run as a whole is length-checked later. Notes stay atomic.
+  if (seg.kind === 'text' && !seg.has_punct) return true;
   if (cpLength(seg.han) < MIN_SEGMENT_HAN) return false;
   if (!seg.has_punct) return true;
   return punctPer100Han(seg.han, seg.text) < MIN_PUNCT_PER_100_HAN;
@@ -104,23 +109,26 @@ export function chunkHanText(han: string, maxLen = CHUNK_HAN, overlap = CHUNK_OV
   return chunks;
 }
 
-export function filterSegmentsForAi<T extends { han: string; has_punct: boolean; id: number }>(
-  segments: T[],
-  segmentIds?: number[],
-): T[] {
+/**
+ * Base-text fragments (`kind: 'text'`) are exempt from the per-segment minimum length: interlinear
+ * notes cut base text into fragments far shorter than {@link MIN_SEGMENT_HAN}, and they are
+ * punctuated as runs whose total length is checked in `buildPunctUnits`. Notes keep the minimum.
+ */
+export function filterSegmentsForAi<
+  T extends { han: string; has_punct: boolean; id: number; kind?: 'text' | 'comm' | 'head' },
+>(segments: T[], segmentIds?: number[]): T[] {
   const idSet = segmentIds ? new Set(segmentIds) : null;
   return segments.filter((seg) => {
     if (idSet && !idSet.has(seg.id)) return false;
-    if (seg.has_punct) return false;
-    if (cpLength(seg.han) < MIN_SEGMENT_HAN) return false;
+    if (seg.has_punct || seg.kind === 'head') return false;
+    if (seg.kind !== 'text' && cpLength(seg.han) < MIN_SEGMENT_HAN) return false;
     return true;
   });
 }
 
-export function filterSegmentsForAiGaps<T extends { han: string; has_punct: boolean; id: number }>(
-  segments: T[],
-  segmentIds?: number[],
-): T[] {
+export function filterSegmentsForAiGaps<
+  T extends { han: string; has_punct: boolean; id: number; kind?: 'text' | 'comm' | 'head' },
+>(segments: T[], segmentIds?: number[]): T[] {
   const idSet = segmentIds ? new Set(segmentIds) : null;
   return segments.filter((seg) => {
     if (idSet && !idSet.has(seg.id)) return false;
@@ -129,7 +137,14 @@ export function filterSegmentsForAiGaps<T extends { han: string; has_punct: bool
 }
 
 export function selectTargetsForAi<
-  T extends { han: string; has_punct: boolean; id: number; han_start: number; han_end: number },
+  T extends {
+    han: string;
+    has_punct: boolean;
+    id: number;
+    han_start: number;
+    han_end: number;
+    kind?: 'text' | 'comm' | 'head';
+  },
 >(
   segments: T[],
   options?: { segmentIds?: number[]; hanRange?: HanRange; gapsOnly?: boolean },
@@ -139,7 +154,13 @@ export function selectTargetsForAi<
     return segments
       .filter((seg) => !idSet || idSet.has(seg.id))
       .map((seg) => clipSegmentToHanRange(seg, options.hanRange!))
-      .filter((seg): seg is T => Boolean(seg && cpLength(seg.han) >= MIN_SEGMENT_HAN));
+      .filter((seg): seg is T =>
+        Boolean(
+          seg &&
+          seg.kind !== 'head' &&
+          (seg.kind === 'text' || cpLength(seg.han) >= MIN_SEGMENT_HAN),
+        ),
+      );
   }
   if (options?.gapsOnly) {
     return filterSegmentsForAiGaps(segments, options.segmentIds);
