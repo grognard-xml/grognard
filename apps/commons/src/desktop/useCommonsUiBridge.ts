@@ -239,6 +239,8 @@ export const useCommonsUiBridge = () => {
           streamResults: true,
           placeholderRetryLimit: 1,
           alwaysOn: false,
+          concurrency: 0,
+          reasoningEffort: '',
           verifiedAt: null,
           verifiedBaseUrl: '',
           verifiedModel: '',

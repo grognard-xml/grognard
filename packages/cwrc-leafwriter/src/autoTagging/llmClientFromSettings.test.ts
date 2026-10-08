@@ -1,5 +1,6 @@
 import {
   createLlmClientFromSettings,
+  effectiveAiConcurrency,
   isAiSuggestReady,
   isLocalAiBaseUrl,
   normalizeLlmChatBaseUrl,
@@ -74,5 +75,32 @@ describe('llmClientFromSettings', () => {
       model: 'ministral-3:latest',
     });
     expect(client.modelId).toBe('ollama:ministral-3:latest');
+  });
+});
+
+describe('effectiveAiConcurrency', () => {
+  const hosted = { apiKey: 'k', baseUrl: 'https://api.openai.com/v1', model: 'm' };
+
+  it('uses the configured value, capped at 16', () => {
+    expect(effectiveAiConcurrency({ ...hosted, concurrency: 3 })).toBe(3);
+    expect(effectiveAiConcurrency({ ...hosted, concurrency: 40 })).toBe(16);
+    expect(effectiveAiConcurrency({ ...hosted, concurrency: 2.8 })).toBe(2);
+  });
+
+  it('defaults to 6 for a hosted API when automatic', () => {
+    expect(effectiveAiConcurrency(hosted)).toBe(6);
+    expect(effectiveAiConcurrency({ ...hosted, concurrency: 0 })).toBe(6);
+  });
+
+  it('defaults to 1 for a local server or Ollama, and when there are no settings', () => {
+    expect(effectiveAiConcurrency({ ...hosted, baseUrl: 'http://localhost:1234/v1' })).toBe(1);
+    expect(effectiveAiConcurrency({ ...hosted, baseUrl: 'http://192.168.1.5:11434' })).toBe(1);
+    expect(effectiveAiConcurrency(null)).toBe(1);
+  });
+
+  it('still honours an explicit value for a local server', () => {
+    expect(
+      effectiveAiConcurrency({ ...hosted, baseUrl: 'http://localhost:1234/v1', concurrency: 4 }),
+    ).toBe(4);
   });
 });

@@ -12,6 +12,7 @@ import {
   type PunctFragment,
 } from './punctRuns';
 import { PLAIN_CHUNK_HAN } from './punctSchema';
+import { runPool } from './taskPool';
 import { cpLength } from './selectionScope';
 
 export interface LlmPunctuatePlainSegmentInput extends PunctPromptSegment {
@@ -75,7 +76,67 @@ export async function llmPunctuatePlainSegment(
   return { plainText: parts.join('') };
 }
 
-const PRECEDING_CONTEXT_HAN = 40;
+const NEIGHBOUR_CONTEXT_HAN = 40;
+
+/** One model call for part of a base-text run, ready to send. */
+export interface RunChunkTask {
+  fragments: PunctFragment[];
+  /** Content length of each fragment, for splitting the answer back. */
+  lengths: number[];
+  system: string;
+  user: string;
+}
+
+/**
+ * Cut a base-text run into model calls that never split a fragment. The calls are independent:
+ * each carries the raw (unpunctuated) Han just before and after it as context, not the previous
+ * call's answer, so they can all run at once.
+ */
+export function planRunChunks(fragments: PunctFragment[]): RunChunkTask[] {
+  const chunks = chunkRunFragments(fragments);
+  const hanOf = (chunk: PunctFragment[]) => chunk.map((fragment) => fragment.han).join('');
+  return chunks.map((chunk, index) => {
+    const before = index > 0 ? Array.from(hanOf(chunks[index - 1]!)) : [];
+    const after = index < chunks.length - 1 ? Array.from(hanOf(chunks[index + 1]!)) : [];
+    const prompt = buildRunPunctPrompt({
+      han: hanOf(chunk),
+      preceding_text: before.slice(-NEIGHBOUR_CONTEXT_HAN).join('') || undefined,
+      following_text: after.slice(0, NEIGHBOUR_CONTEXT_HAN).join('') || undefined,
+      notes: chunk.flatMap((fragment) =>
+        fragment.notes_after
+          ? [{ after: Array.from(fragment.han).slice(-6).join(''), note: fragment.notes_after }]
+          : [],
+      ),
+    });
+    return {
+      fragments: chunk,
+      lengths: chunk.map((fragment) => contentLength(fragment.han)),
+      ...prompt,
+    };
+  });
+}
+
+/**
+ * Punctuate one chunk and split the answer back onto its fragments. The answer must contain
+ * exactly as many content characters as went in, otherwise the split would shift every later
+ * fragment; a miscount is retried once, then the chunk is given up (null) and left unpunctuated.
+ */
+export async function punctuateRunChunk(
+  task: RunChunkTask,
+  client: LlmClient,
+  signal?: AbortSignal,
+): Promise<string[] | null> {
+  const expected = task.lengths.reduce((sum, length) => sum + length, 0);
+  for (let attempt = 0; attempt < 2; attempt++) {
+    signal?.throwIfAborted();
+    const response = await client.complete({ system: task.system, user: task.user, signal });
+    const punctuated = stripPlainPunctResponse(response.json);
+    if (contentLength(punctuated) !== expected) continue;
+    const parts = splitPunctuatedRun(punctuated, task.lengths);
+    if (parts) return parts;
+  }
+  return null;
+}
 
 export interface LlmPunctuatePlainRunResult {
   /** One punctuated string per input fragment; null when the model gave nothing usable for it. */
@@ -84,56 +145,41 @@ export interface LlmPunctuatePlainRunResult {
   failedChunks: number;
 }
 
-/**
- * Punctuate a base-text run: fragments are joined across the notes that separate them, sent in
- * chunks that never split a fragment, and the output is split back onto the fragments.
- *
- * Each chunk's output must contain exactly as many content characters as went in, otherwise the
- * split would shift every later fragment. A miscount is retried once; a chunk that still fails is
- * left unpunctuated (its fragments get null) so one bad answer cannot corrupt the rest of the run.
- */
+/** Put per-chunk answers (null = gave up) back in fragment order. */
+export function assembleRunTexts(
+  tasks: RunChunkTask[],
+  answers: (string[] | null)[],
+): LlmPunctuatePlainRunResult {
+  const texts: (string | null)[] = [];
+  let failedChunks = 0;
+  tasks.forEach((task, index) => {
+    const parts = answers[index];
+    if (parts) texts.push(...parts);
+    else {
+      failedChunks += 1;
+      texts.push(...task.fragments.map(() => null));
+    }
+  });
+  return { texts, failedChunks };
+}
+
+/** Punctuate a whole base-text run, its chunks `concurrency` at a time. */
 export async function llmPunctuatePlainRun(
   fragments: PunctFragment[],
   client: LlmClient,
   signal?: AbortSignal,
   onCall?: () => void,
+  concurrency = 1,
 ): Promise<LlmPunctuatePlainRunResult> {
-  const texts: (string | null)[] = [];
-  let failedChunks = 0;
-  let precedingText = '';
-
-  for (const chunk of chunkRunFragments(fragments)) {
-    signal?.throwIfAborted();
-    const lengths = chunk.map((fragment) => contentLength(fragment.han));
-    const prompt = buildRunPunctPrompt({
-      han: chunk.map((fragment) => fragment.han).join(''),
-      preceding_text: precedingText || undefined,
-      notes: chunk.flatMap((fragment) =>
-        fragment.notes_after
-          ? [{ after: Array.from(fragment.han).slice(-6).join(''), note: fragment.notes_after }]
-          : [],
-      ),
-    });
-
-    let parts: string[] | null = null;
-    for (let attempt = 0; attempt < 2 && !parts; attempt++) {
-      signal?.throwIfAborted();
-      const response = await client.complete({ ...prompt, signal });
-      const punctuated = stripPlainPunctResponse(response.json);
-      if (contentLength(punctuated) === lengths.reduce((a, b) => a + b, 0)) {
-        parts = splitPunctuatedRun(punctuated, lengths);
-      }
-    }
-    onCall?.();
-
-    if (parts) {
-      texts.push(...parts);
-      precedingText = Array.from(parts.join('')).slice(-PRECEDING_CONTEXT_HAN).join('');
-    } else {
-      failedChunks += 1;
-      texts.push(...chunk.map(() => null));
-      precedingText = '';
-    }
-  }
-  return { texts, failedChunks };
+  const tasks = planRunChunks(fragments);
+  const answers = await runPool(
+    tasks.map((task) => async (taskSignal: AbortSignal) => {
+      const parts = await punctuateRunChunk(task, client, taskSignal);
+      onCall?.();
+      return parts;
+    }),
+    concurrency,
+    signal,
+  );
+  return assembleRunTexts(tasks, answers);
 }

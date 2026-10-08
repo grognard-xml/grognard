@@ -1,8 +1,14 @@
 import type { KanripoNormalizeMode } from '../../../../apps/commons/src/desktop/kanripoImportXml';
 import type { LlmClient } from '../autoTagging/llmClient';
 import { emptyAiPunctStats, mergeAiPunctStats, type AiPunctApplyStats } from './formatAiProvenance';
-import { llmPunctuatePlainRun, llmPunctuatePlainSegment } from './llmPunctuatePlain';
-import { buildPunctUnits, chunkRunFragments } from './punctRuns';
+import {
+  assembleRunTexts,
+  llmPunctuatePlainSegment,
+  planRunChunks,
+  punctuateRunChunk,
+} from './llmPunctuatePlain';
+import { buildPunctUnits } from './punctRuns';
+import { runPool } from './taskPool';
 import { applyAiParallelPunct, listAiPunctSegments, type AiPunctSegment } from './pluginBridge';
 import { segmentNeedsAiGap, selectTargetsForAi, type HanRange } from './selectionScope';
 
@@ -18,6 +24,8 @@ export interface RunAiPunctuateOptions {
   gapsOnly?: boolean;
   signal?: AbortSignal;
   onProgress?: (done: number, total: number) => void;
+  /** Model requests in flight at once; 1 (the default) runs them one after another. */
+  concurrency?: number;
 }
 
 export interface RunAiPunctuateResult {
@@ -56,42 +64,64 @@ export async function runAiPunctuate(
   }
 
   const segmentParallels: { parallel_text: string; han_start: number; han_end: number }[] = [];
-  // Progress counts model calls: a base-text run is several chunks, a note is one.
-  const total = units.reduce(
-    (sum, unit) => sum + (unit.kind === 'text' ? chunkRunFragments(unit.fragments).length : 1),
-    0,
-  );
+
+  // Every model call of the juan becomes an independent task: one per note, one per chunk of a
+  // base-text run. They run through one pool and are put back in document order afterwards.
   let done = 0;
+  const calls: ((signal: AbortSignal) => Promise<void>)[] = [];
   const tick = () => {
     done += 1;
-    options.onProgress?.(done, total);
+    options.onProgress?.(done, calls.length);
   };
-  let failedChunks = 0;
+  const commText = new Map<number, string>();
+  const runPlans = new Map<number, ReturnType<typeof planRunChunks>>();
+  const runAnswers = new Map<number, (string[] | null)[]>();
 
-  for (const unit of units) {
-    options.signal?.throwIfAborted();
+  units.forEach((unit, unitIndex) => {
     if (unit.kind === 'comm') {
       const seg = unit.segment;
-      const { plainText } = await llmPunctuatePlainSegment(
-        {
-          kind: 'comm',
-          han: seg.han,
-          han_start: seg.han_start,
-          preceding_comm: seg.preceding_comm,
-          following_comm: seg.following_comm,
-        },
-        options.client,
-        options.signal,
-      );
-      segmentParallels.push({
-        parallel_text: plainText,
-        han_start: seg.han_start,
-        han_end: seg.han_end,
+      calls.push(async (signal) => {
+        const { plainText } = await llmPunctuatePlainSegment(
+          {
+            kind: 'comm',
+            han: seg.han,
+            han_start: seg.han_start,
+            preceding_comm: seg.preceding_comm,
+            following_comm: seg.following_comm,
+          },
+          options.client,
+          signal,
+        );
+        commText.set(unitIndex, plainText);
+        tick();
       });
-      tick();
-      continue;
+      return;
     }
-    const run = await llmPunctuatePlainRun(unit.fragments, options.client, options.signal, tick);
+    const plans = planRunChunks(unit.fragments);
+    const answers: (string[] | null)[] = new Array(plans.length).fill(null);
+    runPlans.set(unitIndex, plans);
+    runAnswers.set(unitIndex, answers);
+    plans.forEach((plan, chunkIndex) => {
+      calls.push(async (signal) => {
+        answers[chunkIndex] = await punctuateRunChunk(plan, options.client, signal);
+        tick();
+      });
+    });
+  });
+
+  await runPool(calls, options.concurrency ?? 1, options.signal);
+
+  let failedChunks = 0;
+  units.forEach((unit, unitIndex) => {
+    if (unit.kind === 'comm') {
+      segmentParallels.push({
+        parallel_text: commText.get(unitIndex) ?? '',
+        han_start: unit.segment.han_start,
+        han_end: unit.segment.han_end,
+      });
+      return;
+    }
+    const run = assembleRunTexts(runPlans.get(unitIndex)!, runAnswers.get(unitIndex)!);
     failedChunks += run.failedChunks;
     unit.fragments.forEach((fragment, index) => {
       const text = run.texts[index];
@@ -102,7 +132,7 @@ export async function runAiPunctuate(
         han_end: fragment.han_end,
       });
     });
-  }
+  });
 
   if (!segmentParallels.length) {
     stats = mergeAiPunctStats(stats, { align_failed: failedChunks });

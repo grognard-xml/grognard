@@ -57,8 +57,10 @@ export function buildPlainPunctUserPrompt(segment: PunctPromptSegment): string {
 export interface PunctRunPromptInput {
   /** Han of the joined fragments — the string to punctuate. */
   han: string;
-  /** The tail of the previous chunk's punctuated output, for continuity (context only). */
+  /** Han just before this chunk (unpunctuated, context only): chunks run in parallel. */
   preceding_text?: string;
+  /** Han just after this chunk (unpunctuated, context only). */
+  following_text?: string;
   /** Notes interrupting this chunk, each anchored to the base-text characters it follows. */
   notes: { after: string; note: string }[];
 }
@@ -89,12 +91,19 @@ export function buildRunPunctUserPrompt(input: PunctRunPromptInput): string {
   const lines: string[] = [];
   if (input.preceding_text) {
     lines.push(
-      'Preceding text, already punctuated (context only — do not repeat it):',
+      'Text just before this passage (context only — do not repeat it or punctuate it):',
       input.preceding_text,
       '',
     );
   }
   lines.push('Base text (Han only — punctuate this string):', input.han);
+  if (input.following_text) {
+    lines.push(
+      '',
+      'Text just after this passage (context only — do not repeat it or punctuate it):',
+      input.following_text,
+    );
+  }
   let budget = MAX_NOTES_TOTAL_CHARS;
   const noteLines: string[] = [];
   for (const { after, note } of input.notes) {

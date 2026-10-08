@@ -79,6 +79,37 @@ describe('parseAppPrefs', () => {
 
     expect(prefs.aiApi.alwaysOn).toBe(true);
   });
+
+  it('defaults concurrency to automatic (0) and reasoning effort to none sent', () => {
+    const { concurrency: _c, reasoningEffort: _r, ...legacy } = DEFAULT_AI_API_SETTINGS;
+    // Saved before these settings existed: the fields are absent at runtime.
+    const prefs = parseAppPrefs({ aiApi: legacy as typeof DEFAULT_AI_API_SETTINGS });
+
+    expect(prefs.aiApi.concurrency).toBe(0);
+    expect(prefs.aiApi.reasoningEffort).toBe('');
+  });
+
+  it('clamps concurrency to 0-16, floors it, and rejects non-numbers', () => {
+    const concurrencyFor = (value: unknown) =>
+      parseAppPrefs({
+        aiApi: { ...DEFAULT_AI_API_SETTINGS, concurrency: value as number },
+      }).aiApi.concurrency;
+
+    expect(concurrencyFor(6)).toBe(6);
+    expect(concurrencyFor(6.9)).toBe(6);
+    expect(concurrencyFor(99)).toBe(16);
+    expect(concurrencyFor(-3)).toBe(0);
+    expect(concurrencyFor('8')).toBe(0);
+    expect(concurrencyFor(Number.NaN)).toBe(0);
+  });
+
+  it('trims and lowercases reasoning effort', () => {
+    const prefs = parseAppPrefs({
+      aiApi: { ...DEFAULT_AI_API_SETTINGS, reasoningEffort: '  Minimal ' },
+    });
+
+    expect(prefs.aiApi.reasoningEffort).toBe('minimal');
+  });
 });
 
 describe('sanitizeRecentProjectFiles', () => {

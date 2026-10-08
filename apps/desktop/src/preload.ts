@@ -129,6 +129,10 @@ export interface AiApiSettings {
   placeholderRetryLimit: number;
   /** When true, AI curation runs unconditionally — no per-run opt-in checkbox (e.g. Disambiguate). */
   alwaysOn: boolean;
+  /** Simultaneous model requests for bulk runs; 0 = automatic (1 for a local server). */
+  concurrency: number;
+  /** `reasoning_effort` for reasoning models; empty = send nothing. */
+  reasoningEffort: string;
   verifiedAt: string | null;
   verifiedBaseUrl: string;
   verifiedModel: string;

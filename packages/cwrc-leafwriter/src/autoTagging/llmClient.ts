@@ -125,6 +125,18 @@ export interface MistralClientOptions {
   maxTransientRetries?: number;
   /** Base delay for transient-failure backoff (doubles per attempt). Defaults to 2000ms. */
   transientRetryBaseDelayMs?: number;
+  /**
+   * `reasoning_effort` for reasoning models (e.g. `minimal`, `low`, `none`). Accepted values
+   * depend on the model, so a 400 that names it makes the client drop it and carry on.
+   */
+  reasoningEffort?: string;
+}
+
+interface PostResult {
+  ok: boolean;
+  status: number;
+  text: string;
+  retryAfterMs?: number;
 }
 
 function extractJsonContent(text: string): string {
@@ -146,9 +158,24 @@ function isJsonValidateFailed(status: number, bodyText: string): boolean {
 
 /** Parse Groq/OpenAI-style rate-limit messages, e.g. "try again in 12.96s". */
 export function parseRateLimitRetryMs(bodyText: string): number | null {
-  const match = bodyText.match(/try again in ([\d.]+)s/i);
+  const match = bodyText.match(/try again in ([\d.]+)\s*(ms|s)\b/i);
   if (!match) return null;
-  return Math.ceil(parseFloat(match[1]!) * 1000) + 500;
+  const unitMs = match[2]!.toLowerCase() === 'ms' ? 1 : 1000;
+  return Math.ceil(parseFloat(match[1]!) * unitMs) + 500;
+}
+
+/** `retry-after-ms` or `retry-after` (seconds or an HTTP date), as milliseconds to wait. */
+export function retryAfterMsFromHeaders(
+  headers: { get?: (name: string) => string | null } | undefined,
+): number | undefined {
+  const ms = headers?.get?.('retry-after-ms');
+  if (ms && Number.isFinite(Number(ms))) return Math.ceil(Number(ms)) + 250;
+  const raw = headers?.get?.('retry-after');
+  if (!raw) return undefined;
+  const seconds = Number(raw);
+  if (Number.isFinite(seconds)) return Math.ceil(seconds * 1000) + 250;
+  const date = Date.parse(raw);
+  return Number.isFinite(date) ? Math.max(0, date - Date.now()) + 250 : undefined;
 }
 
 /**
@@ -162,7 +189,19 @@ export function parseRateLimitRetryMs(bodyText: string): number | null {
 const MIN_RATE_LIMIT_DELAY_MS = 30_000;
 const MAX_RATE_LIMIT_DELAY_MS = 60_000;
 
-export function rateLimitDelayMs(suggestedMs: number | null, attempt: number): number {
+/**
+ * `fast` (OpenAI): the provider's own hint is trusted, with a floor that doubles per attempt
+ * (1s, 2s, 4s … 30s) instead of the flat 30s band below. Groq and the rest keep the old band.
+ */
+export function rateLimitDelayMs(
+  suggestedMs: number | null,
+  attempt: number,
+  fast = false,
+): number {
+  if (fast) {
+    const floor = Math.min(1_000 * 2 ** attempt, 30_000);
+    return Math.min(Math.max(suggestedMs ?? 0, floor), MAX_RATE_LIMIT_DELAY_MS);
+  }
   const floorForAttempt = Math.min(
     MIN_RATE_LIMIT_DELAY_MS + attempt * 15_000,
     MAX_RATE_LIMIT_DELAY_MS,
@@ -211,6 +250,13 @@ export class MistralLlmClient implements LlmClient {
   private readonly maxRateLimitRetries: number;
   private readonly maxTransientRetries: number;
   private readonly transientRetryBaseDelayMs: number;
+  private reasoningEffort: string | undefined;
+  private readonly fastRateLimit: boolean;
+  /**
+   * Shared by every request on this client: after a 429 all of them wait, not just the one that
+   * was refused, so parallel workers back off together instead of re-triggering the limit.
+   */
+  private cooldownUntil = 0;
 
   constructor(options: MistralClientOptions) {
     this.modelId = `mistral:${options.model}`;
@@ -224,6 +270,14 @@ export class MistralLlmClient implements LlmClient {
     this.maxTransientRetries = options.maxTransientRetries ?? 4;
     this.transientRetryBaseDelayMs =
       options.transientRetryBaseDelayMs ?? DEFAULT_TRANSIENT_RETRY_BASE_MS;
+    this.reasoningEffort = options.reasoningEffort?.trim() || undefined;
+    this.fastRateLimit = this.baseUrl.includes('openai.com');
+  }
+
+  /** Wait out a cooldown set by a 429 on any request; a little jitter spreads the restart. */
+  private async waitForCooldown(signal?: AbortSignal): Promise<void> {
+    const wait = this.cooldownUntil - Date.now();
+    if (wait > 0) await sleep(wait + Math.random() * 1_000, signal);
   }
 
   private groqExtras(): Record<string, unknown> {
@@ -247,18 +301,21 @@ export class MistralLlmClient implements LlmClient {
   }
 
   /**
-   * One logical POST, resent on transient failures: a thrown fetch (connection
-   * reset, ERR_NETWORK_CHANGED after a Wi-Fi roam or wake from sleep, DNS) or a
-   * 5xx response. Aborts are never retried. After the final attempt a network
-   * error is rethrown with context and a 5xx is returned for the caller to report.
+   * One logical POST, resent when it can succeed on a second try: a thrown fetch (connection
+   * reset, ERR_NETWORK_CHANGED after a Wi-Fi roam or wake from sleep, DNS), a 5xx, or a 429
+   * (waiting for the shared cooldown). A 400 that names `reasoning_effort` drops that parameter
+   * and resends. Aborts are never retried. After the final attempt a network error is rethrown
+   * with context and any other failing response is returned for the caller to report.
    */
   private async postCompletion(
     request: LlmRequest,
     mode: 'json_schema' | 'json_object' | 'prompt_only' | 'plain_text',
-  ): Promise<{ ok: boolean; status: number; text: string }> {
+  ): Promise<PostResult> {
+    let rateLimitAttempt = 0;
     for (let attempt = 0; ; attempt++) {
+      await this.waitForCooldown(request.signal);
       const canRetry = attempt < this.maxTransientRetries;
-      let result: { ok: boolean; status: number; text: string };
+      let result: PostResult;
       try {
         result = await this.postCompletionOnce(request, mode);
       } catch (error) {
@@ -278,6 +335,35 @@ export class MistralLlmClient implements LlmClient {
         await sleep(transientDelayMs(this.transientRetryBaseDelayMs, attempt), request.signal);
         continue;
       }
+      if (!result.ok && result.status === 429 && rateLimitAttempt < this.maxRateLimitRetries) {
+        const delayMs = rateLimitDelayMs(
+          result.retryAfterMs ?? parseRateLimitRetryMs(result.text),
+          rateLimitAttempt,
+          this.fastRateLimit,
+        );
+        rateLimitAttempt++;
+        this.cooldownUntil = Math.max(this.cooldownUntil, Date.now() + delayMs);
+        request.onRateLimitRetry?.({
+          attempt: rateLimitAttempt,
+          maxAttempts: this.maxRateLimitRetries,
+          delayMs,
+        });
+        attempt--; // a rate-limit wait is not a transient failure
+        continue;
+      }
+      if (
+        !result.ok &&
+        result.status === 400 &&
+        this.reasoningEffort &&
+        /reasoning[_ ]effort/i.test(result.text)
+      ) {
+        console.warn(
+          `AI endpoint rejected reasoning_effort "${this.reasoningEffort}"; continuing without it.`,
+        );
+        this.reasoningEffort = undefined;
+        attempt--;
+        continue;
+      }
       if (isTransientStatus(result.status) && canRetry) {
         await sleep(transientDelayMs(this.transientRetryBaseDelayMs, attempt), request.signal);
         continue;
@@ -289,7 +375,7 @@ export class MistralLlmClient implements LlmClient {
   private async postCompletionOnce(
     request: LlmRequest,
     mode: 'json_schema' | 'json_object' | 'prompt_only' | 'plain_text',
-  ): Promise<{ ok: boolean; status: number; text: string }> {
+  ): Promise<PostResult> {
     const responseFormat =
       mode === 'plain_text' ? undefined : this.buildResponseFormat(request, mode);
     const jsonHint =
@@ -306,6 +392,7 @@ export class MistralLlmClient implements LlmClient {
         model: this.modelId.replace(/^mistral:/, ''),
         ...(responseFormat ? { response_format: responseFormat } : {}),
         ...this.groqExtras(),
+        ...(this.reasoningEffort && !this.isGroq ? { reasoning_effort: this.reasoningEffort } : {}),
         messages: [
           { role: 'system', content: request.system + jsonHint },
           { role: 'user', content: request.user },
@@ -313,7 +400,12 @@ export class MistralLlmClient implements LlmClient {
       }),
     });
     const text = await res.text();
-    return { ok: res.ok, status: res.status, text };
+    return {
+      ok: res.ok,
+      status: res.status,
+      text,
+      retryAfterMs: retryAfterMsFromHeaders(res.headers),
+    };
   }
 
   async complete(request: LlmRequest): Promise<LlmResponse> {
@@ -336,21 +428,8 @@ export class MistralLlmClient implements LlmClient {
     }
 
     let mode = this.structuredOutput;
-    let rateLimitAttempt = 0;
-
     while (true) {
       let result = await this.postCompletion(request, mode);
-      if (!result.ok && result.status === 429 && rateLimitAttempt < this.maxRateLimitRetries) {
-        const delayMs = rateLimitDelayMs(parseRateLimitRetryMs(result.text), rateLimitAttempt);
-        rateLimitAttempt++;
-        request.onRateLimitRetry?.({
-          attempt: rateLimitAttempt,
-          maxAttempts: this.maxRateLimitRetries,
-          delayMs,
-        });
-        await sleep(delayMs, request.signal);
-        continue;
-      }
       if (
         !result.ok &&
         isJsonValidateFailed(result.status, result.text) &&

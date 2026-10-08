@@ -66,6 +66,7 @@ import type { IDialog } from '../type';
 import { isPluginEnabled } from '../../plugins';
 import {
   createLlmClientFromSettings,
+  effectiveAiConcurrency,
   isAiSuggestReady,
   aiApiSettingsFromDesktop,
 } from '../../autoTagging/llmClientFromSettings';
@@ -1020,6 +1021,7 @@ export const KanripoImportDialog = ({
             );
             const aiResult = await runAiPunctuate(bodyXml, {
               client: aiClient,
+              concurrency: effectiveAiConcurrency(aiSettings),
               signal,
               onProgress: (done, total) => {
                 setStatus(
@@ -1915,14 +1917,10 @@ export const KanripoImportDialog = ({
                 />
                 <FormControlLabel value="ai" control={<Radio />} label="AI inference" />
               </RadioGroup>
-              {punctMode === 'ai' && (
+              {punctMode === 'ai' && (!aiReady || !selected) && (
                 <Alert severity={aiReady ? 'info' : 'warning'} sx={{ mt: 1 }}>
                   {aiReady ? (
-                    selected ? (
-                      'Each juan will be punctuated by the AI model after it is fetched.'
-                    ) : (
-                      'Select a work above.'
-                    )
+                    'Select a work above.'
                   ) : (
                     <>
                       Configure your AI API in <strong>App Settings</strong> first.

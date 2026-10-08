@@ -11,6 +11,10 @@ export interface AiApiSettingsLike {
   streamResults?: boolean;
   /** When true, AI curation runs unconditionally — no per-run opt-in checkbox (e.g. Disambiguate). */
   alwaysOn?: boolean;
+  /** Simultaneous model requests for bulk runs; 0/absent = automatic. */
+  concurrency?: number;
+  /** `reasoning_effort` for reasoning models; empty/absent = send nothing. */
+  reasoningEffort?: string;
 }
 
 /**
@@ -64,7 +68,28 @@ export function createLlmClientFromSettings(
     });
   }
   const baseUrl = normalizeLlmChatBaseUrl(settings.baseUrl);
-  return new MistralLlmClient({ apiKey, model, baseUrl, fetchImpl });
+  return new MistralLlmClient({
+    apiKey,
+    model,
+    baseUrl,
+    fetchImpl,
+    reasoningEffort: settings.reasoningEffort?.trim() || undefined,
+  });
+}
+
+/** Hosted APIs take parallel requests; a local server (LM Studio, Ollama) does not gain from them. */
+export const DEFAULT_HOSTED_AI_CONCURRENCY = 6;
+export const MAX_AI_CONCURRENCY = 16;
+
+/** Simultaneous model requests for a bulk run: the setting if set, otherwise by endpoint. */
+export function effectiveAiConcurrency(settings: AiApiSettingsLike | null | undefined): number {
+  const configured = settings?.concurrency;
+  if (typeof configured === 'number' && configured > 0) {
+    return Math.min(MAX_AI_CONCURRENCY, Math.floor(configured));
+  }
+  if (!settings || isLocalAiBaseUrl(settings.baseUrl) || isOllamaBaseUrl(settings.baseUrl))
+    return 1;
+  return DEFAULT_HOSTED_AI_CONCURRENCY;
 }
 
 const COMMONS_UI = () =>
@@ -87,6 +112,8 @@ export function aiApiSettingsFromDesktop(): AiApiSettingsLike | null {
     verifiedModel: settings.verifiedModel ?? '',
     streamResults: settings.streamResults === true,
     alwaysOn: settings.alwaysOn === true,
+    concurrency: settings.concurrency ?? 0,
+    reasoningEffort: settings.reasoningEffort ?? '',
   };
 }
 

@@ -55,6 +55,16 @@ export interface AiApiSettings {
   placeholderRetryLimit: number;
   /** When true, AI curation runs unconditionally — no per-run opt-in checkbox (e.g. Disambiguate). */
   alwaysOn: boolean;
+  /**
+   * Simultaneous model requests for bulk runs (AI punctuation). 0 = automatic: 1 for a local
+   * server, which gains nothing from parallel requests, more for a hosted API.
+   */
+  concurrency: number;
+  /**
+   * `reasoning_effort` sent to reasoning models (e.g. `minimal`, `low`, `none`); accepted values
+   * depend on the model. Empty = send nothing. Dropped for the run if the API rejects it.
+   */
+  reasoningEffort: string;
   /** Successful connection test for this exact endpoint and model. */
   verifiedAt: string | null;
   verifiedBaseUrl: string;
@@ -70,6 +80,8 @@ export const DEFAULT_AI_API_SETTINGS: AiApiSettings = {
   streamResults: true,
   placeholderRetryLimit: 1,
   alwaysOn: false,
+  concurrency: 0,
+  reasoningEffort: '',
   verifiedAt: null,
   verifiedBaseUrl: '',
   verifiedModel: '',
@@ -77,6 +89,9 @@ export const DEFAULT_AI_API_SETTINGS: AiApiSettings = {
 
 /** Inclusive upper bound so the retry loop can never run away. */
 export const MAX_PLACEHOLDER_RETRY_LIMIT = 5;
+
+/** Inclusive upper bound on simultaneous model requests. */
+export const MAX_AI_CONCURRENCY = 16;
 
 const sanitizeAiApiSettings = (value: Partial<AiApiSettings> | undefined): AiApiSettings => {
   const temperature =
@@ -102,6 +117,12 @@ const sanitizeAiApiSettings = (value: Partial<AiApiSettings> | undefined): AiApi
     streamResults: value?.streamResults !== false,
     placeholderRetryLimit,
     alwaysOn: value?.alwaysOn === true,
+    concurrency:
+      typeof value?.concurrency === 'number' && Number.isFinite(value.concurrency)
+        ? Math.min(MAX_AI_CONCURRENCY, Math.max(0, Math.floor(value.concurrency)))
+        : DEFAULT_AI_API_SETTINGS.concurrency,
+    reasoningEffort:
+      typeof value?.reasoningEffort === 'string' ? value.reasoningEffort.trim().toLowerCase() : '',
     verifiedAt: typeof value?.verifiedAt === 'string' ? value.verifiedAt : null,
     verifiedBaseUrl: typeof value?.verifiedBaseUrl === 'string' ? value.verifiedBaseUrl.trim() : '',
     verifiedModel: typeof value?.verifiedModel === 'string' ? value.verifiedModel.trim() : '',

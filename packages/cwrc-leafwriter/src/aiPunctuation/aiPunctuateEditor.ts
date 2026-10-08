@@ -6,6 +6,7 @@ import {
 import { appendTeiRevisionChange } from '../../../../apps/commons/src/desktop/kanripoImportXml';
 import {
   createLlmClientFromSettings,
+  effectiveAiConcurrency,
   isAiSuggestReady,
   aiApiSettingsFromDesktop,
 } from '../autoTagging/llmClientFromSettings';
@@ -178,6 +179,7 @@ export async function runAiPunctuateEditorCommand(options?: {
   try {
     result = await runAiPunctuate(listed.body_xml, {
       client,
+      concurrency: effectiveAiConcurrency(settings),
       segmentIds: keepRanges ? undefined : segmentIds,
       hanRange: keepRanges ? undefined : (hanRange ?? undefined),
       hanRanges: keepRanges,
@@ -269,6 +271,7 @@ async function fillGapsInKanripoXml(
   try {
     result = await runAiPunctuate(listed.body_xml, {
       client,
+      concurrency: effectiveAiConcurrency(settings),
       gapsOnly: true,
       signal: abortController.signal,
       onProgress: options?.onProgress ?? updateAiRunProgress,

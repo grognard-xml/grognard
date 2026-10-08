@@ -24,6 +24,8 @@ interface AiApiSettings {
   placeholderRetryLimit: number;
   /** When true, AI curation runs unconditionally — no per-run opt-in checkbox (e.g. Disambiguate). */
   alwaysOn: boolean;
+  concurrency: number;
+  reasoningEffort: string;
   verifiedAt: string | null;
   verifiedBaseUrl: string;
   verifiedModel: string;
@@ -44,6 +46,8 @@ const DEFAULT_AI_API_SETTINGS: AiApiSettings = {
   streamResults: true,
   placeholderRetryLimit: 1,
   alwaysOn: false,
+  concurrency: 0,
+  reasoningEffort: '',
   verifiedAt: null,
   verifiedBaseUrl: '',
   verifiedModel: '',
@@ -228,6 +232,31 @@ export const DesktopAiApi = () => {
             size="small"
             type="number"
             value={settings.placeholderRetryLimit ?? 1}
+          />
+          <TextField
+            fullWidth
+            helperText={t('LW.settings.ai_api.concurrency_help')}
+            inputProps={{ max: 16, min: 0, step: 1 }}
+            label={t('LW.settings.ai_api.concurrency')}
+            onChange={(event) => {
+              const next = Number(event.target.value);
+              updateSetting(
+                'concurrency',
+                Number.isFinite(next) ? Math.min(16, Math.max(0, Math.floor(next))) : 0,
+              );
+            }}
+            size="small"
+            type="number"
+            value={settings.concurrency ?? 0}
+          />
+          <TextField
+            fullWidth
+            helperText={t('LW.settings.ai_api.reasoning_effort_help')}
+            label={t('LW.settings.ai_api.reasoning_effort')}
+            onChange={(event) => updateSetting('reasoningEffort', event.target.value)}
+            placeholder="minimal"
+            size="small"
+            value={settings.reasoningEffort ?? ''}
           />
           <TextField
             fullWidth

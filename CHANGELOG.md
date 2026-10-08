@@ -918,11 +918,18 @@ Paste/drop a character image now works in the translation pane and its footnotes
 ### AI punctuation: base text is punctuated as runs across interlinear notes
 
 - Interlinear notes cut a work's base text into short fragments (`多桂`, `多金玉有草焉其狀如韭`, `而青花其名曰祝餘` …). Segments under 20 Han were skipped, so in a commentary edition about 40% of the base text (and 20% of all segments, counting notes) was never sent to the model: on the 19-juan Shanhaijing import only 52 of 241 segments in juan 1 were punctuated, with `align_failed 0`, so nothing in the provenance line showed the gap.
-- Consecutive base-text fragments with only notes between them are now sent as one passage, in chunks of about 400 Han that never split a fragment, and the result is split back onto the fragments by counting characters (marks go with the earlier fragment; opening brackets with the next). The notes in the passage are passed as context, anchored to the characters they follow, and the model is told never to output them. Each chunk also gets the tail of the previous chunk's output.
+- Consecutive base-text fragments with only notes between them are now sent as one passage, in chunks of about 400 Han that never split a fragment, and the result is split back onto the fragments by counting characters (marks go with the earlier fragment; opening brackets with the next). The notes in the passage are passed as context, anchored to the characters they follow, and the model is told never to output them. Each chunk also gets the raw, unpunctuated Han just before and after it as context, so the chunks do not depend on one another and can run at the same time.
 - Every chunk is checked: the output must contain exactly as many content characters as went in. A miscount is retried once; a chunk that still fails is left unpunctuated and counted in `align_failed`, so one bad answer cannot shift the rest of the run.
 - Commentary notes are atomic and still go to the model one by one, with the 20-Han minimum.
 - Fill gaps now also covers short unpunctuated base-text fragments. A run shorter than 20 Han in total is skipped. Headings (`kind: head`) are never targets and always end a run.
 - Progress counts model calls instead of segments. The provenance line now says `ai-punct-v4`.
+
+### AI punctuation: parallel requests
+
+- AI punctuation sent its model calls one after another: for the 19-juan Shanhaijing, roughly 950 notes and several dozen base-text chunks, taking several hours. Every call of a juan (one per note, one per chunk of a base-text run) is now an independent task run through a bounded pool, `concurrency` at a time, and put back in document order afterwards. A failure or Stop cancels the requests still in flight and starts no more.
+- New AI setting **Simultaneous requests** (0 to 16). 0 is automatic: 1 for a local server (LM Studio, Ollama), which gains nothing from parallel requests, and 6 for a hosted API. Raise it to finish sooner; lower it if you hit rate limits.
+- New AI setting **Reasoning effort**. For reasoning models such as gpt-5, a low value (`minimal`, `low`, or `none` for GPT-5.1) answers a task as simple as punctuation much faster. The accepted values depend on the model, so it is empty by default; if the API rejects the value, it is dropped for that run and a warning is logged.
+- Rate limits: the 429 retry only existed on the structured-JSON path, and AI punctuation uses plain text, so a 429 there failed the whole run at once. It now retries on every path. A 429 on any request puts all requests on the client into the same cooldown, so parallel workers back off together. The wait follows the provider's `Retry-After` header or "try again in 20ms / 1.5s" hint; for OpenAI the fallback doubles from 1 s instead of the flat 30 s that suited Groq (other providers keep the old wait).
 
 ### AI requests: retry on network errors and server errors
 
@@ -958,3 +965,7 @@ Paste/drop a character image now works in the translation pane and its footnotes
 ### Docs: Kanripo commentary principles
 
 - New `docs/kanripo-commentary-principles.md`: what KRP marks as interlinear commentary is final (its type, position and content are never changed by import, transfer or normalisation); a parallel source may only add punctuation, paragraph breaks and, where KRP is silent, commentary boundaries. Records how each step of the plugin follows this, the checks to keep, and why indentation-based rules are deliberately not built yet.
+
+### Kanripo import: AI inference notice removed
+
+- Choosing **AI inference** showed "Each juan will be punctuated by the AI model after it is fetched." under the options. It added nothing the option name did not already say. It is gone; the two notices that tell you something to act on stay: "Configure your AI API in App Settings first" and "Select a work above."
