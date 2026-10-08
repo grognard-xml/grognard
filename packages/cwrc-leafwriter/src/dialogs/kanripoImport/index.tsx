@@ -1232,7 +1232,10 @@ export const KanripoImportDialog = ({
   const importHasGaps = Boolean(report?.bars?.some((bar) => coverageHasGaps(bar.coverage)));
   const canAiFillGaps = Boolean(punctuateOnly && aiReady && parallelApplied && !busy);
 
-  type FillOutcome = { state: 'ok' | 'cancelled' | 'error'; message: string };
+  interface FillOutcome {
+    state: 'ok' | 'cancelled' | 'error';
+    message: string;
+  }
 
   /** AI-fill one imported juan, then refresh its bar and drop its stale parallel warnings. */
   const fillJuanGaps = async (
