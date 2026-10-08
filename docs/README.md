@@ -68,6 +68,7 @@ Supporting / deeper:
 | [map-tiles-planning.md](map-tiles-planning.md)                                                                          | Regional PMTiles download / cache                                                           |
 | [import-planning.md](import-planning.md)                                                                                | Document import (blind + profiled)                                                          |
 | [kanripo-import-plugin-planning.md](kanripo-import-plugin-planning.md)                                                  | Kanripo clone → TEI plugin (coverage-bar punctuation)                                       |
+| [kanripo-commentary-principles.md](kanripo-commentary-principles.md)                                                    | KRP's interlinear commentary is final; what transfer may add (never undo)                   |
 | [find-replace-planning.md](find-replace-planning.md)                                                                    | Find / replace                                                                              |
 | [xpath-sidebar-planning.md](xpath-sidebar-planning.md)                                                                  | XPath sidebar                                                                               |
 | [translation-planning.md](translation-planning.md)                                                                      | Translation pane (phases A–E + card reader — reference)                                     |

@@ -940,3 +940,21 @@ Paste/drop a character image now works in the translation pane and its footnotes
 
 - The import now asks the plugin for a final clean-up (`finalize_body`) once per juan, after whichever punctuation mode ran, and after the editor's AI punctuate and Fill gaps commands. It runs last on purpose: a note that already ends in 。 would look punctuated to the AI step and be skipped. With an older plugin the call is skipped and the body is left unchanged.
 - The segment list gains a `head` kind (title block, section heading, colophon). These are never sent to the model, never counted as unpunctuated, and never joined to the base text around them.
+
+### Plugin Python bridge: Han characters corrupted at chunk boundaries
+
+- The bridge decoded every stdout chunk from a plugin's Python process on its own. A pipe delivers arbitrary byte chunks, and a Han character is 3 or 4 bytes, so a character that straddled two chunks became U+FFFD (three of them, for a 3-byte character) in the imported file. On KR1j0004 this silently damaged 30 characters in 8 of 23 juan; two files of the 漢魏六朝百三家集 import carry 35. Every plugin import goes through this path. stdout and stderr are now decoded with a streaming `StringDecoder`, which holds a partial character back until the rest arrives. Re-import affected works: the damage is in the files.
+
+### Kanripo import: a failed juan can no longer go unnoticed
+
+- A juan whose conversion failed was recorded, but only in a mild warning below all the coverage bars, so a partial import looked like a success with a few grey bars. A red alert above the bars now says "N of M juan were NOT imported" and lists each file with its error. The alignment pre-pass no longer skips a juan that converted to nothing: it throws, like the main loop.
+
+### Kanripo import: parallel URL field and Fill all gaps
+
+- The import panel now always offers a **Parallel URL** field with **Fetch URL** (Enter also fetches), whether or not the crosswalk found a match. A Wikisource work index or 卷 page gets the work-index handling; any other page is fetched as plain text. ctext wiki URLs are still refused in the import flow (they need section selection and segmented alignment, which only the editor's punctuate flow has) and the hint says so.
+- New **Fill all gaps (N juan)** button above the coverage bars: AI-fills every juan that still has grey, one after another, using the same per-juan fill. A juan that fails does not stop the run; failures are listed together at the end. Stop cancels the run after the current segment.
+- After a juan is filled and no grey remains, its parallel-quality warnings ("did not align", "low overlap") are removed: they described the parallel, not the file. If grey remains they stay. The summary count drops accordingly.
+
+### Docs: Kanripo commentary principles
+
+- New `docs/kanripo-commentary-principles.md`: what KRP marks as interlinear commentary is final (its type, position and content are never changed by import, transfer or normalisation); a parallel source may only add punctuation, paragraph breaks and, where KRP is silent, commentary boundaries. Records how each step of the plugin follows this, the checks to keep, and why indentation-based rules are deliberately not built yet.

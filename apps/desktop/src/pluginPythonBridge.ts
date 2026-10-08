@@ -5,6 +5,7 @@
 import { execFile, spawn } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
+import { StringDecoder } from 'node:string_decoder';
 import { promisify } from 'node:util';
 import { app } from 'electron';
 import {
@@ -523,8 +524,12 @@ const runPluginPythonCli = async (
       reject(new Error(`Plugin ${pluginId} Python timed out after ${timeoutMs / 1000}s`));
     }, timeoutMs);
 
-    child.stdout.on('data', (chunk: Buffer) => {
-      const text = chunk.toString('utf8');
+    // A pipe delivers arbitrary byte chunks, so a multi-byte UTF-8 character (every Han character
+    // is 3 or 4 bytes) can straddle two of them; decoding each chunk alone turns both halves into
+    // U+FFFD and silently corrupts the text. The decoder holds the partial character back.
+    const stdoutDecoder = new StringDecoder('utf8');
+    const stderrDecoder = new StringDecoder('utf8');
+    const takeStdout = (text: string) => {
       if (useStream) {
         lineBuffer += text;
         let newline = lineBuffer.indexOf('\n');
@@ -549,10 +554,11 @@ const runPluginPythonCli = async (
       } else {
         stdout += text;
       }
-    });
+    };
+    child.stdout.on('data', (chunk: Buffer) => takeStdout(stdoutDecoder.write(chunk)));
 
     child.stderr.on('data', (chunk: Buffer) => {
-      stderr += chunk.toString('utf8');
+      stderr += stderrDecoder.write(chunk);
     });
 
     child.on('error', (error) => {
@@ -569,6 +575,8 @@ const runPluginPythonCli = async (
       if (forceKillTimer) clearTimeout(forceKillTimer);
       if (settled) return;
       settled = true;
+      takeStdout(stdoutDecoder.end());
+      stderr += stderrDecoder.end();
       logPluginPython(pluginId, 'done', { code, ms: Date.now() - t0 });
       if (code !== 0) {
         const lines = stderr

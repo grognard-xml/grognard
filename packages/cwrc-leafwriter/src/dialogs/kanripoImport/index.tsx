@@ -902,7 +902,9 @@ export const KanripoImportDialog = ({
             gaiji_dest_dir: joinPath(destDir, '_gaiji'),
             gaiji_overrides: gaijiOverrides,
           })) as ConvertPayload;
-          if (!converted?.body_xml || !converted.meta) continue;
+          if (!converted?.body_xml || !converted.meta) {
+            throw new Error(`Python conversion of ${filePath} returned no TEI body.`);
+          }
           convertedByFile.set(filePath, converted);
           juanPayload.push({
             juan_id: converted.meta.juan || converted.meta.stem || filePath,
@@ -1228,6 +1230,62 @@ export const KanripoImportDialog = ({
   const importHasGaps = Boolean(report?.bars?.some((bar) => coverageHasGaps(bar.coverage)));
   const canAiFillGaps = Boolean(punctuateOnly && aiReady && parallelApplied && !busy);
 
+  type FillOutcome = { state: 'ok' | 'cancelled' | 'error'; message: string };
+
+  /** AI-fill one imported juan, then refresh its bar and drop its stale parallel warnings. */
+  const fillJuanGaps = async (
+    bar: { stem: string; outputPath: string },
+    signal: AbortSignal,
+    label: string,
+  ): Promise<FillOutcome> => {
+    try {
+      const outcome = await runAiFillGapsOnFile(bar.outputPath, {
+        signal,
+        onProgress: (done, total) => {
+          setStatus(`${label}AI fill gaps ${bar.stem} (segment ${done} of ${total})…`);
+        },
+      });
+      if (!outcome.ok) {
+        return outcome.cancelled
+          ? { state: 'cancelled', message: 'Fill gaps cancelled.' }
+          : { state: 'error', message: `${bar.stem}: ${outcome.message}` };
+      }
+      const api = window.electronAPI;
+      if (api?.readFile) {
+        const xml = await api.readFile(bar.outputPath);
+        const body = extractJuanDiv(xml);
+        if (body) {
+          const cov = await fetchPunctCoverage(body);
+          const filled = !coverageHasGaps(cov);
+          setReport((prev) =>
+            prev
+              ? {
+                  ...prev,
+                  bars: prev.bars?.map((row) =>
+                    row.stem === bar.stem ? { ...row, coverage: cov } : row,
+                  ),
+                  // "Few marks copied / did not align" is about the parallel; once the juan is
+                  // fully punctuated it no longer describes the file.
+                  warnings: filled
+                    ? prev.warnings?.filter((row) => row.stem !== bar.stem)
+                    : prev.warnings,
+                }
+              : prev,
+          );
+        }
+      }
+      return { state: 'ok', message: outcome.message };
+    } catch (fillError) {
+      if (fillError instanceof DOMException && fillError.name === 'AbortError') {
+        return { state: 'cancelled', message: 'Fill gaps cancelled.' };
+      }
+      return {
+        state: 'error',
+        message: `${bar.stem}: ${fillError instanceof Error ? fillError.message : String(fillError)}`,
+      };
+    }
+  };
+
   const aiFillGapsForJuan = async (bar: { stem: string; outputPath: string }) => {
     if (!aiReady) {
       setError('Configure and test AI API settings first (App Settings).');
@@ -1240,43 +1298,57 @@ export const KanripoImportDialog = ({
     setBusy(true);
     setError(null);
     try {
-      const outcome = await runAiFillGapsOnFile(bar.outputPath, {
-        signal: fillAbort.signal,
-        onProgress: (done, total) => {
-          setStatus(`AI fill gaps ${bar.stem} (segment ${done} of ${total})…`);
-        },
-      });
-      if (outcome.ok) {
-        setStatus(outcome.message);
-        const api = window.electronAPI;
-        if (api?.readFile) {
-          const xml = await api.readFile(bar.outputPath);
-          const body = extractJuanDiv(xml);
-          if (body) {
-            const cov = await fetchPunctCoverage(body);
-            setReport((prev) =>
-              prev
-                ? {
-                    ...prev,
-                    bars: prev.bars?.map((row) =>
-                      row.stem === bar.stem ? { ...row, coverage: cov } : row,
-                    ),
-                  }
-                : prev,
-            );
-          }
+      const result = await fillJuanGaps(bar, fillAbort.signal, '');
+      if (result.state === 'error') setError(result.message);
+      else setStatus(result.message);
+    } finally {
+      setFillingGapsStem(null);
+      setBusy(false);
+      fillGapsAbortRef.current = null;
+    }
+  };
+
+  /** AI-fill every juan that still has grey, one after another. Stop aborts the run. */
+  const aiFillAllGaps = async () => {
+    if (!aiReady) {
+      setError('Configure and test AI API settings first (App Settings).');
+      return;
+    }
+    const queue = (report?.bars ?? []).filter((bar) => coverageHasGaps(bar.coverage));
+    if (queue.length === 0) return;
+    fillGapsAbortRef.current?.abort();
+    const fillAbort = new AbortController();
+    fillGapsAbortRef.current = fillAbort;
+    setBusy(true);
+    setError(null);
+    const problems: string[] = [];
+    let done = 0;
+    let cancelled = false;
+    try {
+      for (let i = 0; i < queue.length; i += 1) {
+        if (fillAbort.signal.aborted) {
+          cancelled = true;
+          break;
         }
-      } else if (!outcome.cancelled) {
-        setError(outcome.message);
-      } else {
-        setStatus('Fill gaps cancelled.');
+        const bar = queue[i];
+        setFillingGapsStem(bar.stem);
+        const result = await fillJuanGaps(
+          bar,
+          fillAbort.signal,
+          `Juan ${i + 1} of ${queue.length}: `,
+        );
+        if (result.state === 'ok') done += 1;
+        else if (result.state === 'cancelled') {
+          cancelled = true;
+          break;
+        } else problems.push(result.message);
       }
-    } catch (fillError) {
-      if (fillError instanceof DOMException && fillError.name === 'AbortError') {
-        setStatus('Fill gaps cancelled.');
-      } else {
-        setError(fillError instanceof Error ? fillError.message : String(fillError));
-      }
+      setStatus(
+        cancelled
+          ? `Fill all gaps stopped after ${done} of ${queue.length} juan.`
+          : `Filled gaps in ${done} of ${queue.length} juan${problems.length ? `; ${problems.length} failed` : ''}.`,
+      );
+      if (problems.length > 0) setError(`Fill all gaps — not filled:\n${problems.join('\n')}`);
     } finally {
       setFillingGapsStem(null);
       setBusy(false);
@@ -1371,6 +1443,37 @@ export const KanripoImportDialog = ({
         </Alert>
       )}
       <Box sx={{ mt: 2 }}>
+        <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+          Or fetch a parallel from a URL: a Wikisource work index or 卷 page, or any other page with
+          the text. It must be punctuated to help — Wikisource 四庫全書本 trees carry no
+          punctuation. (ctext wiki URLs are for in-editor punctuation only.)
+        </Typography>
+        <Box sx={{ display: 'flex', gap: 1, mb: 2 }}>
+          <TextField
+            fullWidth
+            size="small"
+            label="Parallel URL"
+            placeholder="https://zh.wikisource.org/wiki/後漢書 or another page URL"
+            value={ctextUrl}
+            onChange={(event) => setCtextUrl(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter' && ctextUrl.trim() && !busy) {
+                event.preventDefault();
+                void fetchParallelUrl();
+              }
+            }}
+            disabled={busy}
+          />
+          <Button
+            size="small"
+            variant="outlined"
+            disabled={busy || !ctextUrl.trim()}
+            sx={{ flexShrink: 0 }}
+            onClick={() => void fetchParallelUrl()}
+          >
+            Fetch URL
+          </Button>
+        </Box>
         <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
           Or add your own reference text(s) — a single file per juan, or a whole folder of reference
           files (any provider, e.g. ctext) whose boundaries don't match juan boundaries; those are
@@ -1863,6 +1966,40 @@ export const KanripoImportDialog = ({
               {item.message}
             </Alert>
           ))}
+        {report && report.failed.length > 0 && (
+          <Alert severity="error" sx={{ mt: 2 }}>
+            <strong>
+              {report.failed.length} of {report.written.length + report.failed.length} juan were NOT
+              imported.
+            </strong>
+            <Box component="ul" sx={{ mt: 1, mb: 0, pl: 2 }}>
+              {report.failed.map((item) => (
+                <li key={`failed-${item.stem}`}>
+                  {item.stem}: {item.message}
+                </li>
+              ))}
+            </Box>
+          </Alert>
+        )}
+        {!punctuateOnly && importHasGaps && (
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mt: 2 }}>
+            <Button
+              variant="contained"
+              size="small"
+              disabled={busy || !aiReady}
+              onClick={() => void aiFillAllGaps()}
+            >
+              {busy && fillingGapsStem
+                ? 'Filling…'
+                : `Fill all gaps (${report?.bars?.filter((bar) => coverageHasGaps(bar.coverage)).length ?? 0} juan)`}
+            </Button>
+            {!aiReady && (
+              <Typography variant="caption" color="text.secondary">
+                Configure AI in App Settings first.
+              </Typography>
+            )}
+          </Box>
+        )}
         {report?.bars?.map((bar) => (
           <Box key={bar.stem} sx={{ mt: 1 }}>
             <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1 }}>
@@ -1902,7 +2039,7 @@ export const KanripoImportDialog = ({
           </Typography>
         )}
         {error && (
-          <Alert severity="error" sx={{ mt: 2 }}>
+          <Alert severity="error" sx={{ mt: 2, whiteSpace: 'pre-line' }}>
             {error}
           </Alert>
         )}
@@ -1923,15 +2060,6 @@ export const KanripoImportDialog = ({
                 )}{' '}
                 across {report.warnings.length} juan.
               </>
-            )}
-            {report.failed.length > 0 && (
-              <Box component="ul" sx={{ mt: 1, pl: 2 }}>
-                {report.failed.map((item) => (
-                  <li key={item.stem}>
-                    {item.stem}: {item.message}
-                  </li>
-                ))}
-              </Box>
             )}
           </Alert>
         )}
