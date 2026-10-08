@@ -913,7 +913,13 @@ Paste/drop a character image now works in the translation pane and its footnotes
 - **Pretty-print** (also Shift+Alt+F, or Format Document in the right-click menu) re-indents the document as one undoable edit. It is deliberately conservative, because whitespace matters in mixed content: elements that contain text are copied exactly as written, and line breaks are only added between the children of elements the schema says cannot hold text (`div`, `cit`, `teiHeader`…). Where the schema is unknown it only re-indents lines that are already broken. It refuses, with a message, when the XML is not well-formed.
 - Fold shortcuts follow VS Code. Already built in: Cmd/Ctrl+Alt+[ and ] fold and unfold the region at the cursor (Ctrl+Shift+[ and ] on Windows), and the Cmd+K Cmd+0 / Cmd+K Cmd+J chords. New: Cmd/Ctrl+Alt+0 folds everything and Cmd/Ctrl+Alt+9 unfolds everything.
 
-## Unreleased
+## v0.1.1-beta.6
+
+### Upgrade notes
+
+- **Re-import works imported with an earlier version.** A bug in the bridge to the plugins' Python process could replace a Han character that straddled a data chunk with `�` in the imported file (fixed below). Files imported before this release may contain such characters; the damage is in the files, so the only repair is to import them again.
+- **Pair this release with the Kanripo import plugin 0.1.3.** The app works with an older plugin, but without 0.1.3 the plugin-side improvements are missing: whole-juan punctuation transfer from Wikisource, commentary notes created from a parallel's brackets, title blocks that put the title and attribution on one line, and the normalisation fix. Works imported before the title-block support (e.g. 山海經) also need a re-import to get their title, byline and heading markup.
+- **Behaviour changes.** With _DPM variant table_ selected, compatibility ideographs are now normalised to their ordinary forms (a table error had turned 請, 靖 and 愼 into rare compatibility characters). Wikisource `(四庫全書本)` trees are no longer offered as parallels, since they carry no punctuation.
 
 ### AI punctuation: base text is punctuated as runs across interlinear notes
 
