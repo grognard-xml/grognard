@@ -127,9 +127,13 @@ for (const name of installers) {
 
 for (const name of installers) {
   log(`\nSigning ${name}`);
-  run('sign-windows', ['-n', 'Grognard', '-o', path.join(newDir, name), path.join(origDir, name)], {
-    stdio: 'inherit',
-  });
+  run(
+    'sign-windows',
+    ['--force', '-n', 'Grognard', '-o', path.join(newDir, name), path.join(origDir, name)],
+    {
+      stdio: 'inherit',
+    },
+  );
   run(appBuilder, [
     'blockmap',
     '-i',
