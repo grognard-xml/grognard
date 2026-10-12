@@ -976,6 +976,8 @@ Paste/drop a character image now works in the translation pane and its footnotes
 
 - Choosing **AI inference** showed "Each juan will be punctuated by the AI model after it is fetched." under the options. It added nothing the option name did not already say. It is gone; the two notices that tell you something to act on stay: "Configure your AI API in App Settings first" and "Select a work above."
 
+## v0.1.1-beta.7
+
 ### Composed glyphs: black square when the document is in a subfolder
 
 - A character made with the CHHIV glyph composer is saved in the project-level `_glyphs/` folder, but the editor looked for it in a `_glyphs/` folder next to the open document. In a document in a subfolder (for example `imported/kanripo/KR3g0018/`) the image was never found, and the glyph showed as a solid black square (white in dark mode). Glyph images are now looked up next to the document first, then in the project root. The same lookup is used in the translation pane. The glyph palette's preview thumbnails still only look next to the document.
