@@ -6,6 +6,7 @@ import {
 } from '../../../../packages/cwrc-leafwriter/src/utilities/languageCodes';
 import type { EntityDbBackend } from './backend';
 import { type EntityDbConnectionInput, openBackendForConnection } from './openBackend';
+import { stripTitleMarks } from '../../../../packages/cwrc-leafwriter/src/autoTagging/titleMarks';
 import { applyEntityDbMigrations } from './schema';
 
 export type SqliteEntityKind = 'person' | 'place' | 'work' | 'office' | 'org' | 'thing';
@@ -1276,7 +1277,7 @@ export class EntitySqliteRepository {
       };
 
       for (const [index, name] of (input.names ?? []).entries()) {
-        const text = name.text.trim();
+        const text = stripTitleMarks(name.text);
         if (!text) continue;
         await insertName(
           text,
@@ -1383,7 +1384,8 @@ export class EntitySqliteRepository {
     startYear?: number | null,
     endYear?: number | null,
   ): Promise<string | null> {
-    if (!name.trim()) return null;
+    name = stripTitleMarks(name);
+    if (!name) return null;
     // Primary name = first active name by is_primary DESC, id (same as listNames).
     // Person years: birth/death `start_year`. Work years: first active dates|work row.
     const rows = (await this.activeBackend.all(
@@ -2218,7 +2220,7 @@ export class EntitySqliteRepository {
     query: string,
     limit = 20,
   ): Promise<SqliteEntityLookupResult[]> {
-    const normalized = query.trim().toLowerCase().replace(/\s+/g, ' ');
+    const normalized = stripTitleMarks(query).toLowerCase().replace(/\s+/g, ' ');
     if (!normalized) return [];
     const rows = (await this.activeBackend.all(
       `SELECT e.id, e.description,
@@ -2707,7 +2709,7 @@ export class EntitySqliteRepository {
   }
 
   async addName(input: AddNameInput): Promise<SqliteName> {
-    const text = input.text.trim();
+    const text = stripTitleMarks(input.text);
     if (!text) throw new Error('Entity names cannot be empty.');
     const now = input.now ?? nowIso();
     const nameType = normalizePersonNameType(input.nameType ?? null);
@@ -3954,7 +3956,7 @@ export class EntitySqliteRepository {
   }
 
   async renamePrimaryName(entityId: string, text: string, now = nowIso()): Promise<boolean> {
-    const trimmed = text.trim();
+    const trimmed = stripTitleMarks(text);
     if (!trimmed) return false;
     return this.transaction(async () => {
       const primary = (await this.activeBackend.get(

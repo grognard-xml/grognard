@@ -979,3 +979,7 @@ Paste/drop a character image now works in the translation pane and its footnotes
 ### Composed glyphs: black square when the document is in a subfolder
 
 - A character made with the CHHIV glyph composer is saved in the project-level `_glyphs/` folder, but the editor looked for it in a `_glyphs/` folder next to the open document. In a document in a subfolder (for example `imported/kanripo/KR3g0018/`) the image was never found, and the glyph showed as a solid black square (white in dark mode). Glyph images are now looked up next to the document first, then in the project root. The same lookup is used in the translation pane. The glyph palette's preview thumbnails still only look next to the document.
+
+### Entity databases: book-title marks are stripped from names and lookups
+
+- Marks such as 《》, 〈〉 and 『』 (and 「」 when it wraps the whole text) inside a `<title>` are typography, not part of the work's name. They are now removed before a name is looked up (name search, Disambiguate candidates, lookup-and-link, the lookup dialog) and before it is saved to an entity database (new entities, added names, renaming the primary name, and `entities.xml`). `《史記》` and `史記` now find, and become, the same entity. Names already saved with marks in them are not changed, and the mention lists still show the text as tagged.

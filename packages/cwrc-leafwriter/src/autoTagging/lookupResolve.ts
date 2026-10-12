@@ -10,6 +10,7 @@
  * `applyLookupResolution` (re-plans against a fresh read, then writes) so the
  * dialog can show a confirm step without having touched entities.xml yet.
  */
+import { stripTitleMarks } from './titleMarks';
 import type { NamedEntityType } from '../types';
 import { autoRomanizeForKind, romanizeFromAuthorityMetadata } from '../utilities/romanize';
 import { LOOKUP_TYPE_TO_KIND } from '../services/entity-database-lookup';
@@ -917,7 +918,7 @@ export async function linkLocalEntityWithoutAuthority(
   deps: LookupResolveDeps,
 ): Promise<LookupResolutionResult> {
   const kind = LOOKUP_TYPE_TO_KIND[entityType];
-  const surface = query.normalize('NFC').trim();
+  const surface = stripTitleMarks(query.normalize('NFC'));
   if (!kind || !surface) return { status: 'passthrough' };
 
   await assertLookupSqliteStore(deps.store);

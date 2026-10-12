@@ -3,6 +3,25 @@ import { applyEntityDbMigrations } from './schema';
 import { computeEntityContentHash, replaceEntityContentBetween } from './xmlCodec';
 
 describe('EntitySqliteRepository', () => {
+  it('strips book-title marks when saving and searching work names', async () => {
+    const repository = await EntitySqliteRepository.open();
+    await repository.createPopulatedEntity({
+      id: 'work-title-marks',
+      kind: 'work',
+      names: [{ text: '《史記》', isPrimary: true }],
+    });
+    await repository.addName({ entityId: 'work-title-marks', text: '『太史公書』' });
+
+    expect((await repository.listNames('work-title-marks')).map((n) => n.text).sort()).toEqual([
+      '史記',
+      '太史公書',
+    ]);
+    expect((await repository.searchNames('work', '〈史記〉')).map((hit) => hit.id)).toEqual([
+      'work-title-marks',
+    ]);
+    await repository.close();
+  });
+
   it('shows cross-authority dynasty labels once while retaining their source rows', async () => {
     const repository = await EntitySqliteRepository.open();
     await repository.createEntity({ id: 'person-nationality-merge', kind: 'person' });

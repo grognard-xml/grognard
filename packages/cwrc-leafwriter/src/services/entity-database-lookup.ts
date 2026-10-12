@@ -5,6 +5,7 @@
  */
 import { ENTITY_KINDS, entityElements, type EntityKind } from '../autoTagging/entities';
 import { entityStoreFromDesktop } from '../autoTagging/entityStore';
+import { stripTitleMarks } from '../autoTagging/titleMarks';
 import { SQLITE_REQUIRED_LOOKUP_MESSAGE } from '../autoTagging/sqliteRequired';
 import type {
   AuthorityLookupParams,
@@ -118,7 +119,11 @@ async function search({
     throw new Error(SQLITE_REQUIRED_LOOKUP_MESSAGE);
   }
 
-  const sqliteResults = await sqliteSearch({ databasePath: store.sqlitePath, kind, query });
+  const sqliteResults = await sqliteSearch({
+    databasePath: store.sqlitePath,
+    kind,
+    query: stripTitleMarks(query),
+  });
   if (sqliteResults === null) {
     throw new Error(SQLITE_REQUIRED_LOOKUP_MESSAGE);
   }

@@ -35,6 +35,7 @@ import {
   type WikidataGivenFamilyNames,
 } from './disambiguationMatch';
 import { normalizeNameType, normalizeTypedNamesForIntake, type NameTypeId } from './nameTypes';
+import { stripTitleMarks } from './titleMarks';
 import {
   enrichCandidatesWithBdrcWikidataConcordance,
   emptyBdrcWikidataIndex,
@@ -1491,7 +1492,7 @@ export interface BuildDisambiguationCandidatesOptions {
 export async function buildDisambiguationCandidates(
   entitiesDoc: Document | null,
   tag: string,
-  surface: string,
+  rawSurface: string,
   cache: AuthorityCache,
   enabledAuthorities: (keyof typeof AUTHORITY_MAP)[] = ['Wikidata', 'VIAF'],
   forceRefresh = false,
@@ -1513,6 +1514,8 @@ export async function buildDisambiguationCandidates(
   localCandidates?: DisambiguationCandidate[],
   buildOptions?: BuildDisambiguationCandidatesOptions,
 ): Promise<DisambiguationCandidate[]> {
+  // 《》/『』 around a <title> are typography, not part of the name looked up.
+  const surface = stripTitleMarks(rawSurface);
   const local =
     localCandidates ?? (entitiesDoc ? candidatesFromEntityFile(entitiesDoc, tag, surface) : []);
   const centralCandidates = central
