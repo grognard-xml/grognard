@@ -983,3 +983,7 @@ Paste/drop a character image now works in the translation pane and its footnotes
 ### Entity databases: book-title marks are stripped from names and lookups
 
 - Marks such as 《》, 〈〉 and 『』 (and 「」 when it wraps the whole text) inside a `<title>` are typography, not part of the work's name. They are now removed before a name is looked up (name search, Disambiguate candidates, lookup-and-link, the lookup dialog) and before it is saved to an entity database (new entities, added names, renaming the primary name, and `entities.xml`). `《史記》` and `史記` now find, and become, the same entity. Names already saved with marks in them are not changed, and the mention lists still show the text as tagged.
+
+### Composed glyphs: baseline alignment measured from the font
+
+- A glyph's cell was lowered by a fixed 0.22em to sit with CJK ink, a value tuned by eye against one font; in the current editor font glyphs sat about 0.1em too low. The nudge is now measured: the editor takes the ink extent of a full-square ideograph (國) in the font of the surrounding text and lowers the glyph by that amount (0.12em if the font cannot be measured). The same measurement is used in the translation pane. `--lw-glyph-baseline-shift` on `body` still overrides it, but no longer has a built-in default. This supersedes the 0.22em default described under 0.1.0-beta.1.

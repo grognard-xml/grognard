@@ -24,6 +24,7 @@ import {
   glyphDirForDocument,
   relativeGlyphUrl,
 } from '../utilities/glyphEditor';
+import { glyphBaselineShift } from '../js/schema/mappings/utitlities';
 import { fetchDocumentAssetText } from '../utilities/fetchResource';
 
 export const GLYPH_SELECTOR = 'graphic[type="glyph"]';
@@ -171,7 +172,7 @@ export const prepareAtomicGlyphFields = (
     el.style.height = '1em';
     el.style.lineHeight = '0';
     el.style.verticalAlign = 'baseline';
-    el.style.transform = 'translateY(var(--lw-glyph-baseline-shift, 0.22em))';
+    el.style.transform = `translateY(var(--lw-glyph-baseline-shift, ${glyphBaselineShift(el)}))`;
     el.style.color = 'inherit';
     el.style.backgroundColor = 'currentColor';
     el.style.maskSize = 'contain';

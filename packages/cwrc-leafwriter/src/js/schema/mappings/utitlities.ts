@@ -82,6 +82,50 @@ const applyHiddenGlyphSource = ($tag: JQuery<Element>) => {
   $tag.css('display', 'none');
 };
 
+/** Used when the font cannot be measured (no canvas, or an unmeasurable font). */
+const FALLBACK_GLYPH_BASELINE_SHIFT_EM = 0.12;
+/** Fraction of its cell that a character's ink leaves empty below it (and above). */
+const CELL_INK_MARGIN = 0.055;
+const glyphShiftByFont = new Map<string, number>();
+
+/**
+ * How far to nudge a glyph's 1em cell down from the alphabetic baseline so
+ * it sits where a real CJK character does. Measured, not guessed: the ink of
+ * a full-square ideograph (國) in the very font the text around the glyph is
+ * set in - canvas resolves the same system fallback the DOM does - gives
+ * where CJK ink ends below the baseline, and the cell reaches that plus the
+ * margin an ideograph's ink leaves inside its square. A constant tuned by
+ * eye for one font was too low in another. `--lw-glyph-baseline-shift`
+ * still overrides this per project/font.
+ */
+export const glyphBaselineShift = (el: Element | null | undefined): string => {
+  const fallback = `${FALLBACK_GLYPH_BASELINE_SHIFT_EM}em`;
+  const target = el?.parentElement ?? el;
+  const view = target?.ownerDocument?.defaultView;
+  if (!target || !view) return fallback;
+  try {
+    const style = view.getComputedStyle(target);
+    const fontSize = parseFloat(style.fontSize);
+    if (!Number.isFinite(fontSize) || fontSize <= 0) return fallback;
+    const font = `${style.fontStyle} ${style.fontWeight} ${fontSize}px ${style.fontFamily}`;
+    let shift = glyphShiftByFont.get(font);
+    if (shift === undefined) {
+      const ctx = target.ownerDocument.createElement('canvas').getContext('2d');
+      if (!ctx) return fallback;
+      ctx.font = font;
+      const m = ctx.measureText('國');
+      const ink = m.actualBoundingBoxAscent + m.actualBoundingBoxDescent;
+      if (!(ink > 0)) return fallback;
+      shift = (m.actualBoundingBoxDescent + CELL_INK_MARGIN * ink) / fontSize;
+      if (!Number.isFinite(shift) || shift < 0 || shift > 0.4) return fallback;
+      glyphShiftByFont.set(font, shift);
+    }
+    return `${shift.toFixed(3)}em`;
+  } catch {
+    return fallback;
+  }
+};
+
 /**
  * Unlike the Kanripo gaiji's CSS `background-image` (which can't inherit
  * `currentColor`), the glyph's normalized graphic needs to recolor with
@@ -152,7 +196,7 @@ const applyMaskedGlyph = (
     // stays a manual constant — exposed as a CSS custom property so it can
     // be tuned live (DevTools, or a project stylesheet override) against
     // the actual editor font without a rebuild.
-    transform: 'translateY(var(--lw-glyph-baseline-shift, 0.22em))',
+    transform: `translateY(var(--lw-glyph-baseline-shift, ${glyphBaselineShift($tag[0])}))`,
     // Beat schema `graphic { color: gray }` so the mask paints with the
     // surrounding text colour (inline style wins over non-!important rules).
     color: 'inherit',
