@@ -1,6 +1,6 @@
 import $ from 'jquery';
 
-import { fetchResourceText, resolveDocumentAssetUrl } from '../../../utilities/fetchResource';
+import { fetchDocumentAssetText, resolveDocumentAssetUrl } from '../../../utilities/fetchResource';
 import { findGlyphCharDeclEntry } from '../../../utilities/glyphCharDecl';
 
 /** The full document XML (with header) lives separately from the visual
@@ -121,7 +121,11 @@ const applyHiddenGlyphSource = ($tag: JQuery<Element>) => {
  * "wrap" around). Both cases need their own inline-block + baseline
  * instead of relying on a `.lw-glyph-wrap` ancestor.
  */
-const applyMaskedGlyph = ($tag: JQuery<Element>, url: string, standalone: boolean) => {
+const applyMaskedGlyph = (
+  $tag: JQuery<Element>,
+  standalone: boolean,
+  load: () => Promise<string | null>,
+) => {
   clearEmptyTagSentinel($tag);
   $tag.addClass('lw-inline-glyph');
   $tag.attr('contenteditable', 'false');
@@ -158,7 +162,7 @@ const applyMaskedGlyph = ($tag: JQuery<Element>, url: string, standalone: boolea
     maskPosition: 'center',
   });
 
-  void fetchResourceText(url).then((svgText) => {
+  void load().then((svgText) => {
     if (!svgText) return;
     // Re-clear in case TinyMCE re-seeded \uFEFF while the SVG was loading.
     clearEmptyTagSentinel($tag);
@@ -216,8 +220,7 @@ const applyGlyphRefElement = ($tag: JQuery<Element>, documentFilePath: string | 
   const entry = findGlyphCharDeclEntry(storedXml, glyphId);
   if (!entry) return;
 
-  const url = resolveDocumentAssetUrl(entry.svgUrl, documentFilePath);
-  applyMaskedGlyph($tag, url, true);
+  applyMaskedGlyph($tag, true, () => fetchDocumentAssetText(entry.svgUrl, documentFilePath));
 };
 
 const applyEmSizedGraphic = ($tag: JQuery<Element>, url: string, heightAttr: string) => {
@@ -285,7 +288,7 @@ export const handleGraphics = ($tag: JQuery<Element>, options: HandleGraphicsOpt
     if ($tag.attr('type') === 'source') {
       applyHiddenGlyphSource($tag);
     } else {
-      applyMaskedGlyph($tag, url, false);
+      applyMaskedGlyph($tag, false, () => fetchDocumentAssetText(rawUrl, documentFilePath));
     }
     return;
   }
@@ -293,7 +296,7 @@ export const handleGraphics = ($tag: JQuery<Element>, options: HandleGraphicsOpt
   if (isBareGlyphGraphic($tag)) {
     // TEI Lite fallback: no wrapper, no charDecl - this element owns its
     // own inline-block/baseline (standalone: true).
-    applyMaskedGlyph($tag, url, true);
+    applyMaskedGlyph($tag, true, () => fetchDocumentAssetText(rawUrl, documentFilePath));
     return;
   }
 

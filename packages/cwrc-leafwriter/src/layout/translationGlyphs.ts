@@ -24,7 +24,7 @@ import {
   glyphDirForDocument,
   relativeGlyphUrl,
 } from '../utilities/glyphEditor';
-import { fetchResourceText, resolveDocumentAssetUrl } from '../utilities/fetchResource';
+import { fetchDocumentAssetText } from '../utilities/fetchResource';
 
 export const GLYPH_SELECTOR = 'graphic[type="glyph"]';
 
@@ -183,8 +183,7 @@ export const prepareAtomicGlyphFields = (
 
     const relativeUrl = el.getAttribute('url');
     if (!relativeUrl) continue;
-    const resolvedUrl = resolveDocumentAssetUrl(relativeUrl, translationPath ?? null);
-    void fetchResourceText(resolvedUrl).then((svgText) => {
+    void fetchDocumentAssetText(relativeUrl, translationPath ?? null).then((svgText) => {
       if (!svgText) return;
       const dataUrl = `data:image/svg+xml,${encodeURIComponent(svgText)}`;
       el.style.maskImage = `url("${dataUrl}")`;

@@ -55,6 +55,38 @@ export const resolveDocumentAssetUrl = (
   return toLocalFileUrl(absolute);
 };
 
+/**
+ * Candidate URLs for a relative asset path: next to the open document first
+ * (pasted/imported glyphs live in a `_glyphs/` beside their file), then
+ * relative to the project root (composed glyphs live in the project-level
+ * `<projectRoot>/_glyphs/`, which is not beside a document in a subfolder).
+ */
+export const documentAssetUrlCandidates = (
+  url: string,
+  documentFilePath: string | null | undefined,
+): string[] => {
+  const candidates = [resolveDocumentAssetUrl(url, documentFilePath)];
+  const projectRoot =
+    typeof window !== 'undefined' ? window.__leafWriterProject?.getProjectRootPath?.() : null;
+  if (projectRoot && url && !isLocalFileUrl(url) && !/^(https?:|blob:)/i.test(url)) {
+    const fromRoot = resolveDocumentAssetUrl(url, `${projectRoot.replace(/[\\/]+$/, '')}/_`);
+    if (!candidates.includes(fromRoot)) candidates.push(fromRoot);
+  }
+  return candidates;
+};
+
+/** Fetches the first candidate from `documentAssetUrlCandidates` that loads. */
+export const fetchDocumentAssetText = async (
+  url: string,
+  documentFilePath: string | null | undefined,
+): Promise<string | null> => {
+  for (const candidate of documentAssetUrlCandidates(url, documentFilePath)) {
+    const text = await fetchResourceText(candidate);
+    if (text) return text;
+  }
+  return null;
+};
+
 export const filterResourceUrls = (urls: string[]): string[] => {
   const seen = new Set<string>();
   const filtered: string[] = [];
