@@ -6,7 +6,7 @@ import {
 } from '../../../../packages/cwrc-leafwriter/src/utilities/languageCodes';
 import type { EntityDbBackend } from './backend';
 import { type EntityDbConnectionInput, openBackendForConnection } from './openBackend';
-import { stripTitleMarks } from '../../../../packages/cwrc-leafwriter/src/autoTagging/titleMarks';
+import { cleanEntityName } from '../../../../packages/cwrc-leafwriter/src/autoTagging/titleMarks';
 import { applyEntityDbMigrations } from './schema';
 
 export type SqliteEntityKind = 'person' | 'place' | 'work' | 'office' | 'org' | 'thing';
@@ -1076,6 +1076,13 @@ function languageForRomanization(language: string | null | undefined): string {
   return latnLangFor(language);
 }
 
+/** SQL expression for `column` with invisible characters removed, so names saved before they were stripped on write still match. */
+const INVISIBLE_CHARS_STRIPPED_SQL = (column: string): string =>
+  [0xfeff, 0x200b, 0x200c, 0x200d, 0x2060, 0x00ad].reduce(
+    (expr, code) => `replace(${expr}, char(${code}), '')`,
+    column,
+  );
+
 export class EntitySqliteRepository {
   /** The real connection. Swapped for a transaction's own handle in `transaction()`. */
   private readonly rootBackend: EntityDbBackend;
@@ -1277,7 +1284,7 @@ export class EntitySqliteRepository {
       };
 
       for (const [index, name] of (input.names ?? []).entries()) {
-        const text = stripTitleMarks(name.text);
+        const text = cleanEntityName(name.text);
         if (!text) continue;
         await insertName(
           text,
@@ -1384,7 +1391,7 @@ export class EntitySqliteRepository {
     startYear?: number | null,
     endYear?: number | null,
   ): Promise<string | null> {
-    name = stripTitleMarks(name);
+    name = cleanEntityName(name);
     if (!name) return null;
     // Primary name = first active name by is_primary DESC, id (same as listNames).
     // Person years: birth/death `start_year`. Work years: first active dates|work row.
@@ -2220,7 +2227,7 @@ export class EntitySqliteRepository {
     query: string,
     limit = 20,
   ): Promise<SqliteEntityLookupResult[]> {
-    const normalized = stripTitleMarks(query).toLowerCase().replace(/\s+/g, ' ');
+    const normalized = cleanEntityName(query).toLowerCase().replace(/\s+/g, ' ');
     if (!normalized) return [];
     const rows = (await this.activeBackend.all(
       `SELECT e.id, e.description,
@@ -2230,7 +2237,7 @@ export class EntitySqliteRepository {
        FROM entities e
        JOIN entity_names n ON n.entity_id = e.id
        WHERE e.kind = ? AND e.deleted_at IS NULL AND n.status = 'active'
-         AND lower(trim(n.text)) = ?
+         AND lower(trim(${INVISIBLE_CHARS_STRIPPED_SQL('n.text')})) = ?
        GROUP BY e.id, e.description
        ORDER BY MAX(n.is_primary) DESC, e.id
        LIMIT ?`,
@@ -2709,7 +2716,7 @@ export class EntitySqliteRepository {
   }
 
   async addName(input: AddNameInput): Promise<SqliteName> {
-    const text = stripTitleMarks(input.text);
+    const text = cleanEntityName(input.text);
     if (!text) throw new Error('Entity names cannot be empty.');
     const now = input.now ?? nowIso();
     const nameType = normalizePersonNameType(input.nameType ?? null);
@@ -3956,7 +3963,7 @@ export class EntitySqliteRepository {
   }
 
   async renamePrimaryName(entityId: string, text: string, now = nowIso()): Promise<boolean> {
-    const trimmed = stripTitleMarks(text);
+    const trimmed = cleanEntityName(text);
     if (!trimmed) return false;
     return this.transaction(async () => {
       const primary = (await this.activeBackend.get(

@@ -254,14 +254,16 @@ export function createCompoundAnchor(
   const localStart = startSearch.map.findIndex((raw) => raw >= startRaw);
   if (localStart < 0) throw new Error('createCompoundAnchor: invalid start boundary');
   const endSearch = index.nodes[endIndex]!.search;
-  let localEnd = endSearch.map.findIndex((raw) => raw >= endRaw);
-  // `localEnd` is computed but deliberately still unread: `endOffset` below
-  // returns the raw, unsnapped `endRaw` instead. That is a known incomplete
-  // port of this file's own `createAnchor`/`rawRange` pattern, tracked in
-  // readme.md ("Future"). Closing it changes anchoring behaviour at
-  // non-node-end boundaries, so it needs its own tested pass.
-  // eslint-disable-next-line no-useless-assignment
-  if (localEnd < 0) localEnd = endSearch.map.length;
+  // Snap the end like the start: the exclusive raw end just after the last
+  // search character that lies before `endRaw` (what `rawRange` computes for
+  // a single-node anchor). A boundary at the node's own end is left exact -
+  // the wrap step requires the span to bound its last component entirely,
+  // including any trailing whitespace or invisible characters the search text
+  // omits.
+  let lastBefore = endSearch.map.length - 1;
+  while (lastBefore >= 0 && endSearch.map[lastBefore]! >= endRaw) lastBefore--;
+  const endOffset =
+    endRaw >= endNode.data.length || lastBefore < 0 ? endRaw : endSearch.map[lastBefore]! + 1;
 
   const flatStart = index.nodeStart[startIndex]! + localStart;
   const occurrence = (() => {
@@ -291,7 +293,7 @@ export function createCompoundAnchor(
     contextAfter: after,
     nodeHash: hashText(startSearch.text),
     endXpath: xpathForTextNode(endNode),
-    endOffset: endRaw,
+    endOffset,
   };
 }
 

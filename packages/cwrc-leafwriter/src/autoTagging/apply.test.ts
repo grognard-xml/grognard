@@ -100,6 +100,30 @@ describe('applySuggestions', () => {
     expect(wrapper.getElementsByTagName('persName')[0]!.textContent).toBe('範');
   });
 
+  it('snaps a compound anchor end past collapsed whitespace, but keeps a node-end boundary exact', () => {
+    const doc = parse(
+      '<TEI xmlns="http://www.tei-c.org/ns/1.0"><text><body><p><roleName>王</roleName><persName>範  之</persName></p></body></text></TEI>',
+    );
+    const start = doc.getElementsByTagName('roleName')[0]!.firstChild as Text;
+    const end = doc.getElementsByTagName('persName')[0]!.firstChild as Text;
+    // Raw end 2 is inside the run of two spaces: snaps back to just after 範.
+    const mid = createCompoundAnchor('doc', doc, start, 0, end, 2, '王範', 'collapse');
+    expect(mid.endOffset).toBe(2);
+    const midFirst = createCompoundAnchor('doc', doc, start, 0, end, 1, '王範', 'collapse');
+    expect(midFirst.endOffset).toBe(1);
+    const full = createCompoundAnchor(
+      'doc',
+      doc,
+      start,
+      0,
+      end,
+      end.data.length,
+      '王範 之',
+      'collapse',
+    );
+    expect(full.endOffset).toBe(end.data.length);
+  });
+
   it('does not nest a nobleTitle roleName inside a pre-existing roleName ancestor', async () => {
     const doc = parse(
       '<TEI xmlns="http://www.tei-c.org/ns/1.0"><text><body><p><roleName>太尉</roleName></p></body></text></TEI>',

@@ -4,7 +4,7 @@
  * ids and authority `<idno>`s. Mentions point in with a bare `@key`.
  */
 
-import { stripTitleMarks } from './titleMarks';
+import { cleanEntityName } from './titleMarks';
 import { latnLangFor } from '../utilities/languageCodes';
 import type { NameTypeId } from './nameTypes';
 import type { OriginAssertion } from './authority';
@@ -486,7 +486,7 @@ export function addEntity(
 ): { id: string; element: Element } {
   const config = ENTITY_KINDS[kind];
   const id = mintEntityId(kind);
-  entity = { ...entity, name: stripTitleMarks(entity.name) };
+  entity = { ...entity, name: cleanEntityName(entity.name) };
 
   const item = doc.createElementNS(TEI_NS, config.item);
   item.setAttributeNS(XML_NS, 'xml:id', id);

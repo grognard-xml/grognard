@@ -1,4 +1,5 @@
 import type { AuthorityCandidate } from './authority';
+import { cleanEntityName } from './titleMarks';
 import { ENTITY_KINDS, entityElements, parseIsoYear, type EntityKind } from './entities';
 import {
   phase1SearchStringsFromCandidate,
@@ -87,7 +88,7 @@ export function candidatesFromEntityDatabaseRecords(
 ): AuthorityCandidate[] {
   const namePolicy = policy ?? resolveNameTypeTaggingPolicy(undefined, null);
   return records.flatMap((record) => {
-    const searchStrings = record.names.map((name) => name.text).filter(Boolean);
+    const searchStrings = record.names.map((name) => cleanEntityName(name.text)).filter(Boolean);
     if (record.kind === 'person') {
       const familyName = record.names.find((name) => name.type === 'family')?.text;
       for (const title of record.nobleTitles) {

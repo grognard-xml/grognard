@@ -35,7 +35,7 @@ import {
   type WikidataGivenFamilyNames,
 } from './disambiguationMatch';
 import { normalizeNameType, normalizeTypedNamesForIntake, type NameTypeId } from './nameTypes';
-import { stripTitleMarks } from './titleMarks';
+import { cleanEntityName } from './titleMarks';
 import {
   enrichCandidatesWithBdrcWikidataConcordance,
   emptyBdrcWikidataIndex,
@@ -1515,7 +1515,7 @@ export async function buildDisambiguationCandidates(
   buildOptions?: BuildDisambiguationCandidatesOptions,
 ): Promise<DisambiguationCandidate[]> {
   // 《》/『』 around a <title> are typography, not part of the name looked up.
-  const surface = stripTitleMarks(rawSurface);
+  const surface = cleanEntityName(rawSurface);
   const local =
     localCandidates ?? (entitiesDoc ? candidatesFromEntityFile(entitiesDoc, tag, surface) : []);
   const centralCandidates = central

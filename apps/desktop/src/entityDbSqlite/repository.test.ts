@@ -3,6 +3,32 @@ import { applyEntityDbMigrations } from './schema';
 import { computeEntityContentHash, replaceEntityContentBetween } from './xmlCodec';
 
 describe('EntitySqliteRepository', () => {
+  it('ignores invisible characters when saving and searching names, including old rows', async () => {
+    const repository = await EntitySqliteRepository.open();
+    await repository.createPopulatedEntity({
+      id: 'place-invisible',
+      kind: 'place',
+      names: [{ text: '\uFEFF拉薩\u200B', isPrimary: true }],
+    });
+    expect((await repository.listNames('place-invisible')).map((n) => n.text)).toEqual(['拉薩']);
+
+    // A row written before names were cleaned on save.
+    await repository.createEntity({ id: 'place-old-row', kind: 'place' });
+    await repository.backend.run(
+      `INSERT INTO entity_names
+         (entity_id, text, name_type, name_role, is_primary, origin, status, created_at, updated_at)
+       VALUES ('place-old-row', ?, 'primary', 'primary', 1, 'user', 'active', 'x', 'x')`,
+      ['江\u200B孜'],
+    );
+    expect((await repository.searchNames('place', '江孜')).map((hit) => hit.id)).toEqual([
+      'place-old-row',
+    ]);
+    expect((await repository.searchNames('place', '\uFEFF拉薩')).map((hit) => hit.id)).toEqual([
+      'place-invisible',
+    ]);
+    await repository.close();
+  });
+
   it('strips book-title marks when saving and searching work names', async () => {
     const repository = await EntitySqliteRepository.open();
     await repository.createPopulatedEntity({

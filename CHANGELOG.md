@@ -987,3 +987,11 @@ Paste/drop a character image now works in the translation pane and its footnotes
 ### Composed glyphs: baseline alignment measured from the font
 
 - A glyph's cell was lowered by a fixed 0.22em to sit with CJK ink, a value tuned by eye against one font; in the current editor font glyphs sat about 0.1em too low. The nudge is now measured: the editor takes the ink extent of a full-square ideograph (國) in the font of the surrounding text and lowers the glyph by that amount (0.12em if the font cannot be measured). The same measurement is used in the translation pane. `--lw-glyph-baseline-shift` on `body` still overrides it, but no longer has a built-in default. This supersedes the 0.22em default described under 0.1.0-beta.1.
+
+### Entity names: invisible characters are ignored (#52)
+
+- Zero-width characters, BOMs and soft hyphens (U+FEFF, U+200B, U+200C, U+200D, U+2060, U+00AD) could end up inside a saved entity name, for example from the placeholder TinyMCE seeds into empty tags. The name then never matched the cleaned document text, so tag bomb skipped the entity and a search by name missed it, with no visible difference. They are now removed together with book-title marks wherever a name is saved or looked up, and from the names tag bomb indexes. Name search also ignores them in rows saved earlier, so existing contaminated entities become findable without editing the database.
+
+### Anchors: compound end boundary is snapped (#44)
+
+- `createCompoundAnchor` computed a snapped end offset and then returned the raw one. The end is now snapped like the start (to just after the last searchable character before the boundary), so it no longer lands inside collapsed whitespace. A boundary at the end of the text node is kept exact, because applying a wrapper requires the span to bound its last component entirely.

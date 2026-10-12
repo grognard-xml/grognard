@@ -57,7 +57,9 @@ export const trimTibetanEdgeMarks = (text: string): string => text.replace(TIBET
  * carries at that spot). A no-op for text without Tibetan marks.
  */
 export function normalizeMatchPattern(pattern: string): string {
-  const nfc = pattern.normalize('NFC');
+  const nfc = Array.from(pattern.normalize('NFC'))
+    .filter((char) => !isInvisible(char))
+    .join('');
   if (!hasTibetan(nfc)) return nfc;
   return trimTibetanEdgeMarks(foldNonBreakingTsheg(nfc));
 }
