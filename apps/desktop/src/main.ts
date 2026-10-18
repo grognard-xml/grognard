@@ -1833,7 +1833,24 @@ const registerIpcHandlers = () => {
     return startImportJob(options);
   });
   ipcMain.handle('importJob:pause', (_event, jobId: string) => pauseImportJob(String(jobId)));
-  ipcMain.handle('importJob:resume', (_event, jobId: string) => resumeImportJob(String(jobId)));
+  ipcMain.handle(
+    'importJob:resume',
+    (_event, jobId: string, resume?: { aiSettings?: Record<string, unknown> | null }) => {
+      // Only the AI settings the panel read from App Settings are accepted, field by field.
+      const ai = resume?.aiSettings;
+      return resumeImportJob(String(jobId), {
+        aiSettings:
+          ai && typeof ai.baseUrl === 'string' && typeof ai.model === 'string'
+            ? {
+                baseUrl: ai.baseUrl,
+                model: ai.model,
+                apiKey: typeof ai.apiKey === 'string' ? ai.apiKey : '',
+                concurrency: typeof ai.concurrency === 'number' ? ai.concurrency : undefined,
+              }
+            : null,
+      });
+    },
+  );
   ipcMain.handle('importJob:cancel', (_event, jobId: string) => cancelImportJob(String(jobId)));
   ipcMain.handle('importJob:retryJuan', (_event, jobId: string, stem: string) =>
     retryImportJuan(String(jobId), String(stem)),
@@ -4697,12 +4714,16 @@ app.on('before-quit', (event) => {
       quitPreparationInProgress = true;
       void closeEntitySqliteReadRepositories();
       closeAllNativeDialogs();
-      killAllImportJobs();
 
       // A best-effort snapshot on the way out, in parallel with renderer
       // teardown. runQuitBackup caps its own runtime and no-ops when backup is
-      // disabled or unconfigured, so this can't hang shutdown.
-      void Promise.allSettled([prepareRendererForQuit(), runQuitBackup()]).finally(() => {
+      // disabled or unconfigured, so this can't hang shutdown. Import jobs are saved as paused
+      // first: quitting must not outrun that write.
+      void Promise.allSettled([
+        prepareRendererForQuit(),
+        runQuitBackup(),
+        killAllImportJobs(),
+      ]).finally(() => {
         quitPreparationInProgress = false;
         app.quit();
       });
@@ -4752,7 +4773,8 @@ app.on('window-all-closed', () => {
   browserImportServer = null;
   killAllBulkBridgeJobs();
   killAllEntityIndexJobs();
-  killAllImportJobs();
+  // On macOS the app outlives its last window, and an import running in the main process goes on.
+  if (process.platform !== 'darwin' || isQuitting) void killAllImportJobs();
   disposeLemminx();
   if (process.platform !== 'darwin' || isQuitting) app.quit();
 });
@@ -4765,5 +4787,5 @@ app.on('will-quit', () => {
   }
   killAllBulkBridgeJobs();
   killAllEntityIndexJobs();
-  killAllImportJobs();
+  void killAllImportJobs();
 });

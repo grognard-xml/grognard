@@ -13,6 +13,7 @@ import {
   Chip,
   Collapse,
   IconButton,
+  LinearProgress,
   List,
   ListItem,
   ListItemIcon,
@@ -22,21 +23,26 @@ import {
   Tooltip,
   Typography,
 } from '@mui/material';
-import { useEffect, useSyncExternalStore } from 'react';
+import { useEffect, useState, useSyncExternalStore } from 'react';
 import type {
   ImportJobSnapshot,
   ImportJuanRecord,
   ImportJuanState,
 } from '../../../../apps/commons/src/desktop/importJobTypes';
 import { ensureImportHeaderEntitiesForPaths } from '../../../../apps/commons/src/desktop/ensureImportHeaderEntities';
+import { aiApiSettingsFromDesktop } from '../autoTagging/llmClientFromSettings';
 import {
   applyImportJobProgress,
   focusImportJobAttention,
   getImportJobUiState,
+  jobProgress,
+  newlyWrittenFiles,
   setImportJobPanelExpanded,
   setImportJobReviewReturn,
   subscribeImportJobUiState,
+  trialSummary,
   visibleImportJobs,
+  visibleJuan,
 } from './importJobProgress';
 
 const stateIcon = (state: ImportJuanState) => {
@@ -56,16 +62,16 @@ const stateIcon = (state: ImportJuanState) => {
 };
 
 const formatEta = (job: ImportJobSnapshot): string => {
-  const done = job.juan.filter((j) =>
-    ['done', 'needs_attention', 'failed', 'skipped'].includes(j.state),
-  ).length;
+  const { done } = jobProgress(job);
   const pending = job.juan.filter((j) => j.state === 'pending' || j.state === 'running').length;
   if (job.status === 'completed') {
     const attention = job.juan.filter((j) => j.state === 'needs_attention').length;
     return attention > 0 ? `${attention} need attention` : 'Done';
   }
   if (job.status === 'blocked') return job.blockReason ?? 'Needs you';
-  if (job.status === 'paused') return 'Paused';
+  if (job.status === 'cancelled') return 'Cancelled';
+  if (job.status === 'paused')
+    return job.pauseReason === 'trial' ? 'Trial done: check it' : 'Paused';
   if (job.status === 'queued') return 'Queued';
   if (done < 3 || !job.avgMsPerJuan || pending === 0) return 'estimating…';
   const minutes = Math.max(1, Math.round((job.avgMsPerJuan * pending) / 60_000));
@@ -73,10 +79,7 @@ const formatEta = (job: ImportJobSnapshot): string => {
 };
 
 const collapsedLabel = (job: ImportJobSnapshot): string => {
-  const total = job.juan.length;
-  const done = job.juan.filter((j) =>
-    ['done', 'needs_attention', 'failed', 'skipped'].includes(j.state),
-  ).length;
+  const { done, total } = jobProgress(job);
   const attention = job.juan.filter((j) => j.state === 'needs_attention').length;
   const base =
     total > 0
@@ -85,21 +88,52 @@ const collapsedLabel = (job: ImportJobSnapshot): string => {
   return attention > 0 ? `${base} · ⚠ ${attention}` : base;
 };
 
+const formatTokens = (n: number): string =>
+  n >= 1_000_000
+    ? `${(n / 1_000_000).toFixed(1)}M`
+    : n >= 1000
+      ? `${Math.round(n / 1000)}k`
+      : `${n}`;
+
 const openJuanFile = async (outputPath: string): Promise<void> => {
   const project = window.__leafWriterProject;
   await project?.refreshExplorer?.();
   await project?.openFile?.(outputPath);
 };
 
-const refreshWrittenFiles = async (job: ImportJobSnapshot): Promise<void> => {
-  const written = job.juan.map((j) => j.outputPath).filter((p): p is string => Boolean(p));
-  if (!written.length) return;
-  try {
-    await ensureImportHeaderEntitiesForPaths(written);
-  } catch {
-    // entities are best-effort after background write
+// Files appear in the project as the job writes them; they are announced to the explorer (and get
+// their header entities) in batches, not once per juan.
+const pendingWritten = new Set<string>();
+const pendingRewritten = new Set<string>();
+let flushTimer: ReturnType<typeof setTimeout> | null = null;
+
+const flushWrittenFiles = async (): Promise<void> => {
+  flushTimer = null;
+  const written = [...pendingWritten];
+  const rewritten = [...pendingRewritten];
+  pendingWritten.clear();
+  pendingRewritten.clear();
+  const project = window.__leafWriterProject;
+  if (written.length) {
+    try {
+      await ensureImportHeaderEntitiesForPaths(written);
+    } catch {
+      // entities are best-effort after a background write
+    }
   }
-  await window.__leafWriterProject?.refreshExplorer?.();
+  await project?.refreshExplorer?.();
+  // A juan written again (Retry) may be open in the editor.
+  for (const filePath of rewritten) {
+    await project?.reloadFileFromDisk?.(filePath);
+  }
+};
+
+const queueWrittenFiles = (written: string[], rewritten: string[], immediately: boolean): void => {
+  written.forEach((p) => pendingWritten.add(p));
+  rewritten.forEach((p) => pendingRewritten.add(p));
+  if (pendingWritten.size === 0 && pendingRewritten.size === 0 && !immediately) return;
+  if (flushTimer) clearTimeout(flushTimer);
+  flushTimer = setTimeout(() => void flushWrittenFiles(), immediately ? 0 : 2000);
 };
 
 export const ImportJobPanel = () => {
@@ -112,17 +146,31 @@ export const ImportJobPanel = () => {
     const unsub = api.onImportJobProgress((event) => {
       const prev = getImportJobUiState();
       applyImportJobProgress(event);
-      for (const job of event.jobs) {
-        const was = prev.jobs.find((j) => j.jobId === job.jobId);
-        if (job.status === 'completed' && was?.status !== 'completed') {
-          void refreshWrittenFiles(job);
-        }
-      }
+      const { written, rewritten } = newlyWrittenFiles(prev.jobs, event.jobs);
+      const justFinished = event.jobs.some(
+        (job) =>
+          job.status === 'completed' &&
+          prev.jobs.find((j) => j.jobId === job.jobId)?.status !== 'completed',
+      );
+      queueWrittenFiles(written, rewritten, justFinished);
     });
     void api.importJobSnapshot?.().then((event) => applyImportJobProgress(event));
-    const root = window.__leafWriterProject?.getProjectRootPath?.();
-    if (root) void api.importJobRestoreFromProject?.(root);
-    return unsub;
+
+    // Saved jobs are looked up for the project that is open, again when another one is opened.
+    let restoredRoot: string | null = null;
+    const restoreForOpenProject = () => {
+      const root = window.__leafWriterProject?.getProjectRootPath?.();
+      if (root && root !== restoredRoot) {
+        restoredRoot = root;
+        void api.importJobRestoreFromProject?.(root);
+      }
+    };
+    restoreForOpenProject();
+    window.addEventListener('focus', restoreForOpenProject);
+    return () => {
+      unsub();
+      window.removeEventListener('focus', restoreForOpenProject);
+    };
   }, []);
 
   if (jobs.length === 0 && !state.reviewReturn) return null;
@@ -131,6 +179,7 @@ export const ImportJobPanel = () => {
   const amber =
     primary &&
     (primary.status === 'blocked' || primary.juan.some((j) => j.state === 'needs_attention'));
+  const primaryProgress = primary ? jobProgress(primary) : null;
 
   const reviewNext = (job: ImportJobSnapshot) => {
     const next = job.juan.find((j) => j.state === 'needs_attention' && j.outputPath);
@@ -167,10 +216,12 @@ export const ImportJobPanel = () => {
           right: 16,
           zIndex: 1350,
           width: state.expanded ? 420 : 'auto',
+          minWidth: 260,
           maxWidth: 'min(420px, calc(100vw - 32px))',
           bgcolor: amber ? 'warning.light' : 'background.paper',
           border: 1,
           borderColor: amber ? 'warning.main' : 'divider',
+          overflow: 'hidden',
         }}
       >
         <Stack
@@ -189,9 +240,21 @@ export const ImportJobPanel = () => {
             {state.expanded ? <ExpandLessIcon /> : <ExpandMoreIcon />}
           </IconButton>
         </Stack>
+        {primary && primaryProgress && (
+          <LinearProgress
+            variant={
+              primary.status === 'running' && primaryProgress.total === 0
+                ? 'indeterminate'
+                : 'determinate'
+            }
+            value={primaryProgress.fraction * 100}
+            color={amber ? 'warning' : 'primary'}
+            aria-label={`${primary.title} progress`}
+          />
+        )}
 
         <Collapse in={state.expanded}>
-          <Box sx={{ px: 1.5, pb: 1.5, maxHeight: 360, overflow: 'auto' }}>
+          <Box sx={{ px: 1.5, pb: 1.5, pt: 1, maxHeight: 360, overflow: 'auto' }}>
             {jobs.map((job) => (
               <JobBlock
                 key={job.jobId}
@@ -225,8 +288,41 @@ const JobBlock = ({
   onOpen: (juan: ImportJuanRecord) => void;
 }) => {
   const api = window.electronAPI;
+  const [showAll, setShowAll] = useState(false);
   const attention = job.juan.filter((j) => j.state === 'needs_attention');
   const done = job.juan.filter((j) => j.state === 'done').length;
+  const progress = jobProgress(job);
+  const trial = trialSummary(job);
+  const view = visibleJuan(job, showAll);
+
+  const resume = () => {
+    // The API key is not saved with a job, so a resumed AI import takes the app's current settings.
+    const ai = aiApiSettingsFromDesktop();
+    void api?.importJobResume?.(job.jobId, {
+      aiSettings: ai
+        ? {
+            baseUrl: ai.baseUrl,
+            apiKey: ai.apiKey,
+            model: ai.model,
+            concurrency: ai.concurrency,
+          }
+        : null,
+    });
+  };
+
+  const cancel = () => {
+    const unfinished = job.juan.filter(
+      (j) => j.state === 'pending' || j.state === 'running',
+    ).length;
+    const message =
+      progress.done > 0
+        ? `Cancel the import of ${job.title}? The ${progress.done} juan already written stay in the project.`
+        : `Cancel the import of ${job.title}?`;
+    if (unfinished > 0 || job.juan.length === 0) {
+      if (!window.confirm(message)) return;
+    }
+    void api?.importJobCancel?.(job.jobId);
+  };
 
   return (
     <Box sx={{ mb: 1.5 }}>
@@ -243,14 +339,14 @@ const JobBlock = ({
         )}
         {(job.status === 'paused' || job.status === 'blocked' || job.status === 'queued') && (
           <Tooltip title="Resume">
-            <IconButton size="small" onClick={() => void api?.importJobResume?.(job.jobId)}>
+            <IconButton size="small" onClick={resume}>
               <PlayArrowIcon fontSize="small" />
             </IconButton>
           </Tooltip>
         )}
         {job.status !== 'completed' && job.status !== 'cancelled' && (
           <Tooltip title="Cancel">
-            <IconButton size="small" onClick={() => void api?.importJobCancel?.(job.jobId)}>
+            <IconButton size="small" onClick={cancel}>
               <StopIcon fontSize="small" />
             </IconButton>
           </Tooltip>
@@ -262,9 +358,33 @@ const JobBlock = ({
         )}
       </Stack>
 
+      {job.juan.length > 0 && (
+        <LinearProgress
+          variant="determinate"
+          value={progress.fraction * 100}
+          sx={{ mb: 0.5 }}
+          aria-label={`${job.title} progress`}
+        />
+      )}
+
       {job.status === 'blocked' && job.blockReason && (
         <Typography variant="caption" color="warning.dark" display="block" sx={{ mb: 0.5 }}>
           {job.blockReason}
+        </Typography>
+      )}
+
+      {trial && (
+        <Typography variant="caption" display="block" sx={{ mb: 0.5 }}>
+          Trial juan {trial.stem} is written
+          {trial.tokens > 0 ? ` (${formatTokens(trial.tokens)} tokens` : ''}
+          {trial.tokens > 0 && trial.cost != null ? `, about $${trial.cost.toFixed(3)}` : ''}
+          {trial.tokens > 0 ? ')' : ''}.
+          {trial.remaining > 0 && trial.tokens > 0
+            ? ` The other ${trial.remaining} juan would use about ${formatTokens(trial.remainingTokens)} tokens${
+                trial.remainingCost != null ? ` (about $${trial.remainingCost.toFixed(2)})` : ''
+              }.`
+            : ''}{' '}
+          Open it, then press Resume to continue or Cancel to stop.
         </Typography>
       )}
 
@@ -284,7 +404,7 @@ const JobBlock = ({
       )}
 
       <List dense disablePadding>
-        {job.juan.map((juan) => (
+        {view.shown.map((juan) => (
           <ListItem
             key={`${juan.stem}-${juan.sourceKey}`}
             sx={{
@@ -313,7 +433,7 @@ const JobBlock = ({
                     Accept
                   </Button>
                 </Stack>
-              ) : juan.outputPath && job.status === 'completed' ? (
+              ) : juan.outputPath && (job.status === 'completed' || showAll) ? (
                 <Button size="small" onClick={() => onOpen(juan)}>
                   Open
                 </Button>
@@ -323,13 +443,28 @@ const JobBlock = ({
             <ListItemIcon sx={{ minWidth: 28 }}>{stateIcon(juan.state)}</ListItemIcon>
             <ListItemText
               primary={juan.stem}
-              secondary={juan.reason}
+              secondary={juan.reason ?? juan.detail}
               primaryTypographyProps={{ variant: 'caption' }}
               secondaryTypographyProps={{ variant: 'caption' }}
             />
           </ListItem>
         ))}
       </List>
+      {!showAll && (view.hiddenDone > 0 || view.hiddenOther > 0) && (
+        <Typography variant="caption" color="text.secondary" display="block" sx={{ mt: 0.5 }}>
+          {view.hiddenDone > 0 ? `${view.hiddenDone} finished` : ''}
+          {view.hiddenDone > 0 && view.hiddenOther > 0 ? ' · ' : ''}
+          {view.hiddenOther > 0 ? `${view.hiddenOther} more waiting` : ''}{' '}
+          <Button size="small" onClick={() => setShowAll(true)}>
+            Show all {job.juan.length}
+          </Button>
+        </Typography>
+      )}
+      {showAll && job.juan.length > 30 && (
+        <Button size="small" onClick={() => setShowAll(false)}>
+          Show fewer
+        </Button>
+      )}
     </Box>
   );
 };

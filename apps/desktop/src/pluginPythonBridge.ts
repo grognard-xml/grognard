@@ -20,6 +20,7 @@ const execFileAsync = promisify(execFile);
 
 const PYTHON_TIMEOUT_MS = 5 * 60 * 1000;
 const DAOZANG_SYNC_TIMEOUT_MS = 30 * 60 * 1000;
+const LONG_OP_TIMEOUT_MS = 20 * 60 * 1000;
 const MIN_SANMIAO_VERSION = '0.2.10';
 const SANMIAO_SPEC = `sanmiao[fuzzy]==${MIN_SANMIAO_VERSION}`;
 const KANRIPO_API_SPEC = 'kanripo==0.31';
@@ -260,6 +261,18 @@ const pythonTimeoutMs = (pluginId: string, payload: Record<string, unknown>): nu
   ) {
     return DAOZANG_SYNC_TIMEOUT_MS;
   }
+  // CBETA: `convert` turns a whole work into TEI in one call; a long work takes more than five minutes.
+  if (pluginId === 'cbeta-import' && payload.op === 'convert') return LONG_OP_TIMEOUT_MS;
+  // Kanripo: punctuation transfer and folder alignment work on one juan or a whole work against a
+  // whole parallel text. A call that went over five minutes used to be killed and its juan lost.
+  if (
+    pluginId === 'kanripo-import' &&
+    (payload.op === 'parallel_punct' ||
+      payload.op === 'align_folder_sources' ||
+      payload.op === 'apply_paragraph_scoped')
+  ) {
+    return LONG_OP_TIMEOUT_MS;
+  }
   return PYTHON_TIMEOUT_MS;
 };
 
@@ -474,7 +487,9 @@ const runPluginPythonCli = async (
   pluginId: string,
   payload: Record<string, unknown>,
   onProgress?: PluginPythonProgressCallback,
+  signal?: AbortSignal,
 ): Promise<string> => {
+  if (signal?.aborted) throw new DOMException('Aborted', 'AbortError');
   // setPluginProject() clears the snapshot cache (e.g. on opening a project) and
   // nothing guarantees it is rebuilt before the first plugin call.
   if (!getCachedPluginHostSnapshot()) await getPluginHostSnapshot();
@@ -515,6 +530,15 @@ const runPluginPythonCli = async (
     let resultLine: string | null = null;
     let settled = false;
     let forceKillTimer: ReturnType<typeof setTimeout> | undefined;
+
+    const onAbort = () => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      child.kill('SIGTERM');
+      forceKillTimer = setTimeout(() => child.kill('SIGKILL'), 2_000);
+      reject(new DOMException('Aborted', 'AbortError'));
+    };
 
     const timeoutMs = pythonTimeoutMs(pluginId, payload);
     const timeout = setTimeout(() => {
@@ -561,9 +585,14 @@ const runPluginPythonCli = async (
       stderr += stderrDecoder.write(chunk);
     });
 
+    // Killing the process on abort is what makes Pause and Cancel take effect now rather than
+    // after a long call (a punctuation transfer can run for minutes) has finished.
+    signal?.addEventListener('abort', onAbort, { once: true });
+
     child.on('error', (error) => {
       clearTimeout(timeout);
       if (forceKillTimer) clearTimeout(forceKillTimer);
+      signal?.removeEventListener('abort', onAbort);
       if (!settled) {
         settled = true;
         reject(error);
@@ -573,6 +602,7 @@ const runPluginPythonCli = async (
     child.on('close', (code) => {
       clearTimeout(timeout);
       if (forceKillTimer) clearTimeout(forceKillTimer);
+      signal?.removeEventListener('abort', onAbort);
       if (settled) return;
       settled = true;
       takeStdout(stdoutDecoder.end());
@@ -628,11 +658,12 @@ export const invokePluginPython = async (
   pluginId: string,
   payload: Record<string, unknown>,
   onProgress?: PluginPythonProgressCallback,
+  options?: { signal?: AbortSignal },
 ): Promise<unknown> => {
   if (!isPluginEnabledInMain(pluginId)) {
     throw new Error(`Plugin not enabled: ${pluginId}`);
   }
-  const stdout = await runPluginPythonCli(pluginId, payload, onProgress);
+  const stdout = await runPluginPythonCli(pluginId, payload, onProgress, options?.signal);
   return parseSanmiaoStdout(stdout, payload);
 };
 

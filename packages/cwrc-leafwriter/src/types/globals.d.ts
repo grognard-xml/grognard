@@ -615,6 +615,30 @@ declare global {
       projectFilePath: string,
     ) => Promise<{ merged: boolean }>;
     pluginsInvokePython?: (pluginId: string, payload: Record<string, unknown>) => Promise<unknown>;
+    importJobStart?: (
+      options: import('../../../../apps/commons/src/desktop/importJobTypes').ImportJobOptions,
+    ) => Promise<string>;
+    importJobPause?: (jobId: string) => Promise<boolean>;
+    importJobResume?: (
+      jobId: string,
+      resume?: import('../../../../apps/commons/src/desktop/importJobTypes').ImportJobResumeOptions,
+    ) => Promise<boolean>;
+    importJobCancel?: (jobId: string) => Promise<boolean>;
+    importJobRetryJuan?: (jobId: string, stem: string) => Promise<boolean>;
+    importJobAcceptJuan?: (jobId: string, stem: string) => Promise<boolean>;
+    importJobDismiss?: (jobId: string) => Promise<boolean>;
+    importJobList?: () => Promise<
+      import('../../../../apps/commons/src/desktop/importJobTypes').ImportJobSnapshot[]
+    >;
+    importJobSnapshot?: () => Promise<
+      import('../../../../apps/commons/src/desktop/importJobTypes').ImportJobProgressEvent
+    >;
+    importJobRestoreFromProject?: (projectRoot: string) => Promise<number>;
+    onImportJobProgress?: (
+      callback: (
+        event: import('../../../../apps/commons/src/desktop/importJobTypes').ImportJobProgressEvent,
+      ) => void,
+    ) => () => void;
     kanripoSearch?: (query: string) => Promise<
       {
         id: string;

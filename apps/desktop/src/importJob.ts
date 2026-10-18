@@ -1,17 +1,23 @@
 /**
  * Durable corpus-import job runner in the Electron main process.
  * One job runs at a time; others queue. Per-juan state is persisted to disk.
+ *
+ * Job records live in the app's user-data folder (`import-jobs/<jobId>.json`), not in the project:
+ * a project can be under version control or shared, and a record may name a model and a spending
+ * cap. A record never holds the API key or the large texts a job was started with; the texts go
+ * to a sidecar file written once, and the key is supplied again when a restored job is resumed.
  */
 
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { Notification, powerSaveBlocker, type BrowserWindow } from 'electron';
+import { app, Notification, powerSaveBlocker, type BrowserWindow } from 'electron';
 import type {
   CbetaImportJobOptions,
   DaozangImportJobOptions,
   ImportJobOptions,
   ImportJobProgressEvent,
+  ImportJobResumeOptions,
   ImportJobSnapshot,
   ImportJuanRecord,
   KanripoImportJobOptions,
@@ -26,6 +32,8 @@ import {
   wrapDaozangTeiDocument,
   type DaozangTeiMeta,
 } from '../../commons/src/desktop/daozangImportXml';
+import { isLocalAiBaseUrl } from '../../../packages/cwrc-leafwriter/src/autoTagging/llmClientFromSettings';
+import { writeFileAtomic } from './atomicWrite';
 import {
   cloneKanripoWork,
   flushKanripoWork,
@@ -44,10 +52,14 @@ import {
 type EmitFn = (event: ImportJobProgressEvent) => void;
 
 interface RuntimeJob {
+  /** What the window sees and what is saved: no API key, no large texts. */
   snapshot: ImportJobSnapshot;
+  /** The full options, kept in memory only (plus the sidecar for the large parts). */
+  options: ImportJobOptions;
   abort: AbortController;
   pauseRequested: boolean;
   runPromise?: Promise<void>;
+  persistChain: Promise<void>;
 }
 
 const jobs = new Map<string, RuntimeJob>();
@@ -57,25 +69,116 @@ let emitProgress: EmitFn | null = null;
 let getMainWindow: (() => BrowserWindow | null) | null = null;
 let powerSaveBlockerId: number | null = null;
 
-const JOB_FILE_NAME = '.import-job.json';
+const COMPLETED_JOB_KEEP_MS = 7 * 24 * 60 * 60 * 1000;
+const BROADCAST_MIN_MS = 250;
 
 const nowIso = (): string => new Date().toISOString();
 
-const jobFilePath = (options: ImportJobOptions): string =>
-  path.join(options.destDir, JOB_FILE_NAME);
+const jobsDir = (): string => path.join(app.getPath('userData'), 'import-jobs');
+const jobFile = (jobId: string): string => path.join(jobsDir(), `${jobId}.json`);
+const heavyFile = (jobId: string): string => path.join(jobsDir(), `${jobId}.heavy.json`);
 
-const persistJob = async (snapshot: ImportJobSnapshot): Promise<void> => {
-  snapshot.updatedAt = nowIso();
-  await fs.mkdir(path.dirname(jobFilePath(snapshot.options)), { recursive: true });
-  await fs.writeFile(jobFilePath(snapshot.options), JSON.stringify(snapshot, null, 2), 'utf8');
+/** The parts of a job's options that are large or sensitive; saved once in the sidecar. */
+interface HeavyOptions {
+  projectConfig?: ImportJobOptions['projectConfig'];
+  sources?: KanripoImportJobOptions['sources'];
+  alignedJuanSources?: KanripoImportJobOptions['alignedJuanSources'];
+  alignedMatches?: KanripoImportJobOptions['alignedMatches'];
+  alignedSourcesPayload?: KanripoImportJobOptions['alignedSourcesPayload'];
+  gaijiOverrides?: KanripoImportJobOptions['gaijiOverrides'];
+}
+
+export const splitOptions = (
+  options: ImportJobOptions,
+): { light: ImportJobOptions; heavy: HeavyOptions } => {
+  if (options.kind !== 'kanripo') {
+    return {
+      light: { ...options, projectConfig: {} },
+      heavy: { projectConfig: options.projectConfig },
+    };
+  }
+  return {
+    light: {
+      ...options,
+      projectConfig: {},
+      sources: options.sources.map(({ id, label, kind, url }) => ({
+        id,
+        label,
+        kind,
+        url,
+        text: '',
+      })),
+      alignedJuanSources: undefined,
+      alignedMatches: undefined,
+      alignedSourcesPayload: undefined,
+      gaijiOverrides: undefined,
+      aiSettings: options.aiSettings ? { ...options.aiSettings, apiKey: '' } : options.aiSettings,
+    },
+    heavy: {
+      projectConfig: options.projectConfig,
+      sources: options.sources,
+      alignedJuanSources: options.alignedJuanSources,
+      alignedMatches: options.alignedMatches,
+      alignedSourcesPayload: options.alignedSourcesPayload,
+      gaijiOverrides: options.gaijiOverrides,
+    },
+  };
 };
 
+const mergeOptions = (light: ImportJobOptions, heavy: HeavyOptions): ImportJobOptions => {
+  const merged = { ...light, projectConfig: heavy.projectConfig ?? light.projectConfig };
+  if (merged.kind !== 'kanripo') return merged as ImportJobOptions;
+  return {
+    ...merged,
+    sources: heavy.sources ?? merged.sources,
+    alignedJuanSources: heavy.alignedJuanSources,
+    alignedMatches: heavy.alignedMatches,
+    alignedSourcesPayload: heavy.alignedSourcesPayload,
+    gaijiOverrides: heavy.gaijiOverrides,
+  } as ImportJobOptions;
+};
+
+const persistJob = (runtime: RuntimeJob): Promise<void> => {
+  runtime.snapshot.updatedAt = nowIso();
+  const body = JSON.stringify(runtime.snapshot);
+  // Writes for one job are strictly ordered: an older state must never land after a newer one.
+  runtime.persistChain = runtime.persistChain
+    .then(() => writeFileAtomic(jobFile(runtime.snapshot.jobId), body))
+    .catch((error) => {
+      console.error('[importJob] could not save job state', error);
+    });
+  return runtime.persistChain;
+};
+
+const setOptions = (runtime: RuntimeJob, options: ImportJobOptions): void => {
+  runtime.options = options;
+  runtime.snapshot.options = splitOptions(options).light;
+};
+
+const buildEvent = (): ImportJobProgressEvent => ({
+  jobs: [...jobs.values()].map((runtime) => structuredClone(runtime.snapshot)),
+  activeJobId,
+});
+
+let lastBroadcastAt = 0;
+let broadcastTimer: ReturnType<typeof setTimeout> | null = null;
+
+/** Sends the state to the window, at most every 250 ms: progress ticks come much faster. */
 const broadcast = (): void => {
   if (!emitProgress) return;
-  emitProgress({
-    jobs: [...jobs.values()].map((runtime) => structuredClone(runtime.snapshot)),
-    activeJobId,
-  });
+  const wait = lastBroadcastAt + BROADCAST_MIN_MS - Date.now();
+  if (wait > 0) {
+    if (!broadcastTimer) {
+      broadcastTimer = setTimeout(() => {
+        broadcastTimer = null;
+        lastBroadcastAt = Date.now();
+        emitProgress?.(buildEvent());
+      }, wait);
+    }
+    return;
+  }
+  lastBroadcastAt = Date.now();
+  emitProgress(buildEvent());
 };
 
 const notifyOs = (title: string, body: string, onClick?: () => void): void => {
@@ -113,33 +216,44 @@ export function configureImportJobEmitter(
 }
 
 export function listImportJobs(): ImportJobSnapshot[] {
-  return [...jobs.values()].map((runtime) => structuredClone(runtime.snapshot));
+  return buildEvent().jobs;
 }
 
 export function getImportJobProgressEvent(): ImportJobProgressEvent {
-  return {
-    jobs: listImportJobs(),
-    activeJobId,
-  };
+  return buildEvent();
 }
+
+const UNFINISHED: ImportJobSnapshot['status'][] = ['queued', 'running', 'paused', 'blocked'];
+
+const workIdOf = (options: ImportJobOptions): string =>
+  options.kind === 'kanripo' ? options.krId : options.workId;
 
 export async function startImportJob(options: ImportJobOptions): Promise<string> {
   ensurePluginBridgeWired();
-  const jobId = randomUUID();
-  const workId =
-    options.kind === 'kanripo'
-      ? options.krId
-      : options.kind === 'cbeta'
-        ? options.workId
-        : options.workId;
+  const workId = workIdOf(options);
+  for (const runtime of jobs.values()) {
+    const other = runtime.snapshot;
+    if (
+      other.kind === options.kind &&
+      other.workId === workId &&
+      other.options.projectRoot === options.projectRoot &&
+      UNFINISHED.includes(other.status)
+    ) {
+      throw new Error(
+        `${other.title} already has an unfinished import. Resume or cancel it in the import panel first.`,
+      );
+    }
+  }
 
+  const jobId = randomUUID();
+  const { light, heavy } = splitOptions(options);
   const snapshot: ImportJobSnapshot = {
     jobId,
     kind: options.kind,
     title: options.title,
     workId,
     status: 'queued',
-    options,
+    options: light,
     juan: [],
     startedAt: nowIso(),
     updatedAt: nowIso(),
@@ -147,13 +261,17 @@ export async function startImportJob(options: ImportJobOptions): Promise<string>
     actualCost: 0,
   };
 
-  jobs.set(jobId, {
+  const runtime: RuntimeJob = {
     snapshot,
+    options,
     abort: new AbortController(),
     pauseRequested: false,
-  });
+    persistChain: Promise.resolve(),
+  };
+  jobs.set(jobId, runtime);
   queue.push(jobId);
-  await persistJob(snapshot);
+  await writeFileAtomic(heavyFile(jobId), JSON.stringify(heavy));
+  await persistJob(runtime);
   broadcast();
   void pumpQueue();
   return jobId;
@@ -171,14 +289,14 @@ export function pauseImportJob(jobId: string): boolean {
     runtime.snapshot.status = 'paused';
     const idx = queue.indexOf(jobId);
     if (idx >= 0) queue.splice(idx, 1);
-    void persistJob(runtime.snapshot);
+    void persistJob(runtime);
     broadcast();
     return true;
   }
   return false;
 }
 
-export function resumeImportJob(jobId: string): boolean {
+export function resumeImportJob(jobId: string, resume?: ImportJobResumeOptions): boolean {
   const runtime = jobs.get(jobId);
   if (!runtime) return false;
   if (
@@ -188,12 +306,31 @@ export function resumeImportJob(jobId: string): boolean {
   ) {
     return false;
   }
+
+  const options = runtime.options;
+  if (options.kind === 'kanripo' && options.punctMode === 'ai') {
+    // The API key is not saved with a job; take the one the app has now.
+    const settings = resume?.aiSettings?.baseUrl ? resume.aiSettings : options.aiSettings;
+    const usable =
+      settings && (isLocalAiBaseUrl(settings.baseUrl) || Boolean(settings.apiKey?.trim()));
+    if (!usable) {
+      runtime.snapshot.status = 'blocked';
+      runtime.snapshot.blockReason =
+        'AI API settings are needed to continue. Configure them in App Settings, then resume.';
+      void persistJob(runtime);
+      broadcast();
+      return true;
+    }
+    setOptions(runtime, { ...options, aiSettings: settings });
+  }
+
   runtime.abort = new AbortController();
   runtime.pauseRequested = false;
   runtime.snapshot.status = 'queued';
   runtime.snapshot.blockReason = undefined;
+  runtime.snapshot.pauseReason = undefined;
   if (!queue.includes(jobId)) queue.push(jobId);
-  void persistJob(runtime.snapshot);
+  void persistJob(runtime);
   broadcast();
   void pumpQueue();
   return true;
@@ -202,15 +339,18 @@ export function resumeImportJob(jobId: string): boolean {
 export function cancelImportJob(jobId: string): boolean {
   const runtime = jobs.get(jobId);
   if (!runtime) return false;
+  const wasRunning = runtime.snapshot.status === 'running';
   runtime.pauseRequested = false;
   runtime.abort.abort();
   runtime.snapshot.status = 'cancelled';
+  runtime.snapshot.pauseReason = undefined;
   const idx = queue.indexOf(jobId);
   if (idx >= 0) queue.splice(idx, 1);
-  if (activeJobId === jobId) activeJobId = null;
-  void persistJob(runtime.snapshot);
+  // A job that is running is still unwinding (its Python call is being killed): the next job
+  // starts when it has finished, from pumpQueue's `finally`, not now.
+  if (!wasRunning) void pumpQueue();
+  void persistJob(runtime);
   broadcast();
-  void pumpQueue();
   return true;
 }
 
@@ -228,11 +368,13 @@ export function retryImportJuan(jobId: string, stem: string): boolean {
     runtime.snapshot.status === 'blocked'
   ) {
     runtime.snapshot.status = 'queued';
+    runtime.snapshot.pauseReason = undefined;
     runtime.abort = new AbortController();
+    runtime.pauseRequested = false;
     if (!queue.includes(jobId)) queue.push(jobId);
     void pumpQueue();
   }
-  void persistJob(runtime.snapshot);
+  void persistJob(runtime);
   broadcast();
   return true;
 }
@@ -244,82 +386,83 @@ export function acceptImportJuan(jobId: string, stem: string): boolean {
   if (!juan) return false;
   juan.state = 'done';
   juan.reason = undefined;
-  void persistJob(runtime.snapshot);
+  void persistJob(runtime);
   broadcast();
   return true;
 }
 
+/** Forget a finished, cancelled or paused job and delete its saved record. */
 export function dismissImportJob(jobId: string): boolean {
   const runtime = jobs.get(jobId);
-  if (!runtime) return false;
-  runtime.snapshot.dismissed = true;
+  if (!runtime || runtime.snapshot.status === 'running') return false;
   jobs.delete(jobId);
   const idx = queue.indexOf(jobId);
   if (idx >= 0) queue.splice(idx, 1);
+  void runtime.persistChain.then(() =>
+    Promise.all([
+      fs.rm(jobFile(jobId), { force: true }),
+      fs.rm(heavyFile(jobId), { force: true }),
+    ]).catch(() => undefined),
+  );
   broadcast();
   return true;
 }
 
-/** Load unfinished jobs from a project dest dir without auto-resuming. */
-export async function restoreImportJobFromDisk(jobPath: string): Promise<ImportJobSnapshot | null> {
+const readJson = async <T>(file: string): Promise<T | null> => {
   try {
-    const raw = await fs.readFile(jobPath, 'utf8');
-    const snapshot = JSON.parse(raw) as ImportJobSnapshot;
-    if (!snapshot?.jobId || !snapshot.options) return null;
-    if (snapshot.status === 'completed' || snapshot.status === 'cancelled') {
-      if (snapshot.dismissed) return null;
-    }
-    if (snapshot.status === 'running' || snapshot.status === 'queued') {
-      snapshot.status = 'paused';
-    }
-    if (jobs.has(snapshot.jobId)) return structuredClone(snapshot);
-    jobs.set(snapshot.jobId, {
-      snapshot,
-      abort: new AbortController(),
-      pauseRequested: false,
-    });
-    broadcast();
-    return structuredClone(snapshot);
+    return JSON.parse(await fs.readFile(file, 'utf8')) as T;
   } catch {
     return null;
   }
-}
+};
 
+/**
+ * Load the saved jobs of a project, as paused: nothing starts by itself after a restart.
+ * Returns how many were newly loaded.
+ */
 export async function discoverAndRestoreImportJobs(projectRoot: string): Promise<number> {
-  const roots = [
-    path.join(projectRoot, 'imported', 'kanripo'),
-    path.join(projectRoot, 'imported', 'cbeta'),
-    path.join(projectRoot, 'imported', 'daozang'),
-  ];
-  let restored = 0;
-  for (const root of roots) {
-    try {
-      const entries = await fs.readdir(root, { withFileTypes: true });
-      for (const entry of entries) {
-        if (!entry.isDirectory()) continue;
-        const candidate = path.join(root, entry.name, JOB_FILE_NAME);
-        // CBETA nests deeper: imported/cbeta/canon/vol/
-        try {
-          const nested = await fs.readdir(path.join(root, entry.name), { withFileTypes: true });
-          for (const child of nested) {
-            if (child.isDirectory()) {
-              const deep = path.join(root, entry.name, child.name, JOB_FILE_NAME);
-              if (await restoreImportJobFromDisk(deep)) restored += 1;
-            }
-          }
-        } catch {
-          // ignore
-        }
-        if (await restoreImportJobFromDisk(candidate)) restored += 1;
-      }
-      // Daozang writes job next to files in imported/daozang/
-      if (root.endsWith('daozang')) {
-        if (await restoreImportJobFromDisk(path.join(root, JOB_FILE_NAME))) restored += 1;
-      }
-    } catch {
-      // directory missing
-    }
+  let names: string[];
+  try {
+    names = await fs.readdir(jobsDir());
+  } catch {
+    return 0;
   }
+  let restored = 0;
+  for (const name of names) {
+    if (!name.endsWith('.json') || name.endsWith('.heavy.json')) continue;
+    const jobId = name.slice(0, -'.json'.length);
+    if (jobs.has(jobId)) continue;
+    const snapshot = await readJson<ImportJobSnapshot>(path.join(jobsDir(), name));
+    if (!snapshot?.jobId || !snapshot.options || snapshot.options.projectRoot !== projectRoot) {
+      continue;
+    }
+    const finishedAt = snapshot.finishedAt ? Date.parse(snapshot.finishedAt) : NaN;
+    const staleDone =
+      snapshot.status === 'completed' &&
+      Number.isFinite(finishedAt) &&
+      Date.now() - finishedAt > COMPLETED_JOB_KEEP_MS;
+    if (snapshot.dismissed || staleDone) {
+      await fs.rm(jobFile(jobId), { force: true }).catch(() => undefined);
+      await fs.rm(heavyFile(jobId), { force: true }).catch(() => undefined);
+      continue;
+    }
+    if (snapshot.status === 'running' || snapshot.status === 'queued') snapshot.status = 'paused';
+    // A juan that was in flight when the app stopped has to be done again.
+    for (const juan of snapshot.juan) {
+      if (juan.state === 'running') juan.state = 'pending';
+      juan.detail = undefined;
+    }
+    const heavy = (await readJson<HeavyOptions>(heavyFile(jobId))) ?? {};
+    jobs.set(jobId, {
+      snapshot,
+      options: mergeOptions(snapshot.options, heavy),
+      abort: new AbortController(),
+      pauseRequested: false,
+      persistChain: Promise.resolve(),
+    });
+    restored += 1;
+  }
+  if (restored > 0) broadcast();
   return restored;
 }
 
@@ -327,19 +470,24 @@ export function hasRunningImportJob(): boolean {
   return [...jobs.values()].some((j) => j.snapshot.status === 'running');
 }
 
-export function killAllImportJobs(): void {
-  for (const [jobId, runtime] of jobs) {
+/** Stop everything and save it as paused. Resolves once the state is on disk. */
+export async function killAllImportJobs(): Promise<void> {
+  const writes: Promise<void>[] = [];
+  for (const runtime of jobs.values()) {
     runtime.abort.abort();
     if (runtime.snapshot.status === 'running' || runtime.snapshot.status === 'queued') {
       runtime.snapshot.status = 'paused';
-      void persistJob(runtime.snapshot);
+      for (const juan of runtime.snapshot.juan) {
+        if (juan.state === 'running') juan.state = 'pending';
+      }
+      writes.push(persistJob(runtime));
     }
-    void jobId;
   }
   queue.length = 0;
   activeJobId = null;
   holdPowerSave(false);
   broadcast();
+  await Promise.allSettled(writes);
 }
 
 const pumpQueue = async (): Promise<void> => {
@@ -358,11 +506,10 @@ const pumpQueue = async (): Promise<void> => {
   runtime.snapshot.status = 'running';
   runtime.pauseRequested = false;
   runtime.abort = new AbortController();
-  await persistJob(runtime.snapshot);
+  await persistJob(runtime);
   broadcast();
 
-  const needsAwake =
-    runtime.snapshot.options.kind === 'kanripo' && runtime.snapshot.options.punctMode === 'ai';
+  const needsAwake = runtime.options.kind === 'kanripo' && runtime.options.punctMode === 'ai';
   holdPowerSave(needsAwake);
 
   runtime.runPromise = runJob(runtime)
@@ -384,18 +531,18 @@ const runJob = async (runtime: RuntimeJob): Promise<void> => {
   };
 
   try {
-    if (runtime.snapshot.options.kind === 'kanripo') {
+    if (runtime.options.kind === 'kanripo') {
       await runKanripoJob(runtime, tickElapsed);
-    } else if (runtime.snapshot.options.kind === 'cbeta') {
+    } else if (runtime.options.kind === 'cbeta') {
       await runCbetaJob(runtime, tickElapsed);
     } else {
       await runDaozangJob(runtime, tickElapsed);
     }
 
-    if (runtime.pauseRequested || runtime.abort.signal.aborted) {
-      if (runtime.snapshot.status !== 'blocked' && runtime.snapshot.status !== 'cancelled') {
-        runtime.snapshot.status = 'paused';
-      }
+    if (runtime.snapshot.status === 'cancelled') {
+      // Cancelled while it was winding down: stays cancelled.
+    } else if (runtime.pauseRequested || runtime.abort.signal.aborted) {
+      if (runtime.snapshot.status !== 'blocked') runtime.snapshot.status = 'paused';
     } else if (runtime.snapshot.status === 'running') {
       runtime.snapshot.status = 'completed';
       runtime.snapshot.finishedAt = nowIso();
@@ -409,12 +556,14 @@ const runJob = async (runtime: RuntimeJob): Promise<void> => {
       );
     }
   } catch (error) {
-    if (error instanceof ImportJobBlockedError) {
+    if (runtime.snapshot.status === 'cancelled') {
+      // Cancelled: whatever stopped the run, it stays cancelled.
+    } else if (error instanceof ImportJobBlockedError) {
       runtime.snapshot.status = 'blocked';
       runtime.snapshot.blockReason = error.message;
       notifyOs(`${runtime.snapshot.title} paused`, error.message);
     } else if (error instanceof DOMException && error.name === 'AbortError') {
-      runtime.snapshot.status = runtime.pauseRequested ? 'paused' : 'cancelled';
+      runtime.snapshot.status = 'paused';
     } else if (runtime.pauseRequested || runtime.abort.signal.aborted) {
       runtime.snapshot.status = 'paused';
     } else {
@@ -424,8 +573,13 @@ const runJob = async (runtime: RuntimeJob): Promise<void> => {
     }
   }
 
+  // Whatever stopped the run, a juan still marked running was cut short: it starts again.
+  for (const juan of runtime.snapshot.juan) {
+    if (juan.state === 'running') juan.state = 'pending';
+    juan.detail = undefined;
+  }
   tickElapsed();
-  await persistJob(runtime.snapshot);
+  await persistJob(runtime);
   broadcast();
 };
 
@@ -455,18 +609,38 @@ const updateAvg = (snapshot: ImportJobSnapshot, juanMs: number): void => {
   snapshot.avgMsPerJuan = prev * 0.7 + juanMs * 0.3;
 };
 
+const normalisePath = (p: string): string => p.replace(/\\/g, '/');
+
+const readUsedXmlPaths = async (destDir: string): Promise<Set<string>> => {
+  const used = new Set<string>();
+  try {
+    for (const name of await fs.readdir(destDir)) {
+      if (name.toLowerCase().endsWith('.xml')) used.add(normalisePath(path.join(destDir, name)));
+    }
+  } catch {
+    // empty
+  }
+  return used;
+};
+
 const runKanripoJob = async (runtime: RuntimeJob, tickElapsed: () => void): Promise<void> => {
-  const options = runtime.snapshot.options as KanripoImportJobOptions;
+  const options = runtime.options as KanripoImportJobOptions;
+  const snapshot = runtime.snapshot;
   const signal = runtime.abort.signal;
 
-  let files: string[] = [];
+  let files: string[];
   if (options.importScope === 'juan') {
-    const result = (await invokePluginPython('kanripo-import', {
-      op: 'fetch_juan',
-      kr_id: options.krId,
-      juan: String(options.juanInput ?? ''),
-      cache_root: kanripoCacheRoot(),
-    })) as { files?: string[]; path?: string };
+    const result = (await invokePluginPython(
+      'kanripo-import',
+      {
+        op: 'fetch_juan',
+        kr_id: options.krId,
+        juan: String(options.juanInput ?? ''),
+        cache_root: kanripoCacheRoot(),
+      },
+      undefined,
+      { signal },
+    )) as { files?: string[]; path?: string };
     files = result.files ?? (result.path ? [result.path] : []);
   } else {
     const { cachePath } = await cloneKanripoWork(options.krId);
@@ -475,69 +649,30 @@ const runKanripoJob = async (runtime: RuntimeJob, tickElapsed: () => void): Prom
   if (files.length === 0) throw new Error('No source .txt files found.');
 
   await fs.mkdir(options.destDir, { recursive: true });
-  const usedPaths = new Set<string>();
-  try {
-    const existing = await fs.readdir(options.destDir);
-    for (const name of existing) {
-      if (name.toLowerCase().endsWith('.xml')) {
-        usedPaths.add(path.join(options.destDir, name).replace(/\\/g, '/'));
-      }
-    }
-  } catch {
-    // empty
-  }
+  const usedPaths = await readUsedXmlPaths(options.destDir);
 
   ensureJuanList(
-    runtime.snapshot,
-    files.map((filePath) => ({
-      stem: stemFromSourcePath(filePath),
-      sourceKey: filePath,
-    })),
+    snapshot,
+    files.map((filePath) => ({ stem: stemFromSourcePath(filePath), sourceKey: filePath })),
     options.skipStems,
   );
 
-  // Mark already-written stems as done on resume.
-  for (const juan of runtime.snapshot.juan) {
-    if (juan.state === 'done' || juan.state === 'skipped' || juan.state === 'needs_attention') {
-      if (juan.outputPath) usedPaths.add(juan.outputPath.replace(/\\/g, '/'));
-    }
-  }
-
   const usedChapterIds: string[] = [];
-  const convertedCache = new Map<
-    string,
-    { meta: never; body_xml: string; metadata_xml?: string }
-  >();
-
-  // Pre-convert for folder-reference alignment if needed and not already done.
-  if (
-    options.punctMode === 'parallel' &&
-    options.sources.some((s) => s.kind === 'folder-reference') &&
-    !options.alignedMatches
-  ) {
-    // Alignment must be confirmed in the dialog before start; without it, fall back to tape.
-  }
-
   const juanConcurrency = Math.max(1, options.juanConcurrency ?? 1);
-  const pending = () =>
-    runtime.snapshot.juan.filter(
-      (j) => j.state === 'pending' || (j.state === 'running' && !j.outputPath),
-    );
 
   const processOne = async (juan: ImportJuanRecord): Promise<void> => {
     if (signal.aborted || runtime.pauseRequested) {
       throw new DOMException('Aborted', 'AbortError');
     }
-    if (juan.state === 'done' || juan.state === 'skipped' || juan.state === 'needs_attention') {
-      return;
-    }
-    // Retry clears needs_attention/failed back to pending.
-    if (juan.state === 'failed') return;
+    if (juan.state !== 'pending') return;
 
     juan.state = 'running';
+    juan.detail = undefined;
+    // A retried juan is written over its earlier file instead of getting a "-2" name.
+    if (juan.outputPath) usedPaths.delete(normalisePath(juan.outputPath));
     tickElapsed();
     broadcast();
-    await persistJob(runtime.snapshot);
+    await persistJob(runtime);
 
     const t0 = Date.now();
     try {
@@ -547,21 +682,28 @@ const runKanripoJob = async (runtime: RuntimeJob, tickElapsed: () => void): Prom
         stem: juan.stem,
         usedPaths,
         usedChapterIds,
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        convertedCache: convertedCache as any,
         signal,
-        currentCost: runtime.snapshot.actualCost,
-        onStatus: () => {
+        currentCost: snapshot.actualCost,
+        onStatus: (message) => {
+          juan.detail = message;
           tickElapsed();
           broadcast();
+        },
+        onUsage: (usage, cost) => {
+          const total = snapshot.actualTokens ?? { input: 0, output: 0 };
+          snapshot.actualTokens = {
+            input: total.input + usage.inputTokens,
+            output: total.output + usage.outputTokens,
+          };
+          snapshot.actualCost += cost;
+          juan.tokens = { input: usage.inputTokens, output: usage.outputTokens };
+          juan.cost = cost;
         },
       });
       juan.stem = result.stem;
       juan.outputPath = result.outputPath;
       juan.coverage = result.coverage;
       juan.warnings = result.warnings;
-      juan.cost = result.cost;
-      if (result.cost) runtime.snapshot.actualCost += result.cost;
       if (result.matchedChapterIds) {
         for (const id of result.matchedChapterIds) {
           if (!usedChapterIds.includes(id)) usedChapterIds.push(id);
@@ -572,25 +714,44 @@ const runKanripoJob = async (runtime: RuntimeJob, tickElapsed: () => void): Prom
         juan.reason = result.attentionReason;
       } else {
         juan.state = 'done';
+        juan.reason = undefined;
       }
-      updateAvg(runtime.snapshot, Date.now() - t0);
+      juan.detail = undefined;
+      updateAvg(snapshot, Date.now() - t0);
     } catch (error) {
-      if (error instanceof ImportJobBlockedError) throw error;
-      if (error instanceof DOMException && error.name === 'AbortError') throw error;
+      if (error instanceof ImportJobBlockedError) {
+        juan.state = 'pending'; // not its fault: it is done again after Resume
+        juan.detail = undefined;
+        throw error;
+      }
+      if (error instanceof DOMException && error.name === 'AbortError') {
+        juan.state = 'pending'; // paused or cancelled mid-way: done again after Resume
+        juan.detail = undefined;
+        throw error;
+      }
       juan.state = 'needs_attention';
       juan.reason = error instanceof Error ? error.message : String(error);
-      updateAvg(runtime.snapshot, Date.now() - t0);
+      juan.detail = undefined;
+      updateAvg(snapshot, Date.now() - t0);
     }
     tickElapsed();
-    await persistJob(runtime.snapshot);
+    await persistJob(runtime);
     broadcast();
+
+    // The result is recorded first, so the money already spent is not lost when the cap stops the job.
+    if (options.spendCap != null && snapshot.actualCost >= options.spendCap) {
+      throw new ImportJobBlockedError(
+        `Spending cap of $${options.spendCap.toFixed(2)} reached.`,
+        'spend_cap',
+      );
+    }
   };
 
   while (true) {
     if (signal.aborted || runtime.pauseRequested) {
       throw new DOMException('Aborted', 'AbortError');
     }
-    const batch = pending()
+    const batch = snapshot.juan
       .filter((j) => j.state === 'pending')
       .slice(0, options.punctMode === 'ai' ? juanConcurrency : 1);
     if (batch.length === 0) break;
@@ -599,9 +760,21 @@ const runKanripoJob = async (runtime: RuntimeJob, tickElapsed: () => void): Prom
     } else {
       await Promise.all(batch.map((juan) => processOne(juan)));
     }
+
+    // The AI "trial": stop after the first juan so it can be checked before the rest.
+    const trial = (runtime.options as KanripoImportJobOptions).pauseAfterFirst;
+    if (trial && snapshot.juan.some((j) => j.state === 'pending')) {
+      const first = snapshot.juan.find((j) => j.state === 'done' || j.state === 'needs_attention');
+      if (first) {
+        snapshot.pauseReason = 'trial';
+        snapshot.trialStem = first.stem;
+        setOptions(runtime, { ...options, pauseAfterFirst: false });
+        runtime.pauseRequested = true;
+      }
+    }
   }
 
-  const failedOrAttention = runtime.snapshot.juan.some(
+  const failedOrAttention = snapshot.juan.some(
     (j) => j.state === 'needs_attention' || j.state === 'failed',
   );
   if (!failedOrAttention && options.importScope === 'work') {
@@ -614,17 +787,22 @@ const runKanripoJob = async (runtime: RuntimeJob, tickElapsed: () => void): Prom
 };
 
 const runCbetaJob = async (runtime: RuntimeJob, tickElapsed: () => void): Promise<void> => {
-  const options = runtime.snapshot.options as CbetaImportJobOptions;
+  const options = runtime.options as CbetaImportJobOptions;
   const signal = runtime.abort.signal;
 
-  const converted = (await invokePluginPython('cbeta-import', {
-    op: 'convert',
-    work_id: options.workId,
-    cross_family: options.crossFamily,
-    clean: options.cleanImport,
-    strip_lb: options.stripLineBreaks,
-    split_unit: options.splitUnit,
-  })) as {
+  const converted = (await invokePluginPython(
+    'cbeta-import',
+    {
+      op: 'convert',
+      work_id: options.workId,
+      cross_family: options.crossFamily,
+      clean: options.cleanImport,
+      strip_lb: options.stripLineBreaks,
+      split_unit: options.splitUnit,
+    },
+    undefined,
+    { signal },
+  )) as {
     juan: { n: string; title: string; body_xml: string; straddles?: string[] }[];
     title?: string;
     work_id: string;
@@ -650,19 +828,9 @@ const runCbetaJob = async (runtime: RuntimeJob, tickElapsed: () => void): Promis
     converted.canon,
     converted.vol,
   );
-  options.destDir = destDir;
-  runtime.snapshot.options = options;
+  setOptions(runtime, { ...options, destDir });
   await fs.mkdir(destDir, { recursive: true });
-  const used = new Set<string>();
-  try {
-    for (const name of await fs.readdir(destDir)) {
-      if (name.toLowerCase().endsWith('.xml')) {
-        used.add(path.join(destDir, name).replace(/\\/g, '/'));
-      }
-    }
-  } catch {
-    // empty
-  }
+  const used = await readUsedXmlPaths(destDir);
 
   ensureJuanList(
     runtime.snapshot,
@@ -686,14 +854,9 @@ const runCbetaJob = async (runtime: RuntimeJob, tickElapsed: () => void): Promis
     if (signal.aborted || runtime.pauseRequested) {
       throw new DOMException('Aborted', 'AbortError');
     }
-    if (
-      juanRec.state === 'done' ||
-      juanRec.state === 'skipped' ||
-      juanRec.state === 'needs_attention'
-    ) {
-      continue;
-    }
+    if (juanRec.state !== 'pending') continue;
     juanRec.state = 'running';
+    if (juanRec.outputPath) used.delete(normalisePath(juanRec.outputPath));
     broadcast();
     const t0 = Date.now();
     const juan = converted.juan.find((j) => j.n === juanRec.sourceKey);
@@ -740,6 +903,7 @@ const runCbetaJob = async (runtime: RuntimeJob, tickElapsed: () => void): Promis
       await fs.writeFile(outputPath, xml, 'utf8');
       juanRec.outputPath = outputPath;
       juanRec.state = 'done';
+      juanRec.reason = undefined;
       if (juan.straddles?.length) {
         juanRec.warnings = juan.straddles.map((message) => ({
           code: 'straddle',
@@ -753,19 +917,24 @@ const runCbetaJob = async (runtime: RuntimeJob, tickElapsed: () => void): Promis
     }
     updateAvg(runtime.snapshot, Date.now() - t0);
     tickElapsed();
-    await persistJob(runtime.snapshot);
+    await persistJob(runtime);
     broadcast();
   }
 };
 
 const runDaozangJob = async (runtime: RuntimeJob, tickElapsed: () => void): Promise<void> => {
-  const options = runtime.snapshot.options as DaozangImportJobOptions;
+  const options = runtime.options as DaozangImportJobOptions;
   const signal = runtime.abort.signal;
   const sourcePath = daozangTextPath(options.relPath);
-  const converted = (await invokePluginPython('daozang-import', {
-    path: sourcePath,
-    rel_path: options.relPath,
-  })) as {
+  const converted = (await invokePluginPython(
+    'daozang-import',
+    {
+      path: sourcePath,
+      rel_path: options.relPath,
+    },
+    undefined,
+    { signal },
+  )) as {
     body_xml: string;
     metadata_xml?: string;
     meta: DaozangTeiMeta;
@@ -778,16 +947,7 @@ const runDaozangJob = async (runtime: RuntimeJob, tickElapsed: () => void): Prom
   }
 
   await fs.mkdir(options.destDir, { recursive: true });
-  const used = new Set<string>();
-  try {
-    for (const name of await fs.readdir(options.destDir)) {
-      if (name.toLowerCase().endsWith('.xml')) {
-        used.add(path.join(options.destDir, name).replace(/\\/g, '/'));
-      }
-    }
-  } catch {
-    // empty
-  }
+  const used = await readUsedXmlPaths(options.destDir);
 
   const baseStem = converted.meta.stem || options.title || options.workId;
   const juanFiles =
@@ -813,14 +973,9 @@ const runDaozangJob = async (runtime: RuntimeJob, tickElapsed: () => void): Prom
     if (signal.aborted || runtime.pauseRequested) {
       throw new DOMException('Aborted', 'AbortError');
     }
-    if (
-      juanRec.state === 'done' ||
-      juanRec.state === 'skipped' ||
-      juanRec.state === 'needs_attention'
-    ) {
-      continue;
-    }
+    if (juanRec.state !== 'pending') continue;
     juanRec.state = 'running';
+    if (juanRec.outputPath) used.delete(normalisePath(juanRec.outputPath));
     broadcast();
     const t0 = Date.now();
     const juan = juanFiles[Number(juanRec.sourceKey)];
@@ -854,13 +1009,14 @@ const runDaozangJob = async (runtime: RuntimeJob, tickElapsed: () => void): Prom
       await fs.writeFile(outputPath, xml, 'utf8');
       juanRec.outputPath = outputPath;
       juanRec.state = 'done';
+      juanRec.reason = undefined;
     } catch (error) {
       juanRec.state = 'needs_attention';
       juanRec.reason = error instanceof Error ? error.message : String(error);
     }
     updateAvg(runtime.snapshot, Date.now() - t0);
     tickElapsed();
-    await persistJob(runtime.snapshot);
+    await persistJob(runtime);
     broadcast();
   }
 };

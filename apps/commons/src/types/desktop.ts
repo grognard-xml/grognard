@@ -616,7 +616,10 @@ export interface ElectronAPI {
     options: import('../desktop/importJobTypes').ImportJobOptions,
   ) => Promise<string>;
   importJobPause?: (jobId: string) => Promise<boolean>;
-  importJobResume?: (jobId: string) => Promise<boolean>;
+  importJobResume?: (
+    jobId: string,
+    resume?: import('../desktop/importJobTypes').ImportJobResumeOptions,
+  ) => Promise<boolean>;
   importJobCancel?: (jobId: string) => Promise<boolean>;
   importJobRetryJuan?: (jobId: string, stem: string) => Promise<boolean>;
   importJobAcceptJuan?: (jobId: string, stem: string) => Promise<boolean>;

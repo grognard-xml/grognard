@@ -27,16 +27,9 @@ import {
 } from '@mui/material';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  uniqueKanripoXmlPath,
-  wrapKanripoTeiDocument,
   type KanripoNormalizeMode,
   type KanripoTeiMeta,
 } from '../../../../../apps/commons/src/desktop/kanripoImportXml';
-import {
-  convertKanripoGaiji,
-  gaijiModeForCatalog,
-} from '../../../../../apps/commons/src/desktop/documentImportGaiji';
-import { ensureImportHeaderEntitiesForPaths } from '../../../../../apps/commons/src/desktop/ensureImportHeaderEntities';
 import { loadParallelPlainText } from '../../../../../apps/commons/src/desktop/kanripoParallelText';
 import {
   daozangParallelIssueMessage,
@@ -66,7 +59,6 @@ import { CorpusWorkRow } from '../corpusWorkRow';
 import type { IDialog } from '../type';
 import { isPluginEnabled } from '../../plugins';
 import {
-  createLlmClientFromSettings,
   effectiveAiConcurrency,
   isAiSuggestReady,
   aiApiSettingsFromDesktop,
@@ -77,9 +69,6 @@ import {
   runAiFillGapsEditorCommand,
   runAiFillGapsOnFile,
 } from '../../aiPunctuation/aiPunctuateEditor';
-import { formatAiProvenance } from '../../aiPunctuation/formatAiProvenance';
-import { runAiPunctuate } from '../../aiPunctuation/runAiPunctuate';
-import { AI_PUNCT_PROMPT_VERSION } from '../../aiPunctuation/prompts';
 import { setImportJobPanelExpanded } from '../../importJobs/importJobProgress';
 import type { KanripoImportJobOptions } from '../../../../../apps/commons/src/desktop/importJobTypes';
 
@@ -184,12 +173,6 @@ const coverageHasGaps = (coverage: Coverage): boolean => coverage.empty || cover
 
 const joinPath = (...parts: string[]): string =>
   parts.filter(Boolean).join('/').replace(/\/+/g, '/');
-
-const parentDir = (filePath: string): string => {
-  const normalized = filePath.replace(/\\/g, '/');
-  const index = normalized.lastIndexOf('/');
-  return index === -1 ? '' : normalized.slice(0, index);
-};
 
 const xmlLooksWellFormed = (xml: string): boolean => {
   const doc = new DOMParser().parseFromString(xml, 'application/xml');
@@ -301,13 +284,9 @@ export const KanripoImportDialog = ({
   const [status, setStatus] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [spendCap, setSpendCap] = useState('');
-  const [estimatedCost, setEstimatedCost] = useState<number | null>(null);
+  const [priceInput, setPriceInput] = useState('');
+  const [priceOutput, setPriceOutput] = useState('');
   const [aiJuanConcurrency, setAiJuanConcurrency] = useState(1);
-  const [trialReady, setTrialReady] = useState<{
-    stem: string;
-    outputPath: string;
-    options: KanripoImportJobOptions;
-  } | null>(null);
   const [report, setReport] = useState<{
     written: string[];
     failed: { stem: string; message: string }[];
@@ -542,31 +521,6 @@ export const KanripoImportDialog = ({
     })) as ParallelPunctPayload;
   };
 
-  /**
-   * Applies punctuation match-by-match, each scoped to its own paragraph's
-   * known Han position -- used instead of `invokeParallel` for folder-reference
-   * aligned sources. `invokeParallel`'s `parallel_punct` op reassembles matches
-   * into per-file excerpts and searches for them globally (`apply_parallel_sources`),
-   * which is both slow and prone to silently under-punctuating large excerpts
-   * with internal gaps (see `apply_paragraph_scoped_sources`'s docstring).
-   */
-  const invokeParagraphScoped = async (
-    bodyXml: string,
-    juanId: string,
-    matches: AlignedParagraphMatch[],
-    sourcesPayload: { id: string; label: string; text: string }[],
-  ): Promise<ParallelPunctPayload> => {
-    const api = window.electronAPI;
-    if (!api?.pluginsInvokePython) throw new Error('Python bridge unavailable.');
-    return (await api.pluginsInvokePython(PLUGIN_ID, {
-      op: 'apply_paragraph_scoped',
-      body_xml: bodyXml,
-      juan_id: juanId,
-      matches,
-      sources: sourcesPayload,
-    })) as ParallelPunctPayload;
-  };
-
   const fetchParallelUrl = async (overrideUrl?: string) => {
     const api = window.electronAPI;
     const fetcher = api?.kanripoFetchParallelUrl ?? api?.kanripoFetchCtextParallel;
@@ -796,7 +750,6 @@ export const KanripoImportDialog = ({
     selected &&
     projectReady &&
     !busy &&
-    !trialReady &&
     window.electronAPI?.importJobStart &&
     window.electronAPI?.kanripoClone &&
     (importScope === 'work' ||
@@ -857,7 +810,7 @@ export const KanripoImportDialog = ({
       setStatus(
         importScope === 'juan' ? `Fetching ${selected.id} juan…` : `Cloning ${selected.id}…`,
       );
-      let files: string[] = [];
+      let files: string[];
       if (importScope === 'juan') {
         const fetched = await api.kanripoFetchJuan!(selected.id, juanInput.trim());
         files = fetched.files ?? (fetched.path ? [fetched.path] : []);
@@ -933,10 +886,18 @@ export const KanripoImportDialog = ({
     }
 
     const capParsed = spendCap.trim() ? Number(spendCap) : null;
-    const juanEstimate = importScope === 'juan' ? 1 : Math.max(1, Number(selected.id ? 10 : 10));
-    // Rough pre-start estimate for AI: ~$0.02 per juan until we have real usage.
-    const est = punctMode === 'ai' ? Math.round(juanEstimate * 0.02 * 1000) / 1000 : null;
-    setEstimatedCost(est);
+    const priceIn = priceInput.trim() ? Number(priceInput) : null;
+    const priceOut = priceOutput.trim() ? Number(priceOutput) : null;
+    const aiPricing =
+      priceIn != null && priceOut != null && Number.isFinite(priceIn) && Number.isFinite(priceOut)
+        ? { inputPerMillion: priceIn, outputPerMillion: priceOut }
+        : null;
+    if (punctMode === 'ai' && capParsed != null && !aiPricing) {
+      setError(
+        'A spending cap needs the prices per million tokens (input and output) from your provider, to turn token use into a cost.',
+      );
+      return null;
+    }
 
     return {
       kind: 'kanripo',
@@ -960,8 +921,7 @@ export const KanripoImportDialog = ({
       alignedJuanSources,
       alignedMatches,
       alignedSourcesPayload,
-      projectConfig:
-        config as import('../../../../../apps/commons/src/desktop/importJobTypes').ImportJobProjectConfig,
+      projectConfig: config,
       gaijiOverrides,
       aiSettings:
         punctMode === 'ai' && aiSettingsRaw
@@ -972,9 +932,11 @@ export const KanripoImportDialog = ({
               concurrency: effectiveAiConcurrency(aiSettingsRaw),
             }
           : null,
+      aiPricing: punctMode === 'ai' ? aiPricing : null,
       spendCap: capParsed != null && Number.isFinite(capParsed) ? capParsed : null,
       juanConcurrency: punctMode === 'ai' ? Math.max(1, aiJuanConcurrency) : 1,
-      estimatedCost: est,
+      // The first juan of an AI import is a trial: the job pauses after it so it can be checked.
+      pauseAfterFirst: punctMode === 'ai' && importScope === 'work',
     };
   };
 
@@ -988,135 +950,14 @@ export const KanripoImportDialog = ({
     setBusy(true);
     setError(null);
     setReport(null);
-    setTrialReady(null);
 
     try {
       const options = await prepareKanripoJobOptions();
       if (!options) return;
-
-      // AI punctuation: trial the first juan in-dialog before the batch.
-      if (options.punctMode === 'ai' && options.importScope === 'work') {
-        setStatus('Running trial on first juan…');
-        const api = window.electronAPI!;
-        const project = window.__leafWriterProject!;
-        const config = project.getProjectConfig?.();
-        if (!config) throw new Error('Project config unavailable.');
-        void api.startAiRunPowerSaveBlocker?.();
-        try {
-          const clone = await api.kanripoClone!(options.krId);
-          const files = clone.files ?? [];
-          if (files.length === 0) throw new Error('No .txt files found.');
-          const firstPath = files[0];
-          const stem =
-            firstPath
-              .replace(/\\/g, '/')
-              .split('/')
-              .pop()
-              ?.replace(/\.txt$/i, '') ?? 'juan';
-          const used = new Set<string>();
-          const existingEntries =
-            (await api.readDirectory?.(options.destDir, { allFiles: true })) ?? [];
-          for (const entry of existingEntries) {
-            if (!entry.isDirectory && entry.name.toLowerCase().endsWith('.xml')) {
-              used.add(joinPath(options.destDir, entry.name).replace(/\\/g, '/'));
-            }
-          }
-          const converted = (await api.pluginsInvokePython!(PLUGIN_ID, {
-            path: firstPath,
-            normalize,
-            gaiji_dest_dir: joinPath(options.destDir, '_gaiji'),
-            gaiji_overrides: options.gaijiOverrides ?? {},
-          })) as ConvertPayload;
-          if (!converted?.body_xml || !converted.meta) {
-            throw new Error('Python conversion returned no TEI body.');
-          }
-          const aiSettings = aiApiSettingsFromDesktop();
-          const aiClient = aiSettings ? createLlmClientFromSettings(aiSettings) : null;
-          if (!aiClient) throw new Error('AI client unavailable.');
-          let bodyXml = converted.body_xml;
-          const aiResult = await runAiPunctuate(bodyXml, {
-            client: aiClient,
-            concurrency: effectiveAiConcurrency(aiSettings),
-          });
-          let punctNote: string | undefined;
-          if (aiResult.applied) {
-            bodyXml = aiResult.body_xml;
-            punctNote = formatAiProvenance({
-              modelId: aiClient.modelId,
-              promptVersion: AI_PUNCT_PROMPT_VERSION,
-              normalize,
-              stats: aiResult.stats,
-            });
-          }
-          bodyXml = await finalizeKanripoBody(bodyXml);
-          let xml = wrapKanripoTeiDocument({
-            config,
-            meta: {
-              ...converted.meta,
-              normalize,
-              stem: converted.meta.stem || stem,
-              authorship: converted.entities?.authorship ?? converted.meta.authorship,
-            },
-            bodyXml,
-            metadataXml: converted.metadata_xml,
-            punctNote,
-          });
-          if (!xmlLooksWellFormed(xml)) throw new Error('Wrapped TEI is not well-formed XML.');
-          const outputPath = uniqueKanripoXmlPath(
-            options.destDir,
-            converted.meta.stem || stem,
-            used,
-          );
-          const dir = parentDir(outputPath);
-          if (dir) await api.ensureDirectory?.(dir);
-          const gaijiMode = gaijiModeForCatalog(config.schema?.catalogId);
-          if (gaijiMode && converted.meta.gaiji_ids?.length) {
-            const glyphs = await convertKanripoGaiji({
-              api,
-              readBytes: api.readBinaryFile,
-              gaijiDir: joinPath(options.destDir, '_gaiji'),
-              mode: gaijiMode,
-              outputPath,
-              xml,
-            });
-            if (xmlLooksWellFormed(glyphs.xml)) xml = glyphs.xml;
-          }
-          await api.writeFile!(outputPath, xml);
-          await ensureImportHeaderEntitiesForPaths([outputPath]);
-          await project.refreshExplorer?.();
-          await project.openFile?.(outputPath);
-          const finishedStem = converted.meta.stem || stem;
-          setTrialReady({
-            stem: finishedStem,
-            outputPath,
-            options: { ...options, skipStems: [finishedStem] },
-          });
-          setStatus(
-            `Trial juan ${finishedStem} written. Looks good? Continue in background, or adjust settings.`,
-          );
-          setReport({ written: [outputPath], failed: [], bars: [] });
-          return;
-        } finally {
-          void api.stopAiRunPowerSaveBlocker?.();
-        }
-      }
-
       await launchBackgroundJob(options);
     } catch (runError) {
       setError(runError instanceof Error ? runError.message : String(runError));
       setStatus('');
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const continueAfterTrial = async () => {
-    if (!trialReady) return;
-    setBusy(true);
-    try {
-      await launchBackgroundJob(trialReady.options);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
     } finally {
       setBusy(false);
     }
@@ -1912,17 +1753,38 @@ export const KanripoImportDialog = ({
               {punctMode === 'ai' && aiReady && !punctuateOnly && (
                 <Stack spacing={1} sx={{ mt: 1 }}>
                   <Typography variant="caption" color="text.secondary">
-                    The first juan runs as a trial in this dialog. The rest continue in the
-                    background. Estimated cost is approximate (~$0.02/juan) until real usage is
-                    known.
-                    {estimatedCost != null ? ` Rough estimate: $${estimatedCost.toFixed(2)}.` : ''}
+                    The import runs in the background. It stops after the first juan so you can
+                    check it; the panel then shows how many tokens that juan used and what the rest
+                    would use, and you press Resume to continue.
                   </Typography>
+                  <Stack direction="row" spacing={1}>
+                    <TextField
+                      size="small"
+                      type="number"
+                      label="Input USD / M tokens"
+                      value={priceInput}
+                      onChange={(event) => setPriceInput(event.target.value)}
+                      disabled={busy}
+                      inputProps={{ min: 0, step: 'any' }}
+                    />
+                    <TextField
+                      size="small"
+                      type="number"
+                      label="Output USD / M tokens"
+                      value={priceOutput}
+                      onChange={(event) => setPriceOutput(event.target.value)}
+                      disabled={busy}
+                      inputProps={{ min: 0, step: 'any' }}
+                      helperText="From your provider's price list. Optional: without them only tokens are counted."
+                    />
+                  </Stack>
                   <TextField
                     size="small"
                     label="Spending cap (USD, optional)"
                     value={spendCap}
                     onChange={(event) => setSpendCap(event.target.value)}
                     disabled={busy}
+                    helperText="The import stops when the cost reaches this. Needs the prices above."
                   />
                   <TextField
                     size="small"
@@ -1934,7 +1796,7 @@ export const KanripoImportDialog = ({
                     }
                     inputProps={{ min: 1, max: 4 }}
                     disabled={busy}
-                    helperText="How many juan to punctuate at once after the trial (1 is safest)."
+                    helperText="How many juan to punctuate at once after the first one (1 is safest)."
                   />
                 </Stack>
               )}
@@ -2109,18 +1971,9 @@ export const KanripoImportDialog = ({
               AI fill gaps
             </Button>
           </>
-        ) : trialReady ? (
-          <>
-            <Button disabled={busy} onClick={() => setTrialReady(null)}>
-              Adjust settings
-            </Button>
-            <Button variant="contained" disabled={busy} onClick={() => void continueAfterTrial()}>
-              Looks good, continue in background
-            </Button>
-          </>
         ) : (
           <Button variant="contained" disabled={!canRunImport} onClick={() => void runImport()}>
-            {punctMode === 'ai' && importScope === 'work' ? 'Start trial' : 'Start in background'}
+            Start in background
           </Button>
         )}
       </DialogActions>

@@ -26,6 +26,10 @@ export interface ImportJuanRecord {
   reason?: string;
   coverage?: ImportJuanCoverage;
   cost?: number;
+  /** Tokens the AI used for this juan (AI punctuation only). */
+  tokens?: { input: number; output: number };
+  /** What the juan is doing right now, shown while it runs. */
+  detail?: string;
   warnings?: { code: string; severity: 'info' | 'warning'; message: string }[];
 }
 
@@ -48,10 +52,12 @@ export interface ImportJobAlignedParagraphMatch {
   match_type: string;
 }
 
-/** Snapshot of project config fields the main process needs to wrap TEI. */
+/**
+ * The project configuration a job needs to wrap TEI. Only the part the main process reads is
+ * typed; the whole object is passed through, so the project's own config type is assignable.
+ */
 export interface ImportJobProjectConfig {
-  schema?: { catalogId?: string; [key: string]: unknown };
-  [key: string]: unknown;
+  schema?: { catalogId?: string };
 }
 
 export interface ImportJobAiSettings {
@@ -59,6 +65,12 @@ export interface ImportJobAiSettings {
   apiKey: string;
   model: string;
   concurrency?: number;
+}
+
+/** USD per million tokens, from the provider's price list; needed to turn token use into a cost. */
+export interface ImportJobAiPricing {
+  inputPerMillion: number;
+  outputPerMillion: number;
 }
 
 export interface KanripoImportJobOptions {
@@ -80,14 +92,16 @@ export interface KanripoImportJobOptions {
   projectConfig: ImportJobProjectConfig;
   gaijiOverrides?: Record<string, string>;
   aiSettings?: ImportJobAiSettings | null;
-  /** USD cap; job blocks when actualCost reaches this. */
+  /** Used with token counts to work out the cost of an AI import; without it only tokens are counted. */
+  aiPricing?: ImportJobAiPricing | null;
+  /** USD cap; the job blocks when actualCost reaches it. Needs `aiPricing`. */
   spendCap?: number | null;
   /** Parallel juan when AI punctuating (default 1). */
   juanConcurrency?: number;
-  /** Skip these stems (already written as trial juan 1). */
+  /** Skip these stems. */
   skipStems?: string[];
-  /** Estimated USD before start (UI only; also stored for the panel). */
-  estimatedCost?: number | null;
+  /** Pause after the first juan so it can be checked before the rest (the AI "trial"). */
+  pauseAfterFirst?: boolean;
 }
 
 export interface CbetaImportJobOptions {
@@ -128,7 +142,12 @@ export interface ImportJobSnapshot {
   updatedAt: string;
   elapsedMs: number;
   actualCost: number;
+  actualTokens?: { input: number; output: number };
   blockReason?: string;
+  /** Why the job is paused when it did not happen at the user's request. */
+  pauseReason?: 'trial';
+  /** The juan written as the trial (see `pauseAfterFirst`). */
+  trialStem?: string;
   /** Rolling average ms per finished juan (for ETA). */
   avgMsPerJuan?: number;
   finishedAt?: string;
@@ -136,6 +155,11 @@ export interface ImportJobSnapshot {
 }
 
 export type ImportJobControlAction = 'pause' | 'resume' | 'cancel' | 'retry' | 'accept' | 'dismiss';
+
+/** Sent with Resume: the app's current AI settings, since the API key is never saved with a job. */
+export interface ImportJobResumeOptions {
+  aiSettings?: ImportJobAiSettings | null;
+}
 
 export interface ImportJobControlRequest {
   jobId: string;

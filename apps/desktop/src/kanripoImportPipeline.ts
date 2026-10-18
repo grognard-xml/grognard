@@ -34,6 +34,7 @@ import {
   setPluginPythonInvoker,
 } from '../../../packages/cwrc-leafwriter/src/aiPunctuation/pluginBridge';
 import { runAiPunctuate } from '../../../packages/cwrc-leafwriter/src/aiPunctuation/runAiPunctuate';
+import { costOfUsage, isQuotaOrAuthError, withUsageMeter } from './importJobLlm';
 import { invokePluginPython } from './pluginPythonBridge';
 
 const PLUGIN_ID = 'kanripo-import';
@@ -61,6 +62,7 @@ export interface ProcessJuanResult {
   coverage?: ImportJuanCoverage;
   warnings?: { code: string; severity: 'info' | 'warning'; message: string }[];
   cost?: number;
+  tokens?: { input: number; output: number };
   needsAttention?: boolean;
   attentionReason?: string;
   matchedChapterIds?: string[];
@@ -91,13 +93,6 @@ const isDiskFullError = (error: unknown): boolean => {
   return /ENOSPC|no space left|disk full/i.test(msg);
 };
 
-const isQuotaOrAuthError = (error: unknown): 'api_key' | 'quota' | null => {
-  const msg = error instanceof Error ? error.message : String(error);
-  if (/401|invalid.?api.?key|incorrect api key|unauthorized/i.test(msg)) return 'api_key';
-  if (/402|403|429|quota|rate.?limit|billing|insufficient/i.test(msg)) return 'quota';
-  return null;
-};
-
 /** Install the leafwriter pluginBridge invoker for this process (idempotent). */
 export function ensurePluginBridgeWired(): void {
   setPluginPythonInvoker((pluginId, payload) => invokePluginPython(pluginId, payload));
@@ -107,22 +102,28 @@ const invokeParallel = async (
   bodyXml: string,
   options: KanripoImportJobOptions,
   chapterIdsUsed: string[],
-  overrideSources?: KanripoImportJobOptions['sources'],
+  overrideSources: KanripoImportJobOptions['sources'] | undefined,
+  signal: AbortSignal | undefined,
 ): Promise<ParallelPunctPayload> => {
   const sourceList = overrideSources ?? options.sources;
-  return (await invokePluginPython(PLUGIN_ID, {
-    op: 'parallel_punct',
-    mode: options.alignMode,
-    body_xml: bodyXml,
-    used_chapter_ids: chapterIdsUsed,
-    sources: sourceList.map((source) => ({
-      id: source.id,
-      label: source.label,
-      text: source.text,
-      kind: source.kind ?? '',
-      chapters: source.chapters,
-    })),
-  })) as ParallelPunctPayload;
+  return (await invokePluginPython(
+    PLUGIN_ID,
+    {
+      op: 'parallel_punct',
+      mode: options.alignMode,
+      body_xml: bodyXml,
+      used_chapter_ids: chapterIdsUsed,
+      sources: sourceList.map((source) => ({
+        id: source.id,
+        label: source.label,
+        text: source.text,
+        kind: source.kind ?? '',
+        chapters: source.chapters,
+      })),
+    },
+    undefined,
+    { signal },
+  )) as ParallelPunctPayload;
 };
 
 const invokeParagraphScoped = async (
@@ -130,14 +131,20 @@ const invokeParagraphScoped = async (
   juanId: string,
   matches: ImportJobAlignedParagraphMatch[],
   sourcesPayload: { id: string; label: string; text: string }[],
+  signal: AbortSignal | undefined,
 ): Promise<ParallelPunctPayload> =>
-  (await invokePluginPython(PLUGIN_ID, {
-    op: 'apply_paragraph_scoped',
-    body_xml: bodyXml,
-    juan_id: juanId,
-    matches,
-    sources: sourcesPayload,
-  })) as ParallelPunctPayload;
+  (await invokePluginPython(
+    PLUGIN_ID,
+    {
+      op: 'apply_paragraph_scoped',
+      body_xml: bodyXml,
+      juan_id: juanId,
+      matches,
+      sources: sourcesPayload,
+    },
+    undefined,
+    { signal },
+  )) as ParallelPunctPayload;
 
 const coverageNeedsAttention = (coverage: ImportJuanCoverage | undefined): string | undefined => {
   if (!coverage) return undefined;
@@ -154,9 +161,10 @@ export async function processKanripoJuan(params: {
   stem: string;
   usedPaths: Set<string>;
   usedChapterIds: string[];
-  convertedCache?: Map<string, ConvertPayload>;
   signal?: AbortSignal;
   onStatus?: (message: string) => void;
+  /** Tokens and cost of the AI calls for this juan, reported as soon as they are known. */
+  onUsage?: (usage: { inputTokens: number; outputTokens: number }, cost: number) => void;
   currentCost: number;
 }): Promise<ProcessJuanResult> {
   ensurePluginBridgeWired();
@@ -166,9 +174,9 @@ export async function processKanripoJuan(params: {
     stem,
     usedPaths,
     usedChapterIds,
-    convertedCache,
     signal,
     onStatus,
+    onUsage,
     currentCost,
   } = params;
 
@@ -177,16 +185,17 @@ export async function processKanripoJuan(params: {
   const normalize = options.normalize as KanripoNormalizeMode;
   onStatus?.(`Converting ${stem}…`);
 
-  let converted = convertedCache?.get(sourcePath);
-  if (!converted) {
-    converted = (await invokePluginPython(PLUGIN_ID, {
+  const converted = (await invokePluginPython(
+    PLUGIN_ID,
+    {
       path: sourcePath,
       normalize,
       gaiji_dest_dir: path.join(options.destDir, '_gaiji'),
       gaiji_overrides: options.gaijiOverrides ?? {},
-    })) as ConvertPayload;
-    convertedCache?.set(sourcePath, converted);
-  }
+    },
+    undefined,
+    { signal },
+  )) as ConvertPayload;
   if (!converted?.body_xml || !converted.meta) {
     throw new Error('Python conversion returned no TEI body.');
   }
@@ -197,6 +206,7 @@ export async function processKanripoJuan(params: {
   let warnings: ProcessJuanResult['warnings'];
   let matchedChapterIds: string[] | undefined;
   let cost = 0;
+  let usage: { inputTokens: number; outputTokens: number } | undefined;
 
   try {
     if (options.punctMode === 'parallel') {
@@ -212,8 +222,9 @@ export async function processKanripoJuan(params: {
               juanId,
               options.alignedMatches,
               options.alignedSourcesPayload,
+              signal,
             )
-          : await invokeParallel(bodyXml, options, usedChapterIds, overrideSources);
+          : await invokeParallel(bodyXml, options, usedChapterIds, overrideSources, signal);
       matchedChapterIds = punct.matched_chapter_ids;
       if (punct.quality?.warnings?.length) warnings = punct.quality.warnings;
       if (punct.applied) {
@@ -229,12 +240,15 @@ export async function processKanripoJuan(params: {
         );
       }
       onStatus?.(`AI punctuation ${stem}…`);
-      const client = createLlmClientFromSettings({
-        apiKey: options.aiSettings.apiKey,
-        baseUrl: options.aiSettings.baseUrl,
-        model: options.aiSettings.model,
-        concurrency: options.aiSettings.concurrency ?? 0,
-      });
+      const metered = withUsageMeter(
+        createLlmClientFromSettings({
+          apiKey: options.aiSettings.apiKey,
+          baseUrl: options.aiSettings.baseUrl,
+          model: options.aiSettings.model,
+          concurrency: options.aiSettings.concurrency ?? 0,
+        }),
+      );
+      const client = metered.client;
       const concurrency =
         options.aiSettings.concurrency && options.aiSettings.concurrency > 0
           ? options.aiSettings.concurrency
@@ -249,6 +263,8 @@ export async function processKanripoJuan(params: {
           client,
           concurrency,
           signal,
+          onProgress: (done, total) =>
+            onStatus?.(`AI punctuation ${stem}: segment ${done} of ${total}`),
         });
         if (aiResult.applied) {
           bodyXml = aiResult.body_xml;
@@ -258,13 +274,6 @@ export async function processKanripoJuan(params: {
             normalize,
             stats: aiResult.stats,
           });
-          // Rough cost estimate: ~$0.15 / 1M tokens blended placeholder from stats if present.
-          const tokens =
-            (aiResult.stats as { input_tokens?: number; output_tokens?: number }).input_tokens ?? 0;
-          const outTokens =
-            (aiResult.stats as { input_tokens?: number; output_tokens?: number }).output_tokens ??
-            0;
-          cost = ((tokens + outTokens) / 1_000_000) * 0.5;
         }
       } catch (aiError) {
         const blocked = isQuotaOrAuthError(aiError);
@@ -275,6 +284,11 @@ export async function processKanripoJuan(params: {
           );
         }
         throw aiError;
+      } finally {
+        // Counted whether the call succeeded or failed part-way: the tokens were spent either way.
+        usage = metered.usage;
+        cost = costOfUsage(usage, options.aiPricing);
+        onUsage?.(usage, cost);
       }
     }
   } catch (error) {
@@ -355,13 +369,6 @@ export async function processKanripoJuan(params: {
     throw writeError;
   }
 
-  if (options.spendCap != null && currentCost + cost > options.spendCap) {
-    throw new ImportJobBlockedError(
-      `Spending cap of $${options.spendCap.toFixed(2)} would be exceeded.`,
-      'spend_cap',
-    );
-  }
-
   const attentionFromCoverage = coverageNeedsAttention(coverage);
   const attentionFromWarnings =
     warnings?.some((w) => w.severity === 'warning') && !attentionFromCoverage
@@ -374,6 +381,7 @@ export async function processKanripoJuan(params: {
     coverage,
     warnings,
     cost,
+    tokens: usage ? { input: usage.inputTokens, output: usage.outputTokens } : undefined,
     needsAttention: Boolean(attentionFromCoverage || attentionFromWarnings),
     attentionReason: attentionFromCoverage ?? attentionFromWarnings,
     matchedChapterIds,

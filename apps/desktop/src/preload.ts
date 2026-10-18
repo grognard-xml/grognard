@@ -581,7 +581,10 @@ export interface ElectronAPI {
     options: import('../../commons/src/desktop/importJobTypes').ImportJobOptions,
   ) => Promise<string>;
   importJobPause: (jobId: string) => Promise<boolean>;
-  importJobResume: (jobId: string) => Promise<boolean>;
+  importJobResume: (
+    jobId: string,
+    resume?: import('../../commons/src/desktop/importJobTypes').ImportJobResumeOptions,
+  ) => Promise<boolean>;
   importJobCancel: (jobId: string) => Promise<boolean>;
   importJobRetryJuan: (jobId: string, stem: string) => Promise<boolean>;
   importJobAcceptJuan: (jobId: string, stem: string) => Promise<boolean>;
@@ -1227,7 +1230,7 @@ const electronAPI: ElectronAPI = {
   },
   importJobStart: (options) => ipcRenderer.invoke('importJob:start', options),
   importJobPause: (jobId) => ipcRenderer.invoke('importJob:pause', jobId),
-  importJobResume: (jobId) => ipcRenderer.invoke('importJob:resume', jobId),
+  importJobResume: (jobId, resume) => ipcRenderer.invoke('importJob:resume', jobId, resume),
   importJobCancel: (jobId) => ipcRenderer.invoke('importJob:cancel', jobId),
   importJobRetryJuan: (jobId, stem) => ipcRenderer.invoke('importJob:retryJuan', jobId, stem),
   importJobAcceptJuan: (jobId, stem) => ipcRenderer.invoke('importJob:acceptJuan', jobId, stem),
