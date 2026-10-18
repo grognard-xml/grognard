@@ -577,6 +577,27 @@ export interface ElectronAPI {
       event: import('../../commons/src/desktop/bulkBridgeTypes').BulkBridgeJobEvent,
     ) => void,
   ) => () => void;
+  importJobStart: (
+    options: import('../../commons/src/desktop/importJobTypes').ImportJobOptions,
+  ) => Promise<string>;
+  importJobPause: (jobId: string) => Promise<boolean>;
+  importJobResume: (jobId: string) => Promise<boolean>;
+  importJobCancel: (jobId: string) => Promise<boolean>;
+  importJobRetryJuan: (jobId: string, stem: string) => Promise<boolean>;
+  importJobAcceptJuan: (jobId: string, stem: string) => Promise<boolean>;
+  importJobDismiss: (jobId: string) => Promise<boolean>;
+  importJobList: () => Promise<
+    import('../../commons/src/desktop/importJobTypes').ImportJobSnapshot[]
+  >;
+  importJobSnapshot: () => Promise<
+    import('../../commons/src/desktop/importJobTypes').ImportJobProgressEvent
+  >;
+  importJobRestoreFromProject: (projectRoot: string) => Promise<number>;
+  onImportJobProgress: (
+    callback: (
+      event: import('../../commons/src/desktop/importJobTypes').ImportJobProgressEvent,
+    ) => void,
+  ) => () => void;
   entityIndexStart: (
     request: import('../../commons/src/desktop/entityIndexTypes').EntityIndexJobRequest,
   ) => Promise<string>;
@@ -1203,6 +1224,25 @@ const electronAPI: ElectronAPI = {
     ) => callback(progress);
     ipcRenderer.on('bulkBridge:progress', listener);
     return () => ipcRenderer.removeListener('bulkBridge:progress', listener);
+  },
+  importJobStart: (options) => ipcRenderer.invoke('importJob:start', options),
+  importJobPause: (jobId) => ipcRenderer.invoke('importJob:pause', jobId),
+  importJobResume: (jobId) => ipcRenderer.invoke('importJob:resume', jobId),
+  importJobCancel: (jobId) => ipcRenderer.invoke('importJob:cancel', jobId),
+  importJobRetryJuan: (jobId, stem) => ipcRenderer.invoke('importJob:retryJuan', jobId, stem),
+  importJobAcceptJuan: (jobId, stem) => ipcRenderer.invoke('importJob:acceptJuan', jobId, stem),
+  importJobDismiss: (jobId) => ipcRenderer.invoke('importJob:dismiss', jobId),
+  importJobList: () => ipcRenderer.invoke('importJob:list'),
+  importJobSnapshot: () => ipcRenderer.invoke('importJob:snapshot'),
+  importJobRestoreFromProject: (projectRoot) =>
+    ipcRenderer.invoke('importJob:restoreFromProject', projectRoot),
+  onImportJobProgress: (callback) => {
+    const listener = (
+      _event: Electron.IpcRendererEvent,
+      progress: import('../../commons/src/desktop/importJobTypes').ImportJobProgressEvent,
+    ) => callback(progress);
+    ipcRenderer.on('importJob:progress', listener);
+    return () => ipcRenderer.removeListener('importJob:progress', listener);
   },
   entityIndexStart: (request) => ipcRenderer.invoke('entityIndex:start', request),
   entityIndexCancel: (jobId) => ipcRenderer.invoke('entityIndex:cancel', jobId),

@@ -228,6 +228,22 @@ import {
   killAllEntityIndexJobs,
   startEntityIndexJob,
 } from './entityIndexJob';
+import {
+  acceptImportJuan,
+  cancelImportJob,
+  configureImportJobEmitter,
+  discoverAndRestoreImportJobs,
+  dismissImportJob,
+  getImportJobProgressEvent,
+  hasRunningImportJob,
+  killAllImportJobs,
+  listImportJobs,
+  pauseImportJob,
+  resumeImportJob,
+  retryImportJuan,
+  startImportJob,
+} from './importJob';
+import type { ImportJobOptions } from '../../commons/src/desktop/importJobTypes';
 import { checkForAppUpdatesManually, initAutoUpdater } from './updater';
 import { installCatalogSchema, installLocalSchema } from './schemaSetup';
 import { ensureSanmiaoDatesSchemaMerged } from './sanmiaoSchemaMerge';
@@ -1802,6 +1818,37 @@ const registerIpcHandlers = () => {
     },
   );
   ipcMain.handle('bulkBridge:cancel', (_event, jobId: string) => cancelBulkBridgeJob(jobId));
+
+  configureImportJobEmitter(
+    (progress) => {
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('importJob:progress', progress);
+      }
+    },
+    () => mainWindow,
+  );
+  ipcMain.handle('importJob:start', async (_event, options: ImportJobOptions) => {
+    await assertRendererWritePath(options.destDir);
+    await assertRendererWritePath(options.projectRoot);
+    return startImportJob(options);
+  });
+  ipcMain.handle('importJob:pause', (_event, jobId: string) => pauseImportJob(String(jobId)));
+  ipcMain.handle('importJob:resume', (_event, jobId: string) => resumeImportJob(String(jobId)));
+  ipcMain.handle('importJob:cancel', (_event, jobId: string) => cancelImportJob(String(jobId)));
+  ipcMain.handle('importJob:retryJuan', (_event, jobId: string, stem: string) =>
+    retryImportJuan(String(jobId), String(stem)),
+  );
+  ipcMain.handle('importJob:acceptJuan', (_event, jobId: string, stem: string) =>
+    acceptImportJuan(String(jobId), String(stem)),
+  );
+  ipcMain.handle('importJob:dismiss', (_event, jobId: string) => dismissImportJob(String(jobId)));
+  ipcMain.handle('importJob:list', () => listImportJobs());
+  ipcMain.handle('importJob:snapshot', () => getImportJobProgressEvent());
+  ipcMain.handle('importJob:restoreFromProject', async (_event, projectRoot: string) => {
+    await assertRendererReadPath(projectRoot);
+    return discoverAndRestoreImportJobs(String(projectRoot));
+  });
+
   ipcMain.handle(
     'entityIndex:start',
     async (
@@ -4644,18 +4691,42 @@ app.whenReady().then(() => {
 app.on('before-quit', (event) => {
   if (!isQuitting) {
     event.preventDefault();
-    isQuitting = true;
-    quitPreparationInProgress = true;
-    void closeEntitySqliteReadRepositories();
-    closeAllNativeDialogs();
 
-    // A best-effort snapshot on the way out, in parallel with renderer
-    // teardown. runQuitBackup caps its own runtime and no-ops when backup is
-    // disabled or unconfigured, so this can't hang shutdown.
-    void Promise.allSettled([prepareRendererForQuit(), runQuitBackup()]).finally(() => {
-      quitPreparationInProgress = false;
-      app.quit();
-    });
+    const finishQuitPrep = () => {
+      isQuitting = true;
+      quitPreparationInProgress = true;
+      void closeEntitySqliteReadRepositories();
+      closeAllNativeDialogs();
+      killAllImportJobs();
+
+      // A best-effort snapshot on the way out, in parallel with renderer
+      // teardown. runQuitBackup caps its own runtime and no-ops when backup is
+      // disabled or unconfigured, so this can't hang shutdown.
+      void Promise.allSettled([prepareRendererForQuit(), runQuitBackup()]).finally(() => {
+        quitPreparationInProgress = false;
+        app.quit();
+      });
+    };
+
+    if (hasRunningImportJob()) {
+      const quitDialogOpts = {
+        type: 'question' as const,
+        buttons: ['Pause and quit', 'Keep running', 'Cancel'],
+        defaultId: 0,
+        cancelId: 2,
+        message: 'An import is running. Quit and pause it?',
+        detail: 'Pause keeps finished juan on disk so you can resume later.',
+      };
+      void (mainWindow && !mainWindow.isDestroyed()
+        ? dialog.showMessageBox(mainWindow, quitDialogOpts)
+        : dialog.showMessageBox(quitDialogOpts)
+      ).then((result) => {
+        if (result.response === 0) finishQuitPrep();
+      });
+      return;
+    }
+
+    finishQuitPrep();
     return;
   }
 
@@ -4680,6 +4751,7 @@ app.on('window-all-closed', () => {
   browserImportServer = null;
   killAllBulkBridgeJobs();
   killAllEntityIndexJobs();
+  killAllImportJobs();
   disposeLemminx();
   if (process.platform !== 'darwin' || isQuitting) app.quit();
 });
@@ -4692,4 +4764,5 @@ app.on('will-quit', () => {
   }
   killAllBulkBridgeJobs();
   killAllEntityIndexJobs();
+  killAllImportJobs();
 });

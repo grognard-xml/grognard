@@ -20,6 +20,7 @@ import {
   Radio,
   RadioGroup,
   Select,
+  Stack,
   TextField,
   Tooltip,
   Typography,
@@ -79,6 +80,8 @@ import {
 import { formatAiProvenance } from '../../aiPunctuation/formatAiProvenance';
 import { runAiPunctuate } from '../../aiPunctuation/runAiPunctuate';
 import { AI_PUNCT_PROMPT_VERSION } from '../../aiPunctuation/prompts';
+import { setImportJobPanelExpanded } from '../../importJobs/importJobProgress';
+import type { KanripoImportJobOptions } from '../../../../../apps/commons/src/desktop/importJobTypes';
 
 const PLUGIN_ID = 'kanripo-import';
 const DAOZANG_PLUGIN_ID = 'daozang-import';
@@ -297,6 +300,14 @@ export const KanripoImportDialog = ({
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState('');
   const [error, setError] = useState<string | null>(null);
+  const [spendCap, setSpendCap] = useState('');
+  const [estimatedCost, setEstimatedCost] = useState<number | null>(null);
+  const [aiJuanConcurrency, setAiJuanConcurrency] = useState(1);
+  const [trialReady, setTrialReady] = useState<{
+    stem: string;
+    outputPath: string;
+    options: KanripoImportJobOptions;
+  } | null>(null);
   const [report, setReport] = useState<{
     written: string[];
     failed: { stem: string; message: string }[];
@@ -330,9 +341,11 @@ export const KanripoImportDialog = ({
   }, []);
 
   useEffect(() => {
+    // Punctuate-only / fill-gaps still abort when the dialog closes. Background
+    // import jobs live in the main process and must not be cancelled here.
     if (!open) {
-      importAbortRef.current?.abort();
-      importAbortRef.current = null;
+      fillGapsAbortRef.current?.abort();
+      fillGapsAbortRef.current = null;
     }
   }, [open]);
   const [parallelCrosswalk, setParallelCrosswalk] = useState<ParallelCrosswalkEntry | null>(null);
@@ -783,25 +796,36 @@ export const KanripoImportDialog = ({
     selected &&
     projectReady &&
     !busy &&
+    !trialReady &&
+    window.electronAPI?.importJobStart &&
     window.electronAPI?.kanripoClone &&
     (importScope === 'work' ||
       (importScope === 'juan' && juanInput.trim() && window.electronAPI?.kanripoFetchJuan)) &&
     (punctMode === 'as-is' || punctMode === 'ai' || hasSources),
   );
 
-  const runImport = async () => {
-    if (!selected) return;
+  const launchBackgroundJob = async (options: KanripoImportJobOptions) => {
+    const api = window.electronAPI;
+    if (!api?.importJobStart) throw new Error('Background import is not available.');
+    await api.importJobStart(options);
+    setImportJobPanelExpanded(true);
+    onClose?.('cancel');
+  };
+
+  /** Build job options + optional folder-reference alignment (confirmed in-dialog). */
+  const prepareKanripoJobOptions = async (): Promise<KanripoImportJobOptions | null> => {
+    if (!selected) return null;
     const project = window.__leafWriterProject;
     const rootPath = project?.getProjectRootPath?.();
     const config = project?.getProjectConfig?.();
     if (!project || !projectReady || !rootPath || !config) {
       setError('Open a project before importing from Kanripo.');
-      return;
+      return null;
     }
     const api = window.electronAPI;
-    if (!api?.kanripoClone || !api.pluginsInvokePython || !api.writeFile || !api.ensureDirectory) {
+    if (!api?.kanripoClone || !api.pluginsInvokePython || !api.importJobStart) {
       setError('Kanripo import is only available in the desktop app.');
-      return;
+      return null;
     }
 
     if (punctMode === 'parallel') {
@@ -810,236 +834,223 @@ export const KanripoImportDialog = ({
       );
       if (hasCtextSource) {
         setError(CTEXT_IMPORT_MESSAGE);
-        return;
+        return null;
       }
     }
 
-    if (punctMode === 'ai') {
-      const settings = aiApiSettingsFromDesktop();
-      if (!isAiSuggestReady(settings)) {
-        setError('Configure and test AI API settings first (App Settings).');
-        return;
-      }
+    const aiSettingsRaw = punctMode === 'ai' ? aiApiSettingsFromDesktop() : null;
+    if (punctMode === 'ai' && !isAiSuggestReady(aiSettingsRaw)) {
+      setError('Configure and test AI API settings first (App Settings).');
+      return null;
     }
+
+    const destDir = joinPath(rootPath, 'imported', 'kanripo', selected.id);
+    await api.ensureDirectory?.(destDir);
+    const gaijiOverrides = await loadGaijiOverrides(rootPath);
+
+    let alignedJuanSources:
+      | Record<string, ParallelSource[]>
+      | undefined;
+    let alignedMatches: AlignedParagraphMatch[] | undefined;
+    let alignedSourcesPayload: { id: string; label: string; text: string }[] | undefined;
+    const folderReferenceSources = sources.filter((source) => source.kind === 'folder-reference');
+
+    if (punctMode === 'parallel' && folderReferenceSources.length > 0) {
+      setStatus(
+        importScope === 'juan' ? `Fetching ${selected.id} juan…` : `Cloning ${selected.id}…`,
+      );
+      let files: string[] = [];
+      if (importScope === 'juan') {
+        const fetched = await api.kanripoFetchJuan!(selected.id, juanInput.trim());
+        files = fetched.files ?? (fetched.path ? [fetched.path] : []);
+      } else {
+        const clone = await api.kanripoClone(selected.id);
+        files = clone.files ?? [];
+      }
+      if (files.length === 0) throw new Error('No source .txt files found.');
+
+      const juanPayload: { juan_id: string; body_xml: string }[] = [];
+      for (let i = 0; i < files.length; i += 1) {
+        setStatus(`Converting for alignment (${i + 1} of ${files.length})…`);
+        const converted = (await api.pluginsInvokePython(PLUGIN_ID, {
+          path: files[i],
+          normalize,
+          gaiji_dest_dir: joinPath(destDir, '_gaiji'),
+          gaiji_overrides: gaijiOverrides,
+        })) as ConvertPayload;
+        if (!converted?.body_xml || !converted.meta) {
+          throw new Error(`Python conversion of ${files[i]} returned no TEI body.`);
+        }
+        juanPayload.push({
+          juan_id: converted.meta.juan || converted.meta.stem || files[i],
+          body_xml: converted.body_xml,
+        });
+      }
+
+      setStatus(
+        `Aligning ${folderReferenceSources.length} reference file(s) against ${juanPayload.length} juan…`,
+      );
+      const alignedSourcesPayloadCandidate = folderReferenceSources.map((source) => ({
+        id: source.id,
+        label: source.label,
+        text: source.text,
+      }));
+      const alignResult = (await api.pluginsInvokePython(PLUGIN_ID, {
+        op: 'align_folder_sources',
+        juan: juanPayload,
+        sources: alignedSourcesPayloadCandidate,
+      })) as {
+        matches: AlignedParagraphMatch[];
+        juan_sources: Record<string, { id: string; label: string; text: string }[]>;
+        missing_juan_ids: string[];
+      };
+
+      const totalParas = alignResult.matches.length;
+      const unmatchedParas = alignResult.matches.filter(
+        (match) => match.match_type === 'unmatched',
+      ).length;
+      const summaryLines = [
+        `Aligned reference folder against ${juanPayload.length} juan.`,
+        `${totalParas - unmatchedParas}/${totalParas} paragraphs matched.`,
+        alignResult.missing_juan_ids.length > 0
+          ? `${alignResult.missing_juan_ids.length} juan have no matching source content: ${alignResult.missing_juan_ids.join(', ')}. They will be imported unpunctuated.`
+          : 'No juan are entirely missing source content.',
+        'Continue with this alignment?',
+      ];
+      if (!window.confirm(summaryLines.join('\n'))) {
+        setStatus('Import cancelled: alignment not confirmed.');
+        return null;
+      }
+
+      alignedJuanSources = Object.fromEntries(
+        Object.entries(alignResult.juan_sources).map(([juanId, list]) => [
+          juanId,
+          list.map(
+            (item) => ({ id: item.id, label: item.label, text: item.text }) as ParallelSource,
+          ),
+        ]),
+      );
+      alignedMatches = alignResult.matches;
+      alignedSourcesPayload = alignedSourcesPayloadCandidate;
+    }
+
+    const capParsed = spendCap.trim() ? Number(spendCap) : null;
+    const juanEstimate =
+      importScope === 'juan' ? 1 : Math.max(1, Number(selected.id ? 10 : 10));
+    // Rough pre-start estimate for AI: ~$0.02 per juan until we have real usage.
+    const est =
+      punctMode === 'ai' ? Math.round(juanEstimate * 0.02 * 1000) / 1000 : null;
+    setEstimatedCost(est);
+
+    return {
+      kind: 'kanripo',
+      krId: selected.id,
+      title: selected.title || selected.id,
+      projectRoot: rootPath,
+      destDir,
+      importScope,
+      juanInput: juanInput.trim() || undefined,
+      normalize,
+      punctMode,
+      alignMode,
+      sources: sources.map((source) => ({
+        id: source.id,
+        label: source.label,
+        text: source.text,
+        kind: source.kind,
+        url: source.url,
+        chapters: source.chapters,
+      })),
+      alignedJuanSources,
+      alignedMatches,
+      alignedSourcesPayload,
+      projectConfig: config as import('../../../../../apps/commons/src/desktop/importJobTypes').ImportJobProjectConfig,
+      gaijiOverrides,
+      aiSettings:
+        punctMode === 'ai' && aiSettingsRaw
+          ? {
+              baseUrl: aiSettingsRaw.baseUrl,
+              apiKey: aiSettingsRaw.apiKey ?? '',
+              model: aiSettingsRaw.model,
+              concurrency: effectiveAiConcurrency(aiSettingsRaw),
+            }
+          : null,
+      spendCap: capParsed != null && Number.isFinite(capParsed) ? capParsed : null,
+      juanConcurrency: punctMode === 'ai' ? Math.max(1, aiJuanConcurrency) : 1,
+      estimatedCost: est,
+    };
+  };
+
+  const runImport = async () => {
+    if (punctuateOnly) {
+      // Punctuate-only still runs in the dialog (single open file).
+      return;
+    }
+    if (!selected) return;
 
     setBusy(true);
     setError(null);
     setReport(null);
-    setUsedChapterIds([]);
-    setStatus(importScope === 'juan' ? `Fetching ${selected.id} juan…` : `Cloning ${selected.id}…`);
-
-    importAbortRef.current?.abort();
-    const importAbort = new AbortController();
-    importAbortRef.current = importAbort;
-    const { signal } = importAbort;
-
-    let cloned = false;
-    const written: string[] = [];
-    const failed: { stem: string; message: string }[] = [];
-    const bars: { stem: string; coverage: Coverage; outputPath: string }[] = [];
-    const warnings: { stem: string; items: ParallelQualityWarning[] }[] = [];
-
-    // A system sleep mid-run drops in-flight LLM requests (ERR_NETWORK_IO_SUSPENDED /
-    // ERR_NETWORK_CHANGED) and fails every juan still pending, so keep the machine
-    // awake for the whole AI import. Ref-counted in main; no-op outside the desktop app.
-    const holdAwake = punctMode === 'ai';
-    if (holdAwake) void window.electronAPI?.startAiRunPowerSaveBlocker?.();
+    setTrialReady(null);
 
     try {
-      let files: string[] = [];
-      if (importScope === 'juan') {
-        const juan = juanInput.trim();
-        if (!api.kanripoFetchJuan) {
-          throw new Error('Single-juan fetch is not available in this app session.');
-        }
-        const fetched = await api.kanripoFetchJuan(selected.id, juan);
-        files = fetched.files ?? (fetched.path ? [fetched.path] : []);
-        cloned = true;
-        if (files.length === 0) {
-          throw new Error(`No text returned for ${fetched.loc ?? juan}.`);
-        }
-        setStatus(`Fetched ${fetched.loc ?? juan} via Kanripo API…`);
-      } else {
-        const clone = await api.kanripoClone(selected.id);
-        cloned = true;
-        files = clone.files ?? [];
-        if (files.length === 0) {
-          throw new Error(`No .txt files found in ${selected.id}.`);
-        }
-      }
+      const options = await prepareKanripoJobOptions();
+      if (!options) return;
 
-      const destDir = joinPath(rootPath, 'imported', 'kanripo', selected.id);
-      await api.ensureDirectory(destDir);
-      const gaijiOverrides = await loadGaijiOverrides(rootPath);
-      const used = new Set<string>();
-      const existingEntries = (await api.readDirectory?.(destDir, { allFiles: true })) ?? [];
-      for (const entry of existingEntries) {
-        if (!entry.isDirectory && entry.name.toLowerCase().endsWith('.xml')) {
-          used.add(joinPath(destDir, entry.name).replace(/\\/g, '/'));
-        }
-      }
-
-      const usedDuringImport: string[] = [];
-
-      const aiSettings = punctMode === 'ai' ? aiApiSettingsFromDesktop() : null;
-      const aiClient =
-        punctMode === 'ai' && aiSettings ? createLlmClientFromSettings(aiSettings) : null;
-
-      const convertedByFile = new Map<string, ConvertPayload>();
-      let alignedJuanSources: Record<string, ParallelSource[]> | null = null;
-      let alignedMatches: AlignedParagraphMatch[] | null = null;
-      let alignedSourcesPayload: { id: string; label: string; text: string }[] | null = null;
-      const folderReferenceSources = sources.filter((source) => source.kind === 'folder-reference');
-
-      if (punctMode === 'parallel' && folderReferenceSources.length > 0) {
-        const juanPayload: { juan_id: string; body_xml: string }[] = [];
-        for (let i = 0; i < files.length; i += 1) {
-          signal.throwIfAborted();
-          const filePath = files[i];
-          setStatus(`Converting for alignment (${i + 1} of ${files.length})…`);
-          const converted = (await api.pluginsInvokePython(PLUGIN_ID, {
-            path: filePath,
-            normalize,
-            gaiji_dest_dir: joinPath(destDir, '_gaiji'),
-            gaiji_overrides: gaijiOverrides,
-          })) as ConvertPayload;
-          if (!converted?.body_xml || !converted.meta) {
-            throw new Error(`Python conversion of ${filePath} returned no TEI body.`);
-          }
-          convertedByFile.set(filePath, converted);
-          juanPayload.push({
-            juan_id: converted.meta.juan || converted.meta.stem || filePath,
-            body_xml: converted.body_xml,
-          });
-        }
-
-        setStatus(
-          `Aligning ${folderReferenceSources.length} reference file(s) against ${juanPayload.length} juan…`,
-        );
-        const alignedSourcesPayloadCandidate = folderReferenceSources.map((source) => ({
-          id: source.id,
-          label: source.label,
-          text: source.text,
-        }));
-        const alignResult = (await api.pluginsInvokePython(PLUGIN_ID, {
-          op: 'align_folder_sources',
-          juan: juanPayload,
-          sources: alignedSourcesPayloadCandidate,
-        })) as {
-          matches: AlignedParagraphMatch[];
-          juan_sources: Record<string, { id: string; label: string; text: string }[]>;
-          missing_juan_ids: string[];
-        };
-
-        const totalParas = alignResult.matches.length;
-        const unmatchedParas = alignResult.matches.filter(
-          (match) => match.match_type === 'unmatched',
-        ).length;
-        const summaryLines = [
-          `Aligned reference folder against ${juanPayload.length} juan.`,
-          `${totalParas - unmatchedParas}/${totalParas} paragraphs matched.`,
-          alignResult.missing_juan_ids.length > 0
-            ? `${alignResult.missing_juan_ids.length} juan have no matching source content: ${alignResult.missing_juan_ids.join(', ')}. They will be imported unpunctuated.`
-            : 'No juan are entirely missing source content.',
-          'Continue with this alignment?',
-        ];
-        if (!window.confirm(summaryLines.join('\n'))) {
-          setStatus('Import cancelled: alignment not confirmed.');
-          return;
-        }
-
-        alignedJuanSources = Object.fromEntries(
-          Object.entries(alignResult.juan_sources).map(([juanId, list]) => [
-            juanId,
-            list.map(
-              (item) => ({ id: item.id, label: item.label, text: item.text }) as ParallelSource,
-            ),
-          ]),
-        );
-        alignedMatches = alignResult.matches;
-        alignedSourcesPayload = alignedSourcesPayloadCandidate;
-      }
-
-      for (let i = 0; i < files.length; i += 1) {
-        signal.throwIfAborted();
-        const filePath = files[i];
-        const stem =
-          filePath
-            .replace(/\\/g, '/')
-            .split('/')
-            .pop()
-            ?.replace(/\.txt$/i, '') ?? 'juan';
-        setStatus(`Converting ${stem} (${i + 1} of ${files.length})…`);
+      // AI punctuation: trial the first juan in-dialog before the batch.
+      if (options.punctMode === 'ai' && options.importScope === 'work') {
+        setStatus('Running trial on first juan…');
+        const api = window.electronAPI!;
+        const project = window.__leafWriterProject!;
+        const config = project.getProjectConfig?.();
+        if (!config) throw new Error('Project config unavailable.');
+        void api.startAiRunPowerSaveBlocker?.();
         try {
-          const converted =
-            convertedByFile.get(filePath) ??
-            ((await api.pluginsInvokePython(PLUGIN_ID, {
-              path: filePath,
-              normalize,
-              gaiji_dest_dir: joinPath(destDir, '_gaiji'),
-              gaiji_overrides: gaijiOverrides,
-            })) as ConvertPayload);
+          const clone = await api.kanripoClone!(options.krId);
+          const files = clone.files ?? [];
+          if (files.length === 0) throw new Error('No .txt files found.');
+          const firstPath = files[0];
+          const stem =
+            firstPath
+              .replace(/\\/g, '/')
+              .split('/')
+              .pop()
+              ?.replace(/\.txt$/i, '') ?? 'juan';
+          const used = new Set<string>();
+          const existingEntries =
+            (await api.readDirectory?.(options.destDir, { allFiles: true })) ?? [];
+          for (const entry of existingEntries) {
+            if (!entry.isDirectory && entry.name.toLowerCase().endsWith('.xml')) {
+              used.add(joinPath(options.destDir, entry.name).replace(/\\/g, '/'));
+            }
+          }
+          const converted = (await api.pluginsInvokePython!(PLUGIN_ID, {
+            path: firstPath,
+            normalize,
+            gaiji_dest_dir: joinPath(options.destDir, '_gaiji'),
+            gaiji_overrides: options.gaijiOverrides ?? {},
+          })) as ConvertPayload;
           if (!converted?.body_xml || !converted.meta) {
             throw new Error('Python conversion returned no TEI body.');
           }
+          const aiSettings = aiApiSettingsFromDesktop();
+          const aiClient = aiSettings ? createLlmClientFromSettings(aiSettings) : null;
+          if (!aiClient) throw new Error('AI client unavailable.');
           let bodyXml = converted.body_xml;
+          const aiResult = await runAiPunctuate(bodyXml, {
+            client: aiClient,
+            concurrency: effectiveAiConcurrency(aiSettings),
+          });
           let punctNote: string | undefined;
-          let barCoverage: Coverage | undefined;
-          if (punctMode === 'parallel') {
-            setStatus(`Punctuating ${stem} (${i + 1} of ${files.length})…`);
-            const juanId = converted.meta.juan || converted.meta.stem || stem;
-            const overrideSources = alignedJuanSources
-              ? (alignedJuanSources[juanId] ?? [])
-              : undefined;
-            const punct =
-              alignedMatches && alignedSourcesPayload
-                ? await invokeParagraphScoped(
-                    bodyXml,
-                    juanId,
-                    alignedMatches,
-                    alignedSourcesPayload,
-                  )
-                : await invokeParallel(bodyXml, usedDuringImport, overrideSources);
-            if (punct.matched_chapter_ids?.length) {
-              for (const chapterId of punct.matched_chapter_ids) {
-                if (!usedDuringImport.includes(chapterId)) {
-                  usedDuringImport.push(chapterId);
-                }
-              }
-            }
-            if (punct.quality?.warnings?.length) {
-              warnings.push({ stem, items: punct.quality.warnings });
-            }
-            if (punct.applied) {
-              bodyXml = punct.body_xml;
-              punctNote = formatParallelProvenance(overrideSources ?? sources, alignMode);
-            }
-            barCoverage = await fetchPunctCoverage(bodyXml);
-          } else if (punctMode === 'ai' && aiClient) {
-            setStatus(
-              `AI punctuation ${stem} (juan ${i + 1} of ${files.length}, starting segments…)`,
-            );
-            const aiResult = await runAiPunctuate(bodyXml, {
-              client: aiClient,
-              concurrency: effectiveAiConcurrency(aiSettings),
-              signal,
-              onProgress: (done, total) => {
-                setStatus(
-                  `AI punctuation ${stem} (juan ${i + 1} of ${files.length}, segment ${done} of ${total})…`,
-                );
-              },
+          if (aiResult.applied) {
+            bodyXml = aiResult.body_xml;
+            punctNote = formatAiProvenance({
+              modelId: aiClient.modelId,
+              promptVersion: AI_PUNCT_PROMPT_VERSION,
+              normalize,
+              stats: aiResult.stats,
             });
-            if (aiResult.applied) {
-              bodyXml = aiResult.body_xml;
-              punctNote = formatAiProvenance({
-                modelId: aiClient.modelId,
-                promptVersion: AI_PUNCT_PROMPT_VERSION,
-                normalize,
-                stats: aiResult.stats,
-              });
-            }
           }
-          // Deterministic clean-up after whichever punctuation mode ran (AI included).
           bodyXml = await finalizeKanripoBody(bodyXml);
           let xml = wrapKanripoTeiDocument({
             config,
@@ -1053,93 +1064,63 @@ export const KanripoImportDialog = ({
             metadataXml: converted.metadata_xml,
             punctNote,
           });
-          if (!xmlLooksWellFormed(xml)) {
-            throw new Error('Wrapped TEI is not well-formed XML.');
-          }
-          const outputPath = uniqueKanripoXmlPath(destDir, converted.meta.stem || stem, used);
+          if (!xmlLooksWellFormed(xml)) throw new Error('Wrapped TEI is not well-formed XML.');
+          const outputPath = uniqueKanripoXmlPath(
+            options.destDir,
+            converted.meta.stem || stem,
+            used,
+          );
           const dir = parentDir(outputPath);
-          if (dir) await api.ensureDirectory(dir);
+          if (dir) await api.ensureDirectory?.(dir);
           const gaijiMode = gaijiModeForCatalog(config.schema?.catalogId);
           if (gaijiMode && converted.meta.gaiji_ids?.length) {
-            setStatus(`Vectorising gaiji in ${stem} (${i + 1} of ${files.length})…`);
             const glyphs = await convertKanripoGaiji({
               api,
               readBytes: api.readBinaryFile,
-              gaijiDir: joinPath(destDir, '_gaiji'),
+              gaijiDir: joinPath(options.destDir, '_gaiji'),
               mode: gaijiMode,
               outputPath,
               xml,
             });
             if (xmlLooksWellFormed(glyphs.xml)) xml = glyphs.xml;
           }
-          await api.writeFile(outputPath, xml);
-          written.push(outputPath);
-          if (barCoverage) {
-            bars.push({ stem, coverage: barCoverage, outputPath });
-          }
-        } catch (itemError) {
-          if (itemError instanceof DOMException && itemError.name === 'AbortError') {
-            throw itemError;
-          }
-          failed.push({
-            stem,
-            message: itemError instanceof Error ? itemError.message : String(itemError),
-          });
-        }
-      }
-
-      if (failed.length === 0 && importScope === 'work') {
-        await api.kanripoFlush?.(selected.id);
-        cloned = false;
-      }
-      setUsedChapterIds(usedDuringImport);
-
-      setStatus(`Finalising ${written.length} juan…`);
-      await ensureImportHeaderEntitiesForPaths(written);
-      await project.refreshExplorer?.();
-      for (let i = 0; i < written.length; i += 1) {
-        signal.throwIfAborted();
-        setStatus(`Reloading juan (${i + 1} of ${written.length})…`);
-        await project.reloadFileFromDisk?.(written[i]);
-      }
-      setReport({ written, failed, bars, warnings });
-      const warningCount = warnings.reduce((sum, row) => sum + row.items.length, 0);
-      setStatus(
-        failed.length === 0
-          ? warningCount > 0
-            ? `Imported ${written.length} juan with ${warningCount} parallel quality warning(s).`
-            : `Imported ${written.length} juan.`
-          : `Imported ${written.length} juan; ${failed.length} failed. The clone was kept so you can retry.`,
-      );
-
-      if (written.length === 1 && failed.length === 0) {
-        await project.openFile?.(written[0]);
-      }
-    } catch (runError) {
-      if (runError instanceof DOMException && runError.name === 'AbortError') {
-        if (written.length > 0) {
+          await api.writeFile!(outputPath, xml);
+          await ensureImportHeaderEntitiesForPaths([outputPath]);
           await project.refreshExplorer?.();
-          for (const outputPath of written) {
-            await project.reloadFileFromDisk?.(outputPath);
-          }
-          setReport({ written, failed, bars, warnings });
-        }
-        setStatus(
-          written.length > 0
-            ? `Import stopped. ${written.length} juan saved to imported/kanripo/${selected.id}/.`
-            : 'Import cancelled.',
-        );
-        setError(null);
-      } else {
-        setError(runError instanceof Error ? runError.message : String(runError));
-        setStatus('');
-        if (cloned && written.length === 0) {
-          // Keep the clone on failure so a retry does not re-download.
+          await project.openFile?.(outputPath);
+          const finishedStem = converted.meta.stem || stem;
+          setTrialReady({
+            stem: finishedStem,
+            outputPath,
+            options: { ...options, skipStems: [finishedStem] },
+          });
+          setStatus(
+            `Trial juan ${finishedStem} written. Looks good? Continue in background, or adjust settings.`,
+          );
+          setReport({ written: [outputPath], failed: [], bars: [] });
+          return;
+        } finally {
+          void api.stopAiRunPowerSaveBlocker?.();
         }
       }
+
+      await launchBackgroundJob(options);
+    } catch (runError) {
+      setError(runError instanceof Error ? runError.message : String(runError));
+      setStatus('');
     } finally {
-      if (holdAwake) void window.electronAPI?.stopAiRunPowerSaveBlocker?.();
-      importAbortRef.current = null;
+      setBusy(false);
+    }
+  };
+
+  const continueAfterTrial = async () => {
+    if (!trialReady) return;
+    setBusy(true);
+    try {
+      await launchBackgroundJob(trialReady.options);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
       setBusy(false);
     }
   };
@@ -1931,6 +1912,35 @@ export const KanripoImportDialog = ({
                   )}
                 </Alert>
               )}
+              {punctMode === 'ai' && aiReady && !punctuateOnly && (
+                <Stack spacing={1} sx={{ mt: 1 }}>
+                  <Typography variant="caption" color="text.secondary">
+                    The first juan runs as a trial in this dialog. The rest continue in the
+                    background. Estimated cost is approximate (~$0.02/juan) until real usage is
+                    known.
+                    {estimatedCost != null ? ` Rough estimate: $${estimatedCost.toFixed(2)}.` : ''}
+                  </Typography>
+                  <TextField
+                    size="small"
+                    label="Spending cap (USD, optional)"
+                    value={spendCap}
+                    onChange={(event) => setSpendCap(event.target.value)}
+                    disabled={busy}
+                  />
+                  <TextField
+                    size="small"
+                    type="number"
+                    label="Parallel juan (AI)"
+                    value={aiJuanConcurrency}
+                    onChange={(event) =>
+                      setAiJuanConcurrency(Math.max(1, Number(event.target.value) || 1))
+                    }
+                    inputProps={{ min: 1, max: 4 }}
+                    disabled={busy}
+                    helperText="How many juan to punctuate at once after the trial (1 is safest)."
+                  />
+                </Stack>
+              )}
               {importParallelPanel}
             </FormControl>
           </>
@@ -2102,18 +2112,24 @@ export const KanripoImportDialog = ({
               AI fill gaps
             </Button>
           </>
-        ) : !busy && report && report.failed.length === 0 ? (
-          // A finished, all-succeeded import leaves the dialog sitting on a
-          // static coverage bar per juan (not a progress indicator) with no
-          // other visual change — easy to mistake for a hang. Swapping the
-          // primary action to "Close" once there's nothing left to run here
-          // makes the finished state unambiguous.
-          <Button variant="contained" onClick={() => onClose?.('cancel')}>
-            Close
-          </Button>
+        ) : trialReady ? (
+          <>
+            <Button disabled={busy} onClick={() => setTrialReady(null)}>
+              Adjust settings
+            </Button>
+            <Button
+              variant="contained"
+              disabled={busy}
+              onClick={() => void continueAfterTrial()}
+            >
+              Looks good, continue in background
+            </Button>
+          </>
         ) : (
           <Button variant="contained" disabled={!canRunImport} onClick={() => void runImport()}>
-            Import
+            {punctMode === 'ai' && importScope === 'work'
+              ? 'Start trial'
+              : 'Start in background'}
           </Button>
         )}
       </DialogActions>

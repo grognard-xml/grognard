@@ -612,6 +612,23 @@ export interface ElectronAPI {
   onBulkBridgeProgress?: (
     callback: (event: import('../desktop/bulkBridgeTypes').BulkBridgeJobEvent) => void,
   ) => () => void;
+  importJobStart?: (
+    options: import('../desktop/importJobTypes').ImportJobOptions,
+  ) => Promise<string>;
+  importJobPause?: (jobId: string) => Promise<boolean>;
+  importJobResume?: (jobId: string) => Promise<boolean>;
+  importJobCancel?: (jobId: string) => Promise<boolean>;
+  importJobRetryJuan?: (jobId: string, stem: string) => Promise<boolean>;
+  importJobAcceptJuan?: (jobId: string, stem: string) => Promise<boolean>;
+  importJobDismiss?: (jobId: string) => Promise<boolean>;
+  importJobList?: () => Promise<import('../desktop/importJobTypes').ImportJobSnapshot[]>;
+  importJobSnapshot?: () => Promise<
+    import('../desktop/importJobTypes').ImportJobProgressEvent
+  >;
+  importJobRestoreFromProject?: (projectRoot: string) => Promise<number>;
+  onImportJobProgress?: (
+    callback: (event: import('../desktop/importJobTypes').ImportJobProgressEvent) => void,
+  ) => () => void;
   entityIndexStart?: (
     request: import('../desktop/entityIndexTypes').EntityIndexJobRequest,
   ) => Promise<string>;

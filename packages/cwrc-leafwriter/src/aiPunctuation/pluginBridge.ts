@@ -1,5 +1,18 @@
 const PLUGIN_ID = 'kanripo-import';
 
+/** Optional invoker for main-process callers (background import jobs). */
+type PluginPythonInvoker = (
+  pluginId: string,
+  payload: Record<string, unknown>,
+) => Promise<unknown>;
+
+let injectedInvoker: PluginPythonInvoker | null = null;
+
+/** Wire Python calls through main's bridge when `window.electronAPI` is unavailable. */
+export function setPluginPythonInvoker(invoker: PluginPythonInvoker | null): void {
+  injectedInvoker = invoker;
+}
+
 export interface AiPunctSegment {
   id: number;
   /** `head`: title block, section heading or colophon — never punctuated by the model. */
@@ -56,7 +69,10 @@ export interface AiParallelApplyResult {
 }
 
 async function invokePython<T>(payload: Record<string, unknown>): Promise<T> {
-  const api = window.electronAPI;
+  if (injectedInvoker) {
+    return (await injectedInvoker(PLUGIN_ID, payload)) as T;
+  }
+  const api = typeof window !== 'undefined' ? window.electronAPI : undefined;
   if (!api?.pluginsInvokePython) {
     throw new Error('Python bridge unavailable.');
   }

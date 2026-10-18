@@ -15,17 +15,10 @@ import {
   Typography,
 } from '@mui/material';
 import { useCallback, useEffect, useState } from 'react';
-import {
-  uniqueDaozangXmlPath,
-  wrapDaozangTeiDocument,
-  type DaozangTeiMeta,
-} from '../../../../../apps/commons/src/desktop/daozangImportXml';
-import { ensureImportHeaderEntitiesForPaths } from '../../../../../apps/commons/src/desktop/ensureImportHeaderEntities';
 import { CorpusWorkRow } from '../corpusWorkRow';
 import type { IDialog } from '../type';
 import { isPluginEnabled } from '../../plugins';
-
-const PLUGIN_ID = 'daozang-import';
+import { setImportJobPanelExpanded } from '../../importJobs/importJobProgress';
 
 interface DaozangWorkHit {
   id: string;
@@ -48,35 +41,10 @@ interface DaozangStatus {
   };
 }
 
-interface ConvertPayload {
-  meta: DaozangTeiMeta;
-  body_xml: string;
-  metadata_xml?: string;
-  entities?: Pick<DaozangTeiMeta, 'authorship'>;
-  split?: boolean;
-  juan_files?: {
-    juan_n: string;
-    juan_title: string;
-    subtitle?: string;
-    body_xml: string;
-  }[];
-}
-
 export type DaozangImportDialogProps = IDialog;
 
 const joinPath = (...parts: string[]): string =>
   parts.filter(Boolean).join('/').replace(/\/+/g, '/');
-
-const parentDir = (filePath: string): string => {
-  const normalized = filePath.replace(/\\/g, '/');
-  const index = normalized.lastIndexOf('/');
-  return index === -1 ? '' : normalized.slice(0, index);
-};
-
-const xmlLooksWellFormed = (xml: string): boolean => {
-  const doc = new DOMParser().parseFromString(xml, 'application/xml');
-  return !doc.querySelector('parsererror');
-};
 
 export const DaozangImportDialog = ({ onClose, open = false }: DaozangImportDialogProps) => {
   const [query, setQuery] = useState('');
@@ -133,89 +101,29 @@ export const DaozangImportDialog = ({ onClose, open = false }: DaozangImportDial
       return;
     }
     const api = window.electronAPI;
-    if (
-      !api?.pluginsInvokePython ||
-      !api.writeFile ||
-      !api.ensureDirectory ||
-      !api.daozangResolveText
-    ) {
+    if (!api?.importJobStart || !api.pluginsInvokePython || !api.daozangResolveText) {
       setError('Daozang import is only available in the desktop app.');
       return;
     }
 
     setBusy(true);
     setError(null);
-    setStatus(`Importing ${selected.title}…`);
+    setStatus(`Starting background import for ${selected.title}…`);
 
     try {
-      const sourcePath = await api.daozangResolveText(selected.rel_path);
-      const converted = (await api.pluginsInvokePython(PLUGIN_ID, {
-        path: sourcePath,
-        rel_path: selected.rel_path,
-      })) as ConvertPayload;
-      if (!converted?.body_xml || !converted.meta) {
-        throw new Error('Python conversion returned no TEI body.');
-      }
-
       const destDir = joinPath(rootPath, 'imported', 'daozang');
-      await api.ensureDirectory(destDir);
-      const used = new Set<string>();
-      const existingEntries = (await api.readDirectory?.(destDir, { allFiles: true })) ?? [];
-      for (const entry of existingEntries) {
-        if (!entry.isDirectory && entry.name.toLowerCase().endsWith('.xml')) {
-          used.add(joinPath(destDir, entry.name).replace(/\\/g, '/'));
-        }
-      }
-
-      const baseStem = converted.meta.stem || selected.title || selected.id;
-      const juanFiles =
-        converted.split && converted.juan_files && converted.juan_files.length >= 2
-          ? converted.juan_files
-          : [
-              {
-                juan_n: '',
-                juan_title: converted.meta.title,
-                body_xml: converted.body_xml,
-              },
-            ];
-
-      const written: string[] = [];
-      for (const juan of juanFiles) {
-        const fileStem =
-          juan.juan_n && juanFiles.length > 1 ? `${baseStem}-卷${juan.juan_n}` : baseStem;
-        const docTitle =
-          juan.juan_n && juanFiles.length > 1
-            ? `${converted.meta.title} — 卷${juan.juan_n}`
-            : converted.meta.title;
-        const meta: DaozangTeiMeta = {
-          ...converted.meta,
-          title: docTitle,
-          authorship: converted.entities?.authorship ?? converted.meta.authorship,
-        };
-        const xml = wrapDaozangTeiDocument({
-          config,
-          meta,
-          bodyXml: juan.body_xml,
-          metadataXml: converted.metadata_xml,
-        });
-        if (!xmlLooksWellFormed(xml)) {
-          throw new Error('Wrapped TEI is not well-formed XML.');
-        }
-        const outputPath = uniqueDaozangXmlPath(destDir, fileStem, used);
-        const dir = parentDir(outputPath);
-        if (dir) await api.ensureDirectory(dir);
-        await api.writeFile(outputPath, xml);
-        written.push(outputPath);
-      }
-
-      await ensureImportHeaderEntitiesForPaths(written);
-      await project.refreshExplorer?.();
-      await project.openFile?.(written[0]);
-      setStatus(
-        written.length > 1
-          ? `Imported ${selected.title} as ${written.length} juan files.`
-          : `Imported ${selected.title}.`,
-      );
+      await api.importJobStart({
+        kind: 'daozang',
+        workId: selected.id,
+        title: selected.title,
+        relPath: selected.rel_path,
+        projectRoot: rootPath,
+        destDir,
+        projectConfig: config,
+      });
+      setImportJobPanelExpanded(true);
+      setStatus(`Import of ${selected.title} started in the background.`);
+      onClose?.();
     } catch (importError) {
       setError(importError instanceof Error ? importError.message : String(importError));
       setStatus('');
@@ -224,7 +132,9 @@ export const DaozangImportDialog = ({ onClose, open = false }: DaozangImportDial
     }
   };
 
-  const canImport = Boolean(selected && projectReady && statusInfo?.ready && !busy);
+  const canImport = Boolean(
+    selected && projectReady && statusInfo?.ready && !busy && window.electronAPI?.importJobStart,
+  );
 
   return (
     <Dialog open={open} onClose={() => onClose?.()} maxWidth="md" fullWidth>
@@ -305,7 +215,7 @@ export const DaozangImportDialog = ({ onClose, open = false }: DaozangImportDial
       <DialogActions>
         <Button onClick={() => onClose?.()}>Close</Button>
         <Button variant="contained" disabled={!canImport} onClick={() => void runImport()}>
-          Import selected
+          Start in background
         </Button>
       </DialogActions>
     </Dialog>

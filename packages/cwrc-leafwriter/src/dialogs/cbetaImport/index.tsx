@@ -22,16 +22,11 @@ import {
   Typography,
 } from '@mui/material';
 import { useCallback, useEffect, useState } from 'react';
-import {
-  uniqueCbetaXmlPath,
-  wrapCbetaTeiDocument,
-  type CbetaTeiMeta,
-} from '../../../../../apps/commons/src/desktop/cbetaImportXml';
-import { ensureImportHeaderEntitiesForPaths } from '../../../../../apps/commons/src/desktop/ensureImportHeaderEntities';
 import { useActions } from '../../overmind';
 import { CorpusWorkRow } from '../corpusWorkRow';
 import type { IDialog } from '../type';
 import { isPluginEnabled } from '../../plugins';
+import { setImportJobPanelExpanded } from '../../importJobs/importJobProgress';
 
 const PLUGIN_ID = 'cbeta-import';
 
@@ -87,42 +82,10 @@ interface CbetaCorpusStatus {
   commit?: string;
 }
 
-interface CbetaJuan {
-  n: string;
-  title: string;
-  body_xml: string;
-  straddles?: string[];
-  report?: Record<string, number>;
-}
-
-interface CbetaConvertPayload {
-  work_id: string;
-  canon: string;
-  vol: string;
-  no: string;
-  data_version?: string;
-  git_commit?: string;
-  juan: CbetaJuan[];
-  warnings?: string[];
-  // filled by metadata_xml (planning §5.8): CBETA-header extraction + work_info.json
-  title?: string;
-  dynasty?: string;
-  category?: string;
-  taisho_vol?: string;
-  taisho_no?: string;
-  authorship?: CbetaTeiMeta['authorship'];
-  work_qid?: string;
-}
-
 export type CbetaImportDialogProps = IDialog;
 
 const joinPath = (...parts: string[]): string =>
   parts.filter(Boolean).join('/').replace(/\/+/g, '/');
-const parentDir = (filePath: string): string => {
-  const n = filePath.replace(/\\/g, '/');
-  const i = n.lastIndexOf('/');
-  return i === -1 ? '' : n.slice(0, i);
-};
 
 const invokePython = async <T,>(payload: Record<string, unknown>): Promise<T> => {
   const api = window.electronAPI;
@@ -233,7 +196,7 @@ export const CbetaImportDialog = ({ onClose, open = false }: CbetaImportDialogPr
       setError('Open a project before importing from CBETA.');
       return;
     }
-    if (!api?.pluginsInvokePython || !api.writeFile || !api.ensureDirectory) {
+    if (!api?.importJobStart || !api.pluginsInvokePython) {
       setError('CBETA import is only available in the desktop app.');
       return;
     }
@@ -241,100 +204,27 @@ export const CbetaImportDialog = ({ onClose, open = false }: CbetaImportDialogPr
     setBusy(true);
     setError(null);
     setImported(false);
-    setStatus(`Importing ${selected.title}…`);
+    setStatus(`Starting background import for ${selected.title}…`);
 
     try {
-      const converted = await invokePython<CbetaConvertPayload>({
-        op: 'convert',
-        work_id: selected.work_id,
-        cross_family: config.schema?.catalogId !== 'cbeta',
-        clean: cleanImport,
-        strip_lb: stripLineBreaks,
-        split_unit: splitUnit,
+      // Final folder is canon/vol after convert; job rewrites destDir once known.
+      const destDir = joinPath(rootPath, 'imported', 'cbeta', selected.work_id);
+      await api.importJobStart({
+        kind: 'cbeta',
+        workId: selected.work_id,
+        title: selected.title,
+        projectRoot: rootPath,
+        destDir,
+        projectConfig: config,
+        cleanImport,
+        stripLineBreaks,
+        splitUnit,
+        crossFamily: config.schema?.catalogId !== 'cbeta',
       });
-      if (!converted?.juan?.length) throw new Error('Python conversion returned no sections.');
-
-      const fileLabel = splitUnit === 'mulu' ? 'section' : 'juan';
-
-      const destDir = joinPath(rootPath, 'imported', 'cbeta', converted.canon, converted.vol);
-      await api.ensureDirectory(destDir);
-      const used = new Set<string>();
-      for (const entry of (await api.readDirectory?.(destDir, { allFiles: true })) ?? []) {
-        if (!entry.isDirectory && entry.name.toLowerCase().endsWith('.xml')) {
-          used.add(joinPath(destDir, entry.name).replace(/\\/g, '/'));
-        }
-      }
-
-      const baseStem = converted.work_id || selected.work_id;
-      const written: string[] = [];
-      const warnings = [...(converted.warnings ?? [])];
-
-      const importNotes = [
-        splitUnit === 'mulu' ? 'Split by CBETA section headings (mulu).' : 'Split by juan.',
-        cleanImport ? 'Clean reading edition (collation anchors and apparatus omitted).' : '',
-        stripLineBreaks ? 'Taishō line breaks (<lb>) omitted.' : '',
-      ]
-        .filter(Boolean)
-        .join(' ');
-
-      for (const juan of converted.juan) {
-        const meta: CbetaTeiMeta = {
-          title: converted.title ?? selected.title,
-          work_id: converted.work_id,
-          canon: converted.canon,
-          taisho_vol: converted.taisho_vol || converted.vol,
-          taisho_no: converted.taisho_no || converted.no,
-          dynasty: converted.dynasty ?? selected.dynasty,
-          category: converted.category ?? selected.category,
-          split_unit: splitUnit,
-          section_n: splitUnit === 'mulu' ? juan.n : undefined,
-          section_title: splitUnit === 'mulu' ? juan.title : undefined,
-          juan_n: splitUnit === 'juan' ? juan.n : undefined,
-          juan_title: splitUnit === 'juan' ? juan.title : undefined,
-          stem: baseStem,
-          source: 'CBETA 漢文電子佛典 (cbeta-xml-p5)',
-          data_version: converted.data_version,
-          git_commit: converted.git_commit,
-          authorship: converted.authorship,
-          work_qid: converted.work_qid,
-          importNotes: importNotes || undefined,
-        };
-        let xml: string;
-        try {
-          xml = wrapCbetaTeiDocument({ config, meta, bodyXml: juan.body_xml });
-        } catch (e) {
-          // A single degenerate slice (e.g. an empty section body) must not
-          // abort the whole multi-section import — skip it with a warning.
-          warnings.push(
-            `${fileLabel} ${juan.n}${juan.title ? ` (${juan.title})` : ''} skipped: ${
-              e instanceof Error ? e.message : String(e)
-            }`,
-          );
-          continue;
-        }
-        const outputPath = uniqueCbetaXmlPath(
-          destDir,
-          `${baseStem}_${juan.n.padStart(3, '0')}`,
-          used,
-        );
-        const dir = parentDir(outputPath);
-        if (dir) await api.ensureDirectory(dir);
-        await api.writeFile(outputPath, xml);
-        written.push(outputPath);
-        if (juan.straddles?.length) warnings.push(...juan.straddles);
-      }
-
-      if (!written.length) throw new Error('CBETA conversion produced no usable sections.');
-
-      await ensureImportHeaderEntitiesForPaths(written);
-      await project.refreshExplorer?.();
-      await project.openFile?.(written[0]);
-      setStatus(
-        `Imported ${selected.title} as ${written.length} ${fileLabel} file${written.length > 1 ? 's' : ''}.` +
-          (warnings.length ? ` ${warnings.length} warning(s) — see console.` : ''),
-      );
+      setImportJobPanelExpanded(true);
       setImported(true);
-      if (warnings.length) console.warn('[cbeta-import]', warnings);
+      setStatus(`Import of ${selected.title} started in the background.`);
+      onClose?.();
     } catch (e) {
       console.error('[cbeta-import] import', e);
       setError(cleanPythonError(e));
@@ -346,7 +236,13 @@ export const CbetaImportDialog = ({ onClose, open = false }: CbetaImportDialogPr
   };
 
   const canImport = Boolean(
-    selected && hasSource(selected) && projectReady && corpus?.present && !busy && !syncing,
+    selected &&
+      hasSource(selected) &&
+      projectReady &&
+      corpus?.present &&
+      !busy &&
+      !syncing &&
+      window.electronAPI?.importJobStart,
   );
   const working = busy || syncing;
 
@@ -540,7 +436,7 @@ export const CbetaImportDialog = ({ onClose, open = false }: CbetaImportDialogPr
       <DialogActions sx={{ flexShrink: 0 }}>
         <Button onClick={() => onClose?.()}>Close</Button>
         <Button variant="contained" disabled={!canImport} onClick={() => void runImport()}>
-          Import selected
+          Start in background
         </Button>
       </DialogActions>
     </Dialog>

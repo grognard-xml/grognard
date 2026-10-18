@@ -3,6 +3,7 @@ import { Suspense, lazy, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
 import { BottomBar, ContextMenu, EditorLocationBar, EditorToolbar } from './components';
+import { ImportJobPanel } from './importJobs/ImportJobPanel';
 import { createConfig } from './config';
 import { EntityLookupDialog } from './dialogs';
 import { useDialog, useNotifier, useTeiHeaderRepairPrompt } from './hooks';
@@ -439,6 +440,7 @@ const App = ({ document, settings, user }: LeafWriterOptions) => {
       </Box>
       {/* //* WIP {docLoaded && <Layout />} */}
       <BottomBar />
+      <ImportJobPanel />
     </Box>
   );
 };
