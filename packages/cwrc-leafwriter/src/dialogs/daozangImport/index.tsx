@@ -19,6 +19,7 @@ import { CorpusWorkRow } from '../corpusWorkRow';
 import type { IDialog } from '../type';
 import { isPluginEnabled } from '../../plugins';
 import { setImportJobPanelExpanded } from '../../importJobs/importJobProgress';
+import { toPlainJobOptions } from '../../importJobs/toPlainJobOptions';
 
 interface DaozangWorkHit {
   id: string;
@@ -112,15 +113,17 @@ export const DaozangImportDialog = ({ onClose, open = false }: DaozangImportDial
 
     try {
       const destDir = joinPath(rootPath, 'imported', 'daozang');
-      await api.importJobStart({
-        kind: 'daozang',
-        workId: selected.id,
-        title: selected.title,
-        relPath: selected.rel_path,
-        projectRoot: rootPath,
-        destDir,
-        projectConfig: config,
-      });
+      await api.importJobStart(
+        toPlainJobOptions({
+          kind: 'daozang',
+          workId: selected.id,
+          title: selected.title,
+          relPath: selected.rel_path,
+          projectRoot: rootPath,
+          destDir,
+          projectConfig: config,
+        }),
+      );
       setImportJobPanelExpanded(true);
       setStatus(`Import of ${selected.title} started in the background.`);
       onClose?.();

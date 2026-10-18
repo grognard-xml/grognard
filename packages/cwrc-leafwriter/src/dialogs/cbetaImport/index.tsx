@@ -27,6 +27,7 @@ import { CorpusWorkRow } from '../corpusWorkRow';
 import type { IDialog } from '../type';
 import { isPluginEnabled } from '../../plugins';
 import { setImportJobPanelExpanded } from '../../importJobs/importJobProgress';
+import { toPlainJobOptions } from '../../importJobs/toPlainJobOptions';
 
 const PLUGIN_ID = 'cbeta-import';
 
@@ -209,18 +210,20 @@ export const CbetaImportDialog = ({ onClose, open = false }: CbetaImportDialogPr
     try {
       // Final folder is canon/vol after convert; job rewrites destDir once known.
       const destDir = joinPath(rootPath, 'imported', 'cbeta', selected.work_id);
-      await api.importJobStart({
-        kind: 'cbeta',
-        workId: selected.work_id,
-        title: selected.title,
-        projectRoot: rootPath,
-        destDir,
-        projectConfig: config,
-        cleanImport,
-        stripLineBreaks,
-        splitUnit,
-        crossFamily: config.schema?.catalogId !== 'cbeta',
-      });
+      await api.importJobStart(
+        toPlainJobOptions({
+          kind: 'cbeta',
+          workId: selected.work_id,
+          title: selected.title,
+          projectRoot: rootPath,
+          destDir,
+          projectConfig: config,
+          cleanImport,
+          stripLineBreaks,
+          splitUnit,
+          crossFamily: config.schema?.catalogId !== 'cbeta',
+        }),
+      );
       setImportJobPanelExpanded(true);
       setImported(true);
       setStatus(`Import of ${selected.title} started in the background.`);

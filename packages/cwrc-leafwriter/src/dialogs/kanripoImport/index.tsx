@@ -70,6 +70,7 @@ import {
   runAiFillGapsOnFile,
 } from '../../aiPunctuation/aiPunctuateEditor';
 import { setImportJobPanelExpanded } from '../../importJobs/importJobProgress';
+import { toPlainJobOptions } from '../../importJobs/toPlainJobOptions';
 import type { KanripoImportJobOptions } from '../../../../../apps/commons/src/desktop/importJobTypes';
 
 const PLUGIN_ID = 'kanripo-import';
@@ -760,7 +761,7 @@ export const KanripoImportDialog = ({
   const launchBackgroundJob = async (options: KanripoImportJobOptions) => {
     const api = window.electronAPI;
     if (!api?.importJobStart) throw new Error('Background import is not available.');
-    await api.importJobStart(options);
+    await api.importJobStart(toPlainJobOptions(options));
     setImportJobPanelExpanded(true);
     onClose?.('cancel');
   };
