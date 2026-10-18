@@ -998,7 +998,7 @@ Paste/drop a character image now works in the translation pane and its footnotes
 
 - `createCompoundAnchor` computed a snapped end offset and then returned the raw one. The end is now snapped like the start (to just after the last searchable character before the boundary), so it no longer lands inside collapsed whitespace. A boundary at the end of the text node is kept exact, because applying a wrapper requires the span to bound its last component entirely.
 
-## Unreleased
+## v0.1.1-beta.8
 
 ### Imports: Kanripo, CBETA and Daozang run as background jobs
 
