@@ -1012,3 +1012,11 @@ Paste/drop a character image now works in the translation pane and its footnotes
 - The progress sent to the window no longer carries the job's large texts and is sent at most four times a second.
 - Python calls that can legitimately take long are no longer killed after five minutes: CBETA `convert`, and the Kanripo punctuation transfer and alignment calls, now have twenty.
 - The Python bridge used by AI punctuation can be supplied by the main process, so the same code runs in the dialog and in a job.
+
+### Imports, panel and explorer fixes
+
+- Background CBETA imports failed on every juan with "DOMParser is not defined": the job runs in the main process, which has no DOM. The TEI wrapper now uses `@xmldom/xmldom` there.
+- "Start in background" failed with "An object could not be cloned" when a file was open, because the settings sent to the main process held live editor state. They are now converted to plain data first (`toPlainJobOptions`).
+- The progress panel appeared only while a file was open, because it belonged to the editor, which does not start without one. The project page now shows it when the editor is not running.
+- Typing in the explorer's Rename and New folder boxes lagged in large projects: each keystroke re-rendered the whole file tree. The text now lives in the dialog.
+- The generated `_glyphs` and `_gaiji` folders are hidden in the explorer.
