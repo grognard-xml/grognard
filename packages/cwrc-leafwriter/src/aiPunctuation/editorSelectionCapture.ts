@@ -1,11 +1,16 @@
-import type { LeafWriterEditor } from '../types';
+import type { Bookmark, Editor } from 'tinymce/tinymce';
+
+/**
+ * The two parts of the editor this module uses. Spelled out here, rather than taken from
+ * `LeafWriterEditor` in '../types', because that module reaches the whole editor: through
+ * `runAiPunctuate` it made the main process's type-check compile all of it.
+ */
+export type CapturableEditor = Pick<Editor, 'selection'> & { currentBookmark?: Bookmark };
 
 /** Plain-text editor selection captured on toolbar mousedown (before focus leaves TinyMCE). */
 let capturedPlain = '';
 
-export function captureEditorSelectionFromEditor(
-  editor: Pick<LeafWriterEditor, 'selection' | 'currentBookmark'>,
-): void {
+export function captureEditorSelectionFromEditor(editor: CapturableEditor): void {
   if (editor.selection.isCollapsed?.()) {
     capturedPlain = '';
     return;

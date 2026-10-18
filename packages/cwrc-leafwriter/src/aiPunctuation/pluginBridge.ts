@@ -69,7 +69,14 @@ async function invokePython<T>(payload: Record<string, unknown>): Promise<T> {
   if (injectedInvoker) {
     return (await injectedInvoker(PLUGIN_ID, payload)) as T;
   }
-  const api = typeof window !== 'undefined' ? window.electronAPI : undefined;
+  // `globalThis`, not `window`: this module also runs in (and is type-checked for) the main process.
+  const api = (
+    globalThis as unknown as {
+      electronAPI?: {
+        pluginsInvokePython?: (id: string, payload: Record<string, unknown>) => Promise<unknown>;
+      };
+    }
+  ).electronAPI;
   if (!api?.pluginsInvokePython) {
     throw new Error('Python bridge unavailable.');
   }

@@ -8,6 +8,7 @@ import {
 import {
   consumeCapturedEditorSelection,
   peekCapturedEditorSelection,
+  type CapturableEditor,
 } from './editorSelectionCapture';
 
 const PUNCT_SET = new Set<string>(AI_PUNCT_MARKS);
@@ -221,7 +222,9 @@ export function getEditorSelectedPlainText(): string {
   const captured = peekCapturedEditorSelection();
   if (captured) return captured;
 
-  const editor = window.writer?.editor;
+  // Read off `globalThis` rather than `window`: the main process type-checks this module too.
+  const editor = (globalThis as unknown as { writer?: { editor?: CapturableEditor } }).writer
+    ?.editor;
   if (!editor?.selection) return '';
 
   const readNonCollapsed = (): string => {

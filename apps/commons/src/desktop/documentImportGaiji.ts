@@ -4,7 +4,7 @@ import {
   gaijiMarker,
   glyphIdForImageBytes,
   type GlyphAssetApi,
-} from '@cwrc/leafwriter/gaijiImport';
+} from '../../../../packages/cwrc-leafwriter/src/utilities/gaijiImport';
 
 /**
  * Inline images (usually gaiji set as pictures) in an imported .docx - see
