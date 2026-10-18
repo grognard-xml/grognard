@@ -362,8 +362,7 @@ const pumpQueue = async (): Promise<void> => {
   broadcast();
 
   const needsAwake =
-    runtime.snapshot.options.kind === 'kanripo' &&
-    runtime.snapshot.options.punctMode === 'ai';
+    runtime.snapshot.options.kind === 'kanripo' && runtime.snapshot.options.punctMode === 'ai';
   holdPowerSave(needsAwake);
 
   runtime.runPromise = runJob(runtime)
@@ -420,8 +419,7 @@ const runJob = async (runtime: RuntimeJob): Promise<void> => {
       runtime.snapshot.status = 'paused';
     } else {
       runtime.snapshot.status = 'blocked';
-      runtime.snapshot.blockReason =
-        error instanceof Error ? error.message : String(error);
+      runtime.snapshot.blockReason = error instanceof Error ? error.message : String(error);
       notifyOs(`${runtime.snapshot.title} failed`, runtime.snapshot.blockReason);
     }
   }
@@ -457,10 +455,7 @@ const updateAvg = (snapshot: ImportJobSnapshot, juanMs: number): void => {
   snapshot.avgMsPerJuan = prev * 0.7 + juanMs * 0.3;
 };
 
-const runKanripoJob = async (
-  runtime: RuntimeJob,
-  tickElapsed: () => void,
-): Promise<void> => {
+const runKanripoJob = async (runtime: RuntimeJob, tickElapsed: () => void): Promise<void> => {
   const options = runtime.snapshot.options as KanripoImportJobOptions;
   const signal = runtime.abort.signal;
 
@@ -691,7 +686,11 @@ const runCbetaJob = async (runtime: RuntimeJob, tickElapsed: () => void): Promis
     if (signal.aborted || runtime.pauseRequested) {
       throw new DOMException('Aborted', 'AbortError');
     }
-    if (juanRec.state === 'done' || juanRec.state === 'skipped' || juanRec.state === 'needs_attention') {
+    if (
+      juanRec.state === 'done' ||
+      juanRec.state === 'skipped' ||
+      juanRec.state === 'needs_attention'
+    ) {
       continue;
     }
     juanRec.state = 'running';
@@ -814,7 +813,11 @@ const runDaozangJob = async (runtime: RuntimeJob, tickElapsed: () => void): Prom
     if (signal.aborted || runtime.pauseRequested) {
       throw new DOMException('Aborted', 'AbortError');
     }
-    if (juanRec.state === 'done' || juanRec.state === 'skipped' || juanRec.state === 'needs_attention') {
+    if (
+      juanRec.state === 'done' ||
+      juanRec.state === 'skipped' ||
+      juanRec.state === 'needs_attention'
+    ) {
       continue;
     }
     juanRec.state = 'running';

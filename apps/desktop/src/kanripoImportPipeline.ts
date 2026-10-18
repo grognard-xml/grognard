@@ -262,7 +262,8 @@ export async function processKanripoJuan(params: {
           const tokens =
             (aiResult.stats as { input_tokens?: number; output_tokens?: number }).input_tokens ?? 0;
           const outTokens =
-            (aiResult.stats as { input_tokens?: number; output_tokens?: number }).output_tokens ?? 0;
+            (aiResult.stats as { input_tokens?: number; output_tokens?: number }).output_tokens ??
+            0;
           cost = ((tokens + outTokens) / 1_000_000) * 0.5;
         }
       } catch (aiError) {

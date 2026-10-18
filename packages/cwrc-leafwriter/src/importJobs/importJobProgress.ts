@@ -56,9 +56,7 @@ export const focusImportJobAttention = (jobId: string | null): void => {
   notify();
 };
 
-export const setImportJobReviewReturn = (
-  reviewReturn: ImportJobUiState['reviewReturn'],
-): void => {
+export const setImportJobReviewReturn = (reviewReturn: ImportJobUiState['reviewReturn']): void => {
   current = { ...current, reviewReturn };
   notify();
 };

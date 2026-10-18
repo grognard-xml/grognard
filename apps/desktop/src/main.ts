@@ -4717,9 +4717,10 @@ app.on('before-quit', (event) => {
         message: 'An import is running. Quit and pause it?',
         detail: 'Pause keeps finished juan on disk so you can resume later.',
       };
-      void (mainWindow && !mainWindow.isDestroyed()
-        ? dialog.showMessageBox(mainWindow, quitDialogOpts)
-        : dialog.showMessageBox(quitDialogOpts)
+      void (
+        mainWindow && !mainWindow.isDestroyed()
+          ? dialog.showMessageBox(mainWindow, quitDialogOpts)
+          : dialog.showMessageBox(quitDialogOpts)
       ).then((result) => {
         if (result.response === 0) finishQuitPrep();
       });

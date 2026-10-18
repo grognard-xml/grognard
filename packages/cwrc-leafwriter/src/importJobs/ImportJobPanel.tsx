@@ -130,8 +130,7 @@ export const ImportJobPanel = () => {
   const primary = jobs.find((j) => j.jobId === state.activeJobId) ?? jobs[0];
   const amber =
     primary &&
-    (primary.status === 'blocked' ||
-      primary.juan.some((j) => j.state === 'needs_attention'));
+    (primary.status === 'blocked' || primary.juan.some((j) => j.state === 'needs_attention'));
 
   const reviewNext = (job: ImportJobSnapshot) => {
     const next = job.juan.find((j) => j.state === 'needs_attention' && j.outputPath);

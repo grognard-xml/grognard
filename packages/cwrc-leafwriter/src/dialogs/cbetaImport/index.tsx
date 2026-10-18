@@ -237,12 +237,12 @@ export const CbetaImportDialog = ({ onClose, open = false }: CbetaImportDialogPr
 
   const canImport = Boolean(
     selected &&
-      hasSource(selected) &&
-      projectReady &&
-      corpus?.present &&
-      !busy &&
-      !syncing &&
-      window.electronAPI?.importJobStart,
+    hasSource(selected) &&
+    projectReady &&
+    corpus?.present &&
+    !busy &&
+    !syncing &&
+    window.electronAPI?.importJobStart,
   );
   const working = busy || syncing;
 

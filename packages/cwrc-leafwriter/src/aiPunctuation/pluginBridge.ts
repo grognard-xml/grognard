@@ -1,10 +1,7 @@
 const PLUGIN_ID = 'kanripo-import';
 
 /** Optional invoker for main-process callers (background import jobs). */
-type PluginPythonInvoker = (
-  pluginId: string,
-  payload: Record<string, unknown>,
-) => Promise<unknown>;
+type PluginPythonInvoker = (pluginId: string, payload: Record<string, unknown>) => Promise<unknown>;
 
 let injectedInvoker: PluginPythonInvoker | null = null;
 

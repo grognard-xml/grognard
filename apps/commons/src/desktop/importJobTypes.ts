@@ -3,20 +3,10 @@
 export type ImportJobKind = 'kanripo' | 'cbeta' | 'daozang';
 
 export type ImportJobStatus =
-  | 'queued'
-  | 'running'
-  | 'paused'
-  | 'blocked'
-  | 'completed'
-  | 'cancelled';
+  'queued' | 'running' | 'paused' | 'blocked' | 'completed' | 'cancelled';
 
 export type ImportJuanState =
-  | 'pending'
-  | 'running'
-  | 'done'
-  | 'needs_attention'
-  | 'failed'
-  | 'skipped';
+  'pending' | 'running' | 'done' | 'needs_attention' | 'failed' | 'skipped';
 
 export interface ImportJuanCoverage {
   start: number;
@@ -124,9 +114,7 @@ export interface DaozangImportJobOptions {
 }
 
 export type ImportJobOptions =
-  | KanripoImportJobOptions
-  | CbetaImportJobOptions
-  | DaozangImportJobOptions;
+  KanripoImportJobOptions | CbetaImportJobOptions | DaozangImportJobOptions;
 
 export interface ImportJobSnapshot {
   jobId: string;
@@ -147,13 +135,7 @@ export interface ImportJobSnapshot {
   dismissed?: boolean;
 }
 
-export type ImportJobControlAction =
-  | 'pause'
-  | 'resume'
-  | 'cancel'
-  | 'retry'
-  | 'accept'
-  | 'dismiss';
+export type ImportJobControlAction = 'pause' | 'resume' | 'cancel' | 'retry' | 'accept' | 'dismiss';
 
 export interface ImportJobControlRequest {
   jobId: string;

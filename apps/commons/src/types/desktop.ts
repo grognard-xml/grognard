@@ -622,9 +622,7 @@ export interface ElectronAPI {
   importJobAcceptJuan?: (jobId: string, stem: string) => Promise<boolean>;
   importJobDismiss?: (jobId: string) => Promise<boolean>;
   importJobList?: () => Promise<import('../desktop/importJobTypes').ImportJobSnapshot[]>;
-  importJobSnapshot?: () => Promise<
-    import('../desktop/importJobTypes').ImportJobProgressEvent
-  >;
+  importJobSnapshot?: () => Promise<import('../desktop/importJobTypes').ImportJobProgressEvent>;
   importJobRestoreFromProject?: (projectRoot: string) => Promise<number>;
   onImportJobProgress?: (
     callback: (event: import('../desktop/importJobTypes').ImportJobProgressEvent) => void,

@@ -848,9 +848,7 @@ export const KanripoImportDialog = ({
     await api.ensureDirectory?.(destDir);
     const gaijiOverrides = await loadGaijiOverrides(rootPath);
 
-    let alignedJuanSources:
-      | Record<string, ParallelSource[]>
-      | undefined;
+    let alignedJuanSources: Record<string, ParallelSource[]> | undefined;
     let alignedMatches: AlignedParagraphMatch[] | undefined;
     let alignedSourcesPayload: { id: string; label: string; text: string }[] | undefined;
     const folderReferenceSources = sources.filter((source) => source.kind === 'folder-reference');
@@ -935,11 +933,9 @@ export const KanripoImportDialog = ({
     }
 
     const capParsed = spendCap.trim() ? Number(spendCap) : null;
-    const juanEstimate =
-      importScope === 'juan' ? 1 : Math.max(1, Number(selected.id ? 10 : 10));
+    const juanEstimate = importScope === 'juan' ? 1 : Math.max(1, Number(selected.id ? 10 : 10));
     // Rough pre-start estimate for AI: ~$0.02 per juan until we have real usage.
-    const est =
-      punctMode === 'ai' ? Math.round(juanEstimate * 0.02 * 1000) / 1000 : null;
+    const est = punctMode === 'ai' ? Math.round(juanEstimate * 0.02 * 1000) / 1000 : null;
     setEstimatedCost(est);
 
     return {
@@ -964,7 +960,8 @@ export const KanripoImportDialog = ({
       alignedJuanSources,
       alignedMatches,
       alignedSourcesPayload,
-      projectConfig: config as import('../../../../../apps/commons/src/desktop/importJobTypes').ImportJobProjectConfig,
+      projectConfig:
+        config as import('../../../../../apps/commons/src/desktop/importJobTypes').ImportJobProjectConfig,
       gaijiOverrides,
       aiSettings:
         punctMode === 'ai' && aiSettingsRaw
@@ -2117,19 +2114,13 @@ export const KanripoImportDialog = ({
             <Button disabled={busy} onClick={() => setTrialReady(null)}>
               Adjust settings
             </Button>
-            <Button
-              variant="contained"
-              disabled={busy}
-              onClick={() => void continueAfterTrial()}
-            >
+            <Button variant="contained" disabled={busy} onClick={() => void continueAfterTrial()}>
               Looks good, continue in background
             </Button>
           </>
         ) : (
           <Button variant="contained" disabled={!canRunImport} onClick={() => void runImport()}>
-            {punctMode === 'ai' && importScope === 'work'
-              ? 'Start trial'
-              : 'Start in background'}
+            {punctMode === 'ai' && importScope === 'work' ? 'Start trial' : 'Start in background'}
           </Button>
         )}
       </DialogActions>

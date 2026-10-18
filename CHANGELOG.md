@@ -997,3 +997,14 @@ Paste/drop a character image now works in the translation pane and its footnotes
 ### Anchors: compound end boundary is snapped (#44)
 
 - `createCompoundAnchor` computed a snapped end offset and then returned the raw one. The end is now snapped like the start (to just after the last searchable character before the boundary), so it no longer lands inside collapsed whitespace. A boundary at the end of the text node is kept exact, because applying a wrapper requires the span to bound its last component entirely.
+
+## Unreleased
+
+### Imports: Kanripo, CBETA and Daozang run as background jobs
+
+- An import no longer lives in its dialog. Starting one hands it to the main process and closes the dialog; closing the dialog, or switching files, does not stop it. One job runs at a time and the others queue.
+- Each juan (or CBETA section) is written to disk as soon as it is finished, and the state of every juan is recorded in `.import-job.json` in the destination folder. Opening a project finds unfinished jobs there and lists them as paused, so an import can be resumed after a restart, and quitting while one runs asks whether to pause it.
+- A panel in the bottom-right corner shows each job with the juan done out of the total, a rough time left, and the state of every juan. It has pause, resume and cancel, and **Retry** and **Accept** for a juan that needs attention. **Review next** opens the next flagged juan and a chip brings you back to the list. A juan is flagged when its punctuation transfer covers less than 85% of it, when it has a quality warning, or when something failed while processing it.
+- A job only stops by itself for something that blocks all of it: a rejected API key, a quota or rate limit, a full disk, or the spending cap. It then shows why and waits for Resume. A system notification is sent when a job finishes or is blocked.
+- AI punctuation: the first juan of a work is imported as a trial in the dialog before the rest continue in the background, and the dialog asks for an optional spending cap and how many juan to punctuate at once. The computer is kept awake while an AI import runs. Cost figures are estimates.
+- The Python bridge used by AI punctuation can now be supplied by the main process, so the same code runs in the dialog and in a job.
