@@ -10,15 +10,20 @@ import {
 } from '@src/desktop';
 import { UserNamePromptDialog } from '@src/desktop/UserNamePromptDialog';
 import { Page } from '@src/layouts';
+import { leafwriterAtom } from '@src/jotai';
 import { useActions, useAppState } from '@src/overmind';
 import { isDesktop } from '@src/types/desktop';
+import { useAtomValue } from 'jotai';
 import { useEffect, useLayoutEffect } from 'react';
+import { ImportJobPanel } from '../../../../../packages/cwrc-leafwriter/src/importJobs/ImportJobPanel';
 import { ProjectEditor } from './ProjectEditor';
 
 export const ProjectEditPage = () => {
   const { setPage, notifyViaSnackbar, openDialog } = useActions().ui;
   const { restoreLastProject, saveWorkspaceSession } = useActions().project;
   const { activeTabPath, isProjectReady, openTabs, projectFilePath } = useAppState().project;
+
+  const leafWriter = useAtomValue(leafwriterAtom);
 
   useNativeDialogBridge();
   useCommonsUiBridge();
@@ -81,6 +86,8 @@ export const ProjectEditPage = () => {
           <ProjectEditor />
         )}
       </Box>
+      {/* The editor's own copy of the panel only exists once a file is open. */}
+      {isDesktop() && !leafWriter && <ImportJobPanel />}
     </Page>
   );
 };
