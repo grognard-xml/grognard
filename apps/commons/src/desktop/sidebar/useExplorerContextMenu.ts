@@ -158,10 +158,10 @@ export const useExplorerContextMenu = () => {
     setNewFolderOpen(true);
   };
 
-  const handleNewFolderConfirm = async () => {
+  const handleNewFolderConfirm = async (folderName: string) => {
     if (!target?.isDirectory) return;
     const result = await createExplorerFolder({
-      folderName: newFolderValue,
+      folderName,
       parentPath: target.path,
     });
     if (result.success) {
@@ -172,9 +172,9 @@ export const useExplorerContextMenu = () => {
     showError(result.error);
   };
 
-  const handleRenameConfirm = async () => {
+  const handleRenameConfirm = async (newName: string) => {
     if (!target) return;
-    const result = await renameExplorerItem({ newName: renameValue, oldPath: target.path });
+    const result = await renameExplorerItem({ newName, oldPath: target.path });
     if (result.success) {
       setRenameOpen(false);
       setTarget(null);

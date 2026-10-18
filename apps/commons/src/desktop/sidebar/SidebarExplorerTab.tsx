@@ -6,10 +6,6 @@ import {
   Box,
   Button,
   Collapse,
-  Dialog,
-  DialogActions,
-  DialogContent,
-  DialogTitle,
   IconButton,
   InputAdornment,
   List,
@@ -28,6 +24,7 @@ import {
   isPathUnder,
 } from '@src/desktop/explorer/treeUtils';
 import { useActions, useAppState } from '@src/overmind';
+import { ExplorerNameDialog } from './ExplorerNameDialog';
 import type { FileTreeNode } from '@src/overmind/project/state';
 import { modShortcut } from '@src/utils/platform';
 import { useCallback, useEffect, useMemo, useRef } from 'react';
@@ -213,9 +210,7 @@ export const SidebarExplorerTab = () => {
     renameOpen,
     renameValue,
     setNewFolderOpen,
-    setNewFolderValue,
     setRenameOpen,
-    setRenameValue,
     target,
   } = useExplorerContextMenu();
 
@@ -470,51 +465,27 @@ export const SidebarExplorerTab = () => {
         ) : null}
       </Menu>
 
-      <Dialog fullWidth maxWidth="xs" onClose={() => setRenameOpen(false)} open={renameOpen}>
-        <DialogTitle>{t('LWC.desktop.explorer.rename_title')}</DialogTitle>
-        <DialogContent>
-          <TextField
-            autoFocus
-            fullWidth
-            margin="dense"
-            placeholder={t('LWC.desktop.explorer.rename_placeholder')}
-            value={renameValue}
-            onChange={(event) => setRenameValue(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === 'Enter') void handleRenameConfirm();
-            }}
-          />
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setRenameOpen(false)}>{t('LWC.commons.cancel')}</Button>
-          <Button onClick={() => void handleRenameConfirm()} variant="contained">
-            {t('LWC.desktop.explorer.rename')}
-          </Button>
-        </DialogActions>
-      </Dialog>
+      <ExplorerNameDialog
+        cancelLabel={t('LWC.commons.cancel')}
+        confirmLabel={t('LWC.desktop.explorer.rename')}
+        initialValue={renameValue}
+        onCancel={() => setRenameOpen(false)}
+        onConfirm={(value) => void handleRenameConfirm(value)}
+        open={renameOpen}
+        placeholder={t('LWC.desktop.explorer.rename_placeholder')}
+        title={t('LWC.desktop.explorer.rename_title')}
+      />
 
-      <Dialog fullWidth maxWidth="xs" onClose={() => setNewFolderOpen(false)} open={newFolderOpen}>
-        <DialogTitle>{t('LWC.desktop.explorer.new_folder_title')}</DialogTitle>
-        <DialogContent>
-          <TextField
-            autoFocus
-            fullWidth
-            margin="dense"
-            placeholder={t('LWC.desktop.explorer.new_folder_placeholder')}
-            value={newFolderValue}
-            onChange={(event) => setNewFolderValue(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === 'Enter') void handleNewFolderConfirm();
-            }}
-          />
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setNewFolderOpen(false)}>{t('LWC.commons.cancel')}</Button>
-          <Button onClick={() => void handleNewFolderConfirm()} variant="contained">
-            {t('LWC.desktop.explorer.new_folder')}
-          </Button>
-        </DialogActions>
-      </Dialog>
+      <ExplorerNameDialog
+        cancelLabel={t('LWC.commons.cancel')}
+        confirmLabel={t('LWC.desktop.explorer.new_folder')}
+        initialValue={newFolderValue}
+        onCancel={() => setNewFolderOpen(false)}
+        onConfirm={(value) => void handleNewFolderConfirm(value)}
+        open={newFolderOpen}
+        placeholder={t('LWC.desktop.explorer.new_folder_placeholder')}
+        title={t('LWC.desktop.explorer.new_folder_title')}
+      />
     </Box>
   );
 };
