@@ -22,7 +22,9 @@ import type {
   ImportJuanRecord,
   KanripoImportJobOptions,
 } from '../../commons/src/desktop/importJobTypes';
+import { DOMParser as XmlDomParser, XMLSerializer as XmlSerializer } from '@xmldom/xmldom';
 import {
+  setCbetaDomImpl,
   uniqueCbetaXmlPath,
   wrapCbetaTeiDocument,
   type CbetaTeiMeta,
@@ -48,6 +50,12 @@ import {
   processKanripoJuan,
   stemFromSourcePath,
 } from './kanripoImportPipeline';
+
+// The main process has no DOM; the CBETA wrapper needs a parser.
+setCbetaDomImpl({
+  DOMParser: XmlDomParser as never,
+  XMLSerializer: XmlSerializer as never,
+});
 
 type EmitFn = (event: ImportJobProgressEvent) => void;
 

@@ -231,8 +231,8 @@ ${idnoBlocks(meta)}${editionImprintBlocks(meta)}
     `<revisionDesc>\n    <change when="${when}">${change}</change>\n  </revisionDesc>\n</teiHeader>`,
   );
 
-  const doc = new DOMParser().parseFromString(bodyXml, 'application/xml');
-  if (doc.querySelector('parsererror')) {
+  const doc = new (domImpl().DOMParser)().parseFromString(bodyXml, 'application/xml');
+  if (doc.getElementsByTagName('parsererror').length > 0) {
     throw new Error('CBETA conversion returned malformed juan XML.');
   }
   const body = doc.getElementsByTagName('body')[0];
@@ -283,7 +283,29 @@ ${idnoBlocks(meta)}${editionImprintBlocks(meta)}
   return xml;
 };
 
-const nodeToString = (node: Node): string => new XMLSerializer().serializeToString(node);
+/**
+ * The browser's DOM in the renderer; `@xmldom/xmldom` where there is none (the background import
+ * job runs in Electron's main process, which has no `DOMParser`). The main process registers it
+ * with `setCbetaDomImpl`.
+ */
+interface DomImpl {
+  DOMParser: new () => { parseFromString: (xml: string, type: string) => Document };
+  XMLSerializer: new () => { serializeToString: (node: Node) => string };
+}
+let injectedDom: DomImpl | null = null;
+export const setCbetaDomImpl = (impl: DomImpl): void => {
+  injectedDom = impl;
+};
+const domImpl = (): DomImpl =>
+  injectedDom ??
+  (typeof DOMParser !== 'undefined'
+    ? { DOMParser: DOMParser as DomImpl['DOMParser'], XMLSerializer }
+    : (() => {
+        throw new Error('No XML parser is available for the CBETA import.');
+      })());
+
+const nodeToString = (node: Node): string =>
+  new (domImpl().XMLSerializer)().serializeToString(node);
 
 const joinPath = (...parts: string[]): string =>
   parts.filter(Boolean).join('/').replace(/\/+/g, '/');
