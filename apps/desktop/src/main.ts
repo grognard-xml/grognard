@@ -2630,6 +2630,10 @@ const registerIpcHandlers = () => {
         .filter((entry) => {
           if (entry.name.startsWith('.')) return false;
           if (options?.allFiles) return true;
+          // Generated glyph image folders are not something to browse or edit.
+          if (entry.isDirectory() && (entry.name === '_glyphs' || entry.name === '_gaiji')) {
+            return false;
+          }
           return entry.isDirectory() || entry.name.toLowerCase().endsWith('.xml');
         })
         .map((entry) => ({
