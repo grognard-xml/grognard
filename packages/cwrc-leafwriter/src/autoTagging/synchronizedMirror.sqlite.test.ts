@@ -1,6 +1,9 @@
 import { synchronizeMirroredProject } from './synchronizedMirror';
 
-type Authority = { type: string; value: string };
+interface Authority {
+  type: string;
+  value: string;
+}
 
 const fakeSqliteStore = (path: string, seed: Record<string, Authority[]>) => {
   const authorities = new Map(Object.entries(seed).map(([id, list]) => [id, [...list]]));
