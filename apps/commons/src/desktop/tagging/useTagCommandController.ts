@@ -38,6 +38,7 @@ import {
   sortTagSuggestions,
   withCustomThingTypeOptions,
   withInsertModeFallbacks,
+  withRespStmtOption,
 } from './tagSuggestions';
 import { readPersistedAuthoritySettings } from '../../../../../packages/cwrc-leafwriter/src/autoTagging/authoritySettings';
 import { findParagraphAncestor } from './tagInsert';
@@ -200,7 +201,7 @@ export const useTagCommandController = () => {
       const withFallbacks = withInsertModeFallbacks(tags, nextMode, ctx);
       const pinned = pinParagraphInsertOption(withFallbacks, nextMode, ctx);
       const withThingTypes = withCustomThingTypeOptions(
-        pinned,
+        withRespStmtOption(pinned),
         readPersistedAuthoritySettings()?.customThingTypes ?? [],
       );
       const sortPreferred =

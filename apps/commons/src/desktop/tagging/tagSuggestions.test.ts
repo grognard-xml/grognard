@@ -7,6 +7,7 @@ import {
   sortTagSuggestions,
   withCustomThingTypeOptions,
   withInsertModeFallbacks,
+  withRespStmtOption,
 } from './tagSuggestions';
 
 const tag = (name: string, invalid = false): NodeDetail => ({
@@ -235,5 +236,12 @@ describe('getEditorTagContext', () => {
     };
 
     expect(getEditorTagContext()).toBeNull();
+  });
+});
+
+describe('withRespStmtOption', () => {
+  it('makes a listed respStmt selectable and leaves other tags alone', () => {
+    const result = withRespStmtOption([tag('respStmt', true), tag('hi', true), tag('p')]);
+    expect(result.map((t) => t.invalid)).toEqual([false, true, false]);
   });
 });

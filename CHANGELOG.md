@@ -1064,3 +1064,8 @@ Paste/drop a character image now works in the translation pane and its footnotes
 ### Schema: `<respStmt>` allowed inside `<bibl>`
 
 - A citation such as `<bibl><respStmt><persName key="#guo-pu">郭璞</persName><resp>注</resp></respStmt><title>江賦</title></bibl>` no longer fails validation against TEI All. Stock TEI allows `<respStmt>` only inside `<biblStruct>`; Grognard's merged schema now allows it in `<bibl>` too. Project schemas are regenerated automatically the next time the project opens.
+
+### `<respStmt>` and `<resp>` in citations: add them from the tag popup
+
+- `<respStmt>` is no longer greyed out in the Wrap and Insert popups wherever the schema allows it. TEI can never approve it by content alone (a `<respStmt>` needs a `<resp>`, and `<resp>` is only valid inside a `<respStmt>`), so it is now selectable whenever the schema lists it for that position; add the `<resp>` and name inside it afterwards.
+- Inside a `<bibl>`, `<respStmt>` and `<resp>` now sit on the line, without the line breaks and 1em left margin that `tei.css` gave them, so 郭璞注 reads as part of the citation.

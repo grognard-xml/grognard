@@ -326,6 +326,15 @@ export const withCustomThingTypeOptions = (
   ];
 };
 
+/**
+ * `<respStmt>` must contain a `<resp>`, and `<resp>` is only valid inside `<respStmt>`, so
+ * the validator can never approve creating a `<respStmt>` around or at plain content.
+ * Whenever the schema lists it for this position at all, let it be chosen; the `<resp>`
+ * and name are then added inside it, where the validator does accept them.
+ */
+export const withRespStmtOption = (tags: NodeDetail[]): NodeDetail[] =>
+  tags.map((tag) => (tag.name === 'respStmt' && tag.invalid ? { ...tag, invalid: false } : tag));
+
 export const sortTagSuggestions = (
   tags: NodeDetail[],
   tagCounts: Record<string, number>,

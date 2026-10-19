@@ -112,7 +112,11 @@ export const tinymceWrapperInit = function ({
   const toolbar = document.querySelector('#editor-toolbar');
   const toolbarHeight = toolbar?.getBoundingClientRect().height ?? 0;
 
-  const visualBodyStyle = `body { margin: 8px !important; max-width: none !important; width: auto !important; font-size: ${DEFAULT_EDITOR_FONT_SIZE}pt; }`;
+  // tei.css makes <respStmt> a block with a 1em left margin and <resp> a block. In a citation's
+  // <bibl> (a run of text) both belong on the line: 郭璞注 before the title.
+  const biblInlineStyle =
+    '[_tag="bibl"] > [_tag="respStmt"], [_tag="bibl"] > [_tag="respStmt"] > [_tag="resp"] { display: inline; margin: 0; }';
+  const visualBodyStyle = `${biblInlineStyle} body { margin: 8px !important; max-width: none !important; width: auto !important; font-size: ${DEFAULT_EDITOR_FONT_SIZE}pt; }`;
 
   const isNodeInEditorBody = (editor: LeafWriterEditor, node: Node | null | undefined) => {
     if (!node) return false;
