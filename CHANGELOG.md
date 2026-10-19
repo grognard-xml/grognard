@@ -1050,4 +1050,6 @@ Paste/drop a character image now works in the translation pane and its footnotes
 - A character that cannot be broken apart (a basic component, or one the data has no entry for) is reported and leaves the composer unchanged.
 - A character with several decompositions on record (丟: ⿱王厶, ⿱一去) loads the first and lists all of them as chips; clicking one loads it.
 - Components that have no Unicode character of their own are left empty, with a note saying how many.
-- The bundled index still stops at Ext F; Ext G–I characters do not break apart until it is rebuilt from a current `ids.txt`.
+- The bundled IDS index now includes Ext G, H and I (+9,590 entries: 4,917, 4,056 and 617), so those characters can be broken apart and recognised when composed. cjkvi-ids stopped updating in 2019 and has none of them, so they come from CHISE's own `IDS-UCS-Ext-G/H/I.txt` (`build-ids-unicode-index.mjs` now takes several files). Entries whose component has no Unicode character (`&CDP-…;`, 153) are left out, and four entries use the new Unicode 15.1 operators ⿼⿽⿾⿿, which the composer's layouts do not have, so they report as not breakable.
+- The composer shows no Ext G–I characters unless a font has them: the app bundles no Han font. On the development Mac only the user-installed BabelStone Han draws them, 3,454 of 4,917 in Ext G, 2,339 of 4,056 in Ext H and all of Ext I. Without it they appear as boxes.
+- One entry with a stray `[O]"` suffix in the old data was cleaned.

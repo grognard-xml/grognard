@@ -22,6 +22,12 @@ describe('findIdsDecompositions (real bundled data)', () => {
     expect(findIdsDecompositions('𪫉')).toEqual(['⿰⿳日亠早彡', '⿰彦彡']);
   });
 
+  it('breaks apart characters from Ext G, H and I', () => {
+    expect(findIdsDecompositions('\u{30000}')).toEqual(['⿱一𠄌']);
+    expect(findIdsDecompositions('\u{2EBF1}')).toEqual(['⿵丹丶']);
+    expect(findIdsDecompositions('\u{31350}').length).toBeGreaterThan(0);
+  });
+
   it('uses only the first character of the input', () => {
     expect(findIdsDecompositions('謀木')).toEqual(['⿰言某']);
     expect(findIdsDecompositions('𠀀謀')).toEqual(findIdsDecompositions('𠀀'));

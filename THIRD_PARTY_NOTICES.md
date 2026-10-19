@@ -50,9 +50,12 @@ When shipping releases, keep this document in sync with the actual dependency se
   - an exact-match IDS-string -> Unicode-character lookup table, built from
     the CHISE IDS project's `ids.txt` (distributed via
     `github.com/cjkvi/cjkvi-ids`; upstream README copied to
-    `packages/cwrc-leafwriter/src/resources/ids/cjkvi-ids-README.md`), used
-    by the glyph composer to recognize when a composition is already an
-    ordinary encoded character. GPL-2.0-or-later (traced to CHISE-IDS's own
+    `packages/cwrc-leafwriter/src/resources/ids/cjkvi-ids-README.md`), plus
+    `IDS-UCS-Ext-G.txt`, `-H.txt` and `-I.txt` from CHISE's own repository
+    (`github.com/chise/ids`, "GPL version 2, or any later version" per its
+    README) for the Ext G-I blocks cjkvi-ids does not have. Used by the
+    glyph composer to recognize when a composition is already an ordinary
+    encoded character, and to break a character apart into its components. GPL-2.0-or-later (traced to CHISE-IDS's own
     source headers, e.g. `ids.el`'s "either version 2, or (at your option)
     any later version"); combined into this AGPL-3.0-only program under
     each license's section 13 compatibility clause, same reasoning as
