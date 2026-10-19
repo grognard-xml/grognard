@@ -31,6 +31,8 @@ const MINIMAL_TEI = `<?xml version="1.0"?>
   </define>
   <define name="att.typed.attributes"><empty/></define>
   <define name="persName"><element name="persName"/></define>
+  <define name="respStmt"><element name="respStmt"/></define>
+  <define name="model.biblPart"><choice><ref name="persName"/></choice></define>
 </grammar>`;
 
 describe('sanmiaoSchemaMerge', () => {
@@ -70,6 +72,10 @@ describe('sanmiaoSchemaMerge', () => {
     expect(merged.flatRng).toContain('<define name="grognard.sanmiao.date.parts">');
     expect(merged.flatRng).toContain('ref name="persName"');
     expect(merged.flatRng).toContain('ref name="grognard.nobleTitle"');
+    // <bibl> may carry <respStmt> via model.biblPart (stock TEI only allows it in biblStruct).
+    expect(merged.flatRng).toMatch(
+      /<define name="model\.biblPart">[\s\S]*?<ref name="respStmt"\/>[\s\S]*?<\/define>/,
+    );
     // <dynasty> is an Grognard element, not TEI: allowing it inside <nobleTitle>
     // means defining it here as well as referencing it.
     expect(merged.flatRng).toContain('<define name="grognard.dynasty">');

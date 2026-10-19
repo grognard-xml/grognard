@@ -1060,3 +1060,7 @@ Paste/drop a character image now works in the translation pane and its footnotes
 - The rules are generated, not hand-written (`scripts/build-radical-forms.mjs`): for each radical family, they count which form the CHISE IDS and GlyphWiki's own glyphs use in each position over 77,561 characters, and a rule is written only when one form accounts for at least 90% of at least 10 characters (or 80% of at least 30). A variant is never swapped for the full form, simplified forms (讠 钅 饣) are never chosen automatically, and compatibility ideographs are never targets.
 - Under each box that was changed, a small line says "drawn as 訁 · keep 言" (and the reverse, "full 言 · use 訁 here"), so it is one click to draw the character as typed.
 - A "Next form" button next to Break apart cycles the selected box through every form of its radical, including the simplified ones (言 → 訁 → 讠 → ⻈ → 言) and sets it to exactly that character.
+
+### Schema: `<respStmt>` allowed inside `<bibl>`
+
+- A citation such as `<bibl><respStmt><persName key="#guo-pu">郭璞</persName><resp>注</resp></respStmt><title>江賦</title></bibl>` no longer fails validation against TEI All. Stock TEI allows `<respStmt>` only inside `<biblStruct>`; Grognard's merged schema now allows it in `<bibl>` too. Project schemas are regenerated automatically the next time the project opens.

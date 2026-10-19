@@ -8,7 +8,7 @@ import type { ProjectBundle } from './projectFile';
 
 export const SANMIAO_PATCH_FILENAME = 'grognard-sanmiao-dates.rng';
 /** Bump when the generated RNG changes so existing merged schemas get regenerated. */
-export const SANMIAO_MERGE_VERSION = 15;
+export const SANMIAO_MERGE_VERSION = 16;
 const MERGE_VERSION_MARKER = `grognard-sanmiao-merge v${SANMIAO_MERGE_VERSION}`;
 const TEI_NS = 'http://www.tei-c.org/ns/1.0';
 const TEI_CATALOG_IDS = new Set(['teiAll', 'teiLite', 'teiSimplePrint', 'jTei']);
@@ -100,11 +100,17 @@ ${attRefLines}
     </define>`;
 };
 
-/** Add Grognard's inline grouping elements to TEI's phrase content model. */
+/**
+ * Add Grognard's inline grouping elements to TEI's phrase content model, and let
+ * `<bibl>` carry `<respStmt>` (e.g. a cited work's annotator) as stock `<biblStruct>` can.
+ */
 const buildGrognardInlineModelOverride = (): string => `
     <define name="model.phrase" combine="choice">
       <ref name="grognard.nobleTitle"/>
       <ref name="grognard.personWrapper"/>
+    </define>
+    <define name="model.biblPart" combine="choice">
+      <ref name="respStmt"/>
     </define>`;
 
 /**
