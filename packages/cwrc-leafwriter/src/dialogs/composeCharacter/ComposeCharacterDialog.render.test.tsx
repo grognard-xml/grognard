@@ -150,4 +150,44 @@ describe('ComposeCharacterDialog', () => {
       expect((screen.getByLabelText('Below') as HTMLInputElement).value).toBe('去');
     });
   });
+
+  describe('radical forms', () => {
+    it('draws a radical in its position form, with a way to keep the typed one', () => {
+      renderWithOvermind(<ComposeCharacterDialog writer={makeFakeWriter()} />);
+
+      fireEvent.change(screen.getByLabelText('Left'), { target: { value: '言' } });
+
+      expect(screen.getByText(/drawn as 訁/)).toBeTruthy();
+      fireEvent.click(screen.getByRole('button', { name: 'keep 言' }));
+      expect(screen.getByText(/full 言/)).toBeTruthy();
+      fireEvent.click(screen.getByRole('button', { name: 'use 訁 here' }));
+      expect(screen.getByText(/drawn as 訁/)).toBeTruthy();
+    });
+
+    it('shows no hint where the radical keeps its own shape', () => {
+      renderWithOvermind(<ComposeCharacterDialog writer={makeFakeWriter()} />);
+
+      fireEvent.change(screen.getByLabelText('Right'), { target: { value: '言' } });
+
+      expect(screen.queryByText(/drawn as/)).toBeNull();
+    });
+
+    it('cycles the selected box through the forms of its radical', () => {
+      renderWithOvermind(<ComposeCharacterDialog writer={makeFakeWriter()} />);
+      const next = screen.getByRole('button', { name: 'Next form' }) as HTMLButtonElement;
+      expect(next.disabled).toBe(true);
+
+      const left = screen.getByLabelText('Left') as HTMLInputElement;
+      fireEvent.change(left, { target: { value: '言' } });
+      fireEvent.focus(left);
+      expect(next.disabled).toBe(false);
+
+      fireEvent.click(next);
+      expect(left.value).toBe('讠');
+      fireEvent.click(next);
+      expect(left.value).toBe('⻈');
+      fireEvent.click(next);
+      expect(left.value).toBe('言');
+    });
+  });
 });

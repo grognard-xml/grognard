@@ -1,4 +1,5 @@
 import { IDS_OPERATORS, partCountFor, type IdsOperator } from './kageCompose';
+import { automaticFormFor } from './radicalForms';
 
 /**
  * Phase D (plugins/composer-visual-redesign.md §4): the composer's state as
@@ -15,7 +16,13 @@ import { IDS_OPERATORS, partCountFor, type IdsOperator } from './kageCompose';
  * invariant is enforced when the operator changes.
  */
 export type ComposerSlot =
-  | { kind: 'leaf'; input: string }
+  | {
+      kind: 'leaf';
+      input: string;
+      /** The scholar chose this exact character, so it is drawn as typed
+       * instead of in the form its position calls for (see `radicalForms.ts`). */
+      exactForm?: boolean;
+    }
   | { kind: 'nested'; operator: IdsOperator; parts: ComposerSlot[] };
 
 export const emptyLeafSlot = (): ComposerSlot => ({ kind: 'leaf', input: '' });
@@ -202,4 +209,21 @@ export const parseIdsToComposerTree = (ids: string): ParsedIds | null => {
   const root = parseSlot();
   if (!root || root.kind !== 'nested' || index !== chars.length) return null;
   return { operator: root.operator, parts: root.parts, unencodedCount };
+};
+
+/**
+ * The character a leaf is drawn with. A radical typed in full is drawn in the
+ * form its position calls for (言 on the left of a pair is 訁) unless the
+ * scholar chose the exact character. Only the geometry changes: the IDS keeps
+ * what was typed, so 謀 is still recognised as ⿰言某.
+ */
+export const effectiveLeafInput = (
+  slot: Extract<ComposerSlot, { kind: 'leaf' }>,
+  operator: IdsOperator,
+  partIndex: number,
+): string => {
+  if (slot.exactForm) return slot.input;
+  const typed = slot.input.trim();
+  if (Array.from(typed).length !== 1) return slot.input;
+  return automaticFormFor(typed, operator, partIndex) ?? slot.input;
 };

@@ -1,7 +1,8 @@
 import CloseIcon from '@mui/icons-material/Close';
-import { Box, IconButton, TextField, Tooltip } from '@mui/material';
+import { Box, IconButton, Link, TextField, Tooltip, Typography } from '@mui/material';
 import { emptyLeafSlot, flattenNestedSlot, type ComposerSlot } from '../../utilities/composerTree';
 import { IDS_OPERATORS, type IdsOperator } from '../../utilities/kageCompose';
+import { automaticFormFor } from '../../utilities/radicalForms';
 import { LayoutGlyph } from './LayoutGlyph';
 
 /** Names spoken by the text fields. The position in the square is the
@@ -196,6 +197,8 @@ const partNameOfRegion = (operator: IdsOperator): string =>
 const SlotCell = ({
   slot,
   name,
+  operator,
+  index,
   path,
   selectedPath,
   onSelect,
@@ -204,6 +207,9 @@ const SlotCell = ({
 }: {
   slot: ComposerSlot;
   name: string;
+  /** The layout this box belongs to and its place in it, which decide the radical form drawn. */
+  operator: IdsOperator;
+  index: number;
   path: number[];
   selectedPath: number[];
   onSelect: (path: number[]) => void;
@@ -224,25 +230,77 @@ const SlotCell = ({
   }
 
   const selected = pathsEqual(path, selectedPath);
+  const typed = slot.input.trim();
+  const positionForm =
+    Array.from(typed).length === 1 ? automaticFormFor(typed, operator, index) : null;
   return (
-    <TextField
-      placeholder="字"
-      size="small"
-      value={slot.input}
-      onClick={(event) => event.stopPropagation()}
-      onFocus={() => onSelect(path)}
-      onChange={(event) => onChange({ kind: 'leaf', input: event.target.value })}
-      slotProps={{ htmlInput: { 'aria-label': name } }}
+    <Box
       sx={{
         width: '100%',
-        maxWidth: 96,
-        '& input': { textAlign: 'center', fontSize: 18, px: 0.5 },
-        '& .MuiOutlinedInput-notchedOutline': {
-          borderColor: selected ? ORANGE : undefined,
-          borderWidth: selected ? 2 : undefined,
-        },
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        gap: 0.25,
       }}
-    />
+    >
+      <TextField
+        placeholder="字"
+        size="small"
+        value={slot.input}
+        onClick={(event) => event.stopPropagation()}
+        onFocus={() => onSelect(path)}
+        onChange={(event) => onChange({ kind: 'leaf', input: event.target.value })}
+        slotProps={{ htmlInput: { 'aria-label': name } }}
+        sx={{
+          width: '100%',
+          maxWidth: 96,
+          '& input': { textAlign: 'center', fontSize: 18, px: 0.5 },
+          '& .MuiOutlinedInput-notchedOutline': {
+            borderColor: selected ? ORANGE : undefined,
+            borderWidth: selected ? 2 : undefined,
+          },
+        }}
+      />
+      {positionForm && (
+        <Typography
+          variant="caption"
+          color="text.secondary"
+          sx={{ lineHeight: 1.2, textAlign: 'center' }}
+        >
+          {slot.exactForm ? (
+            <>
+              full {typed} ·{' '}
+              <Link
+                component="button"
+                type="button"
+                variant="caption"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onChange({ kind: 'leaf', input: slot.input });
+                }}
+              >
+                use {positionForm} here
+              </Link>
+            </>
+          ) : (
+            <>
+              drawn as {positionForm} ·{' '}
+              <Link
+                component="button"
+                type="button"
+                variant="caption"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onChange({ kind: 'leaf', input: slot.input, exactForm: true });
+                }}
+              >
+                keep {typed}
+              </Link>
+            </>
+          )}
+        </Typography>
+      )}
+    </Box>
   );
 };
 
@@ -277,6 +335,8 @@ const SlotArrangement = ({
     <SlotCell
       slot={parts[index] ?? emptyLeafSlot()}
       name={partName(operator, index)}
+      operator={operator}
+      index={index}
       path={[...path, index]}
       selectedPath={selectedPath}
       onSelect={onSelect}

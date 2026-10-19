@@ -1,5 +1,5 @@
 import type Writer from '../js/Writer';
-import { type ComposerSlot } from './composerTree';
+import { effectiveLeafInput, type ComposerSlot } from './composerTree';
 import { insertGlyph } from './glyphEditor';
 import { findGlyphwikiCandidates, type GlyphwikiCandidate } from './glyphwikiIndex';
 import { findEncodedCharacterForIds } from './idsUnicodeIndex';
@@ -141,12 +141,21 @@ let previewSyntheticCounter = 0;
 const resolveSlotForPreview = (
   slot: ComposerSlot,
   registry: ProjectGlyphRegistry,
+  /** Where this slot sits in its parent, which decides the radical form drawn. */
+  context: { operator: IdsOperator; index: number },
 ): SlotPreviewResolution => {
   if (slot.kind === 'leaf') {
-    const resolved = resolveComponentInput(slot.input, registry);
-    return { name: resolved.name, ids: displayNameFor(resolved.name), components: {} };
+    // The geometry uses the form this position calls for; the IDS keeps what was typed.
+    const drawn = resolveComponentInput(
+      effectiveLeafInput(slot, context.operator, context.index),
+      registry,
+    );
+    const typed = resolveComponentInput(slot.input, registry);
+    return { name: drawn.name, ids: displayNameFor(typed.name), components: {} };
   }
-  const parts = slot.parts.map((part) => resolveSlotForPreview(part, registry));
+  const parts = slot.parts.map((part, index) =>
+    resolveSlotForPreview(part, registry, { operator: slot.operator, index }),
+  );
   const name = `__nested_${previewSyntheticCounter++}__`;
   const kageData = composeKageData(
     slot.operator,
@@ -178,7 +187,9 @@ export const previewComposerTree = (
   registry: ProjectGlyphRegistry,
 ): ComposePreview => {
   previewSyntheticCounter = 0;
-  const resolvedParts = parts.map((part) => resolveSlotForPreview(part, registry));
+  const resolvedParts = parts.map((part, index) =>
+    resolveSlotForPreview(part, registry, { operator, index }),
+  );
   const kageData = composeKageData(
     operator,
     resolvedParts.map((p) => p.name),
@@ -281,7 +292,9 @@ const persistAndInsertProjectGlyph = async (
   return { ok: true, glyph };
 };
 
-type PersistSlotResult = { ok: true; name: string } | { ok: false; error: string };
+/** `name` is what the geometry references; `logicalName` is what was typed, which the saved IDS keeps. */
+type PersistSlotResult =
+  { ok: true; name: string; logicalName: string } | { ok: false; error: string };
 
 /**
  * Recursively resolves a slot to a *real* name usable in a "99:" record - a
@@ -302,17 +315,27 @@ const persistSlot = async (
   projectRoot: string,
   registry: { current: ProjectGlyphRegistry },
   writeSvg: (id: string, svg: string) => Promise<void>,
+  context: { operator: IdsOperator; index: number },
 ): Promise<PersistSlotResult> => {
   if (slot.kind === 'leaf') {
-    const resolved = resolveComponentInput(slot.input, registry.current);
-    return { ok: true, name: resolved.name };
+    const drawn = resolveComponentInput(
+      effectiveLeafInput(slot, context.operator, context.index),
+      registry.current,
+    );
+    const typed = resolveComponentInput(slot.input, registry.current);
+    return { ok: true, name: drawn.name, logicalName: typed.name };
   }
 
   const partNames: string[] = [];
-  for (const part of slot.parts) {
-    const result = await persistSlot(part, projectRoot, registry, writeSvg);
+  const logicalNames: string[] = [];
+  for (const [index, part] of slot.parts.entries()) {
+    const result = await persistSlot(part, projectRoot, registry, writeSvg, {
+      operator: slot.operator,
+      index,
+    });
     if (!result.ok) return result;
     partNames.push(result.name);
+    logicalNames.push(result.logicalName);
   }
 
   const extraComponents = projectGlyphKageComponentMap(registry.current);
@@ -335,7 +358,7 @@ const persistSlot = async (
   await writeSvg(id, svg);
   const glyph: ProjectGlyph = {
     id,
-    ids: composeIds(slot.operator, partNames),
+    ids: composeIds(slot.operator, logicalNames),
     kage: kageData,
     svgRelativeUrl: svgRelativeUrl(id),
     sourceType: 'composed',
@@ -343,7 +366,7 @@ const persistSlot = async (
     createdAt: new Date().toISOString(),
   };
   registry.current = addProjectGlyph(registry.current, glyph);
-  return { ok: true, name: id };
+  return { ok: true, name: id, logicalName: id };
 };
 
 /**
@@ -376,10 +399,12 @@ export const composeTreeAndInsertProjectGlyph = async (
   const registry = { current: await loadProjectGlyphRegistryFromDisk(projectRoot) };
 
   const partNames: string[] = [];
-  for (const part of parts) {
-    const result = await persistSlot(part, projectRoot, registry, writeSvg);
+  const logicalNames: string[] = [];
+  for (const [index, part] of parts.entries()) {
+    const result = await persistSlot(part, projectRoot, registry, writeSvg, { operator, index });
     if (!result.ok) return { ok: false, error: result.error };
     partNames.push(result.name);
+    logicalNames.push(result.logicalName);
   }
 
   const extraComponents = projectGlyphKageComponentMap(registry.current);
@@ -404,7 +429,7 @@ export const composeTreeAndInsertProjectGlyph = async (
     registry.current,
     {
       id: nextProjectGlyphId(registry.current),
-      ids: composeIds(operator, partNames),
+      ids: composeIds(operator, logicalNames),
       kage: kageData,
       sourceType: 'composed',
       componentIds: partNames,

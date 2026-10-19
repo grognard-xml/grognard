@@ -508,7 +508,10 @@ describe('composeTreeAndInsertProjectGlyph (Phase D nesting)', () => {
 
     // The root references the nested part's freshly-minted id as its second component.
     expect(result.glyph.id).toBe('chhiv-0002');
-    expect(result.glyph.componentIds).toEqual(['u8a00', 'chhiv-0001']);
+    // 言 on the left of a pair is drawn as its left-hand form 訁 (u8a01), but
+    // the saved IDS keeps what was typed.
+    expect(result.glyph.componentIds).toEqual(['u8a01', 'chhiv-0001']);
+    expect(result.glyph.ids).toBe('⿰言chhiv-0001');
 
     // Only the root was inserted into the document.
     expect(addStructureTag).toHaveBeenCalledTimes(1);

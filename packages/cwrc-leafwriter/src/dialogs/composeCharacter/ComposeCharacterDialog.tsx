@@ -17,6 +17,7 @@ import {
   emptyLeafSlot,
   isSlotFilled,
   parseIdsToComposerTree,
+  replaceSlotAt,
   slotAt,
   type ComposerSlot,
 } from '../../utilities/composerTree';
@@ -24,6 +25,7 @@ import type { GlyphwikiCandidate } from '../../utilities/glyphwikiIndex';
 import { findIdsDecompositions } from '../../utilities/idsUnicodeIndex';
 import { canonicalUnicodeChar, partCountFor, type IdsOperator } from '../../utilities/kageCompose';
 import { renderKageToSvg } from '../../utilities/kageRenderer';
+import { automaticFormFor, nextFormOf } from '../../utilities/radicalForms';
 import {
   emptyProjectGlyphRegistry,
   type ProjectGlyphRegistry,
@@ -157,6 +159,36 @@ export const ComposeCharacterDialog = ({ writer }: { writer: Writer }) => {
   };
 
   const selectedSlot = slotAt(parts, selection);
+
+  /** The box the "Next form" button acts on: the selected one, when it is a
+   * single character that is a form of some radical, with the character it
+   * is drawn as now (the one its position calls for, unless an exact one was
+   * chosen) and the one the button would switch to. */
+  const formCycle = (() => {
+    if (!selectedSlot || selectedSlot.kind !== 'leaf') return null;
+    const typed = selectedSlot.input.trim();
+    if (Array.from(typed).length !== 1) return null;
+    const parentPath = selection.slice(0, -1);
+    const parent = parentPath.length === 0 ? null : slotAt(parts, parentPath);
+    const parentOperator = parent?.kind === 'nested' ? parent.operator : operator;
+    const shown = selectedSlot.exactForm
+      ? typed
+      : (automaticFormFor(typed, parentOperator, selection[selection.length - 1] ?? 0) ?? typed);
+    const next = nextFormOf(shown);
+    return next ? { shown, next } : null;
+  })();
+
+  const handleNextForm = () => {
+    if (!formCycle || !selectedSlot || selectedSlot.kind !== 'leaf') return;
+    setParts(
+      replaceSlotAt(parts, selection, {
+        kind: 'leaf',
+        input: formCycle.next,
+        exactForm: true,
+      }),
+    );
+  };
+
   const activeOperator: IdsOperator | null =
     selection.length === 0
       ? operator
@@ -236,6 +268,19 @@ export const ComposeCharacterDialog = ({ writer }: { writer: Writer }) => {
           <Button variant="outlined" disabled={!breakInput.trim()} onClick={handleBreakApart}>
             Break apart
           </Button>
+          <Tooltip
+            title={
+              formCycle
+                ? `Change the selected box from ${formCycle.shown} to ${formCycle.next}`
+                : 'Select a box that holds a radical (言, 人, 水 ...) to cycle through its forms'
+            }
+          >
+            <span>
+              <Button variant="outlined" disabled={!formCycle} onClick={handleNextForm}>
+                Next form
+              </Button>
+            </span>
+          </Tooltip>
         </Box>
         {breakResult?.status === 'cannot' && (
           <Alert severity="info">
