@@ -91,6 +91,25 @@ const parseWorkYear = (source: SourceDescription): number | null | undefined => 
   return Number.isFinite(year) ? year : undefined;
 };
 
+/**
+ * Authority ids are the preferred key, but the project copy of an entity can
+ * lose ids it never shared with the central database (mirror sync overwrites
+ * it with the central content). Fall back to the name when no entity carries
+ * any of the ids, so a repeat import reuses the entity instead of minting a
+ * duplicate that the next sync strips again.
+ */
+export const resolveExistingForImport = async (
+  store: NonNullable<ReturnType<typeof entityStoreFromDesktop>>,
+  kind: 'person' | 'work',
+  name: string,
+  authorityIds: AuthorityId[],
+): Promise<string | null> => {
+  for (const authority of authorityIds) {
+    if (await store.sqliteFindByAuthority(kind, authority.type, authority.value)) return null;
+  }
+  return resolveExistingByName(store, kind, name);
+};
+
 const resolveExistingByName = async (
   store: NonNullable<ReturnType<typeof entityStoreFromDesktop>>,
   kind: 'person' | 'work',
@@ -113,8 +132,7 @@ const linkAuthor = async (
   if (author.key?.trim()) return author;
 
   const authorityIds = author.ref ? authorityIdsFromTeiRef(author.ref) : [];
-  const existingByName =
-    authorityIds.length === 0 ? await resolveExistingByName(store, 'person', name) : null;
+  const existingByName = await resolveExistingForImport(store, 'person', name, authorityIds);
 
   const { id } = await mintOrLinkEntitySqlite(store, {
     kind: 'person',
@@ -183,10 +201,12 @@ export const linkImportedWorkHeaderToPedb = async (
             other.value === authority.value,
         ) === index,
     );
-    const existingByName =
-      dedupedWorkAuthorities.length === 0
-        ? await resolveExistingByName(store, 'work', workName)
-        : null;
+    const existingByName = await resolveExistingForImport(
+      store,
+      'work',
+      workName,
+      dedupedWorkAuthorities,
+    );
     const startYear = parseWorkYear(source);
 
     const { id } = await mintOrLinkEntitySqlite(store, {

@@ -82,6 +82,9 @@ export interface HygieneFinding {
 export interface CompareCardModel {
   title: string;
   subtitle?: string;
+  /** Project / central ids, when known — shown instead of `subtitle` for entities. */
+  projectKey?: string | null;
+  centralKey?: string | null;
   kind?: EntityKind;
   primaryName: string | null;
   romanized: string | null;
@@ -118,6 +121,8 @@ export function entityToCompareCard(
   return {
     title: options?.title ?? entity.names[0] ?? entity.id,
     subtitle: entity.id,
+    projectKey: entity.projectKey ?? null,
+    centralKey: entity.centralKey ?? null,
     kind: entity.kind,
     primaryName: entity.names[0] ?? null,
     romanized: entity.romanized,

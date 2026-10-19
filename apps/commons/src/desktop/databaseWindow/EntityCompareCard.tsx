@@ -72,6 +72,39 @@ const DetailAccordion = ({ title, children }: { title: string; children: ReactNo
   </Accordion>
 );
 
+/**
+ * Entity ids under the card title. Shows both the project key (what documents
+ * carry in `@key`) and the central key when either is known; otherwise the
+ * plain `subtitle`.
+ */
+function CardKeys({ model, variant }: { model: CompareCardModel; variant: 'body2' | 'caption' }) {
+  const keys = [
+    ['Project', model.projectKey],
+    ['Central', model.centralKey],
+  ].filter((entry): entry is [string, string] => Boolean(entry[1]));
+  if (keys.length === 0) {
+    return model.subtitle ? (
+      <Typography variant={variant} color="text.secondary" sx={{ fontFamily: 'monospace' }}>
+        {model.subtitle}
+      </Typography>
+    ) : null;
+  }
+  return (
+    <>
+      {keys.map(([label, key]) => (
+        <Typography
+          key={label}
+          variant={variant}
+          color="text.secondary"
+          sx={{ fontFamily: 'monospace', display: 'block' }}
+        >
+          {label}: {key}
+        </Typography>
+      ))}
+    </>
+  );
+}
+
 export const EntityCompareCard = ({
   model,
   selected,
@@ -122,11 +155,7 @@ export const EntityCompareCard = ({
                 </Typography>
               )}
             </Stack>
-            {model.subtitle && (
-              <Typography variant="body2" color="text.secondary" sx={{ fontFamily: 'monospace' }}>
-                {model.subtitle}
-              </Typography>
-            )}
+            <CardKeys model={model} variant="body2" />
           </Box>
 
           <Stack direction="row" flexWrap="wrap" gap={0.5}>
@@ -304,11 +333,7 @@ export const EntityCompareCard = ({
             <Typography variant="subtitle1" noWrap>
               {model.title}
             </Typography>
-            {model.subtitle && (
-              <Typography variant="caption" color="text.secondary" sx={{ fontFamily: 'monospace' }}>
-                {model.subtitle}
-              </Typography>
-            )}
+            <CardKeys model={model} variant="caption" />
           </Box>
 
           <Field label="Primary" highlight={hl.has('primary')}>
