@@ -1020,3 +1020,18 @@ Paste/drop a character image now works in the translation pane and its footnotes
 - The progress panel appeared only while a file was open, because it belonged to the editor, which does not start without one. The project page now shows it when the editor is not running.
 - Typing in the explorer's Rename and New folder boxes lagged in large projects: each keystroke re-rendered the whole file tree. The text now lives in the dialog.
 - The generated `_glyphs` and `_gaiji` folders are hidden in the explorer.
+
+## v0.1.1-beta.9
+
+### Imports no longer duplicate authors and works
+
+- Each import minted a fresh entity for an author the project already had, whenever no entity carried the header's authority id (for example the Wikidata id). The project copy of an entity can lose ids central does not hold, because the mirror sync overwrites it with central's content, so the same person was created again on every import: 13 × 郭璞 and 11 × 陸德明 in one project. The import now falls back to an exact name match when no entity carries any of the header's ids, then reuses the entity and attaches the id.
+- The Find Person dialog's "This record matches several entities" warning was this bug showing: the lookup found every copy sharing an authority id and asked which to link.
+
+### Central synchronisation keeps project-only authority ids
+
+- The first time a project entity is paired with an existing central entity, central's content replaced the project copy, which stripped authority ids only the project had. Those ids are now attached to central first. An id whose type central already holds with a different value is left alone as a genuine conflict.
+
+### Database viewer shows both keys
+
+- The detail card now shows the project key (what documents carry in `@key`) and the central key on separate lines. Browsing the central database previously showed only the central id, which looked like the wrong key.

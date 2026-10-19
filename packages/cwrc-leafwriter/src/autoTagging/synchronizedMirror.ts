@@ -1,4 +1,5 @@
 import type { EntityStore } from './entityStore';
+import type { SqlitePanelSummaryLike } from './sqliteSummary';
 
 const CHECKPOINT_FILE = 'central-sync-checkpoint.json';
 const CENTRAL_MAPPING_TYPE = 'grognard-central';
@@ -124,6 +125,36 @@ export async function countUnlinkedPedbEntities(
   return ids.reduce((count, id) => count + (linked.has(id) ? 0 : 1), 0);
 }
 
+/**
+ * Authority ids on the project entity that central lacks, attached to central.
+ * An id whose type central already holds with a different value is a genuine
+ * conflict for curation, so it is left alone.
+ */
+async function attachProjectOnlyAuthorities(
+  projectStore: EntityStore,
+  centralStore: EntityStore,
+  pedbId: string,
+  centralId: string,
+): Promise<boolean> {
+  const [pedb, central] = (await Promise.all([
+    projectStore.sqliteEntitySummary(pedbId),
+    centralStore.sqliteEntitySummary(centralId),
+  ])) as (SqlitePanelSummaryLike | null)[];
+  if (!pedb || !central) return false;
+  const centralAuthorities = central.authorities ?? [];
+  let attached = false;
+  for (const authority of pedb.authorities ?? []) {
+    const sameType = centralAuthorities.filter(
+      (own) => own.type.toLowerCase() === authority.type.toLowerCase(),
+    );
+    if (sameType.length > 0) continue;
+    if (await centralStore.sqliteAttachAuthority(centralId, authority.type, authority.value)) {
+      attached = true;
+    }
+  }
+  return attached;
+}
+
 async function synchronizeMirroredProjectSqlite(
   projectStore: EntityStore,
   centralStore: EntityStore,
@@ -206,6 +237,13 @@ async function synchronizeMirroredProjectSqlite(
         result.downloadedCentralChanges += 1;
       }
     } else if (pedbHash !== centralHash) {
+      // First time this pair is seen: central wins, but never at the cost of
+      // authority ids only the project knows (e.g. the Wikidata id from an
+      // import header) — carry those over first so the copy cannot strip them.
+      if (await attachProjectOnlyAuthorities(projectStore, centralStore, pedbId, centralId)) {
+        result.centralChanged = true;
+        nextCentralHash = (await centralStore.sqliteEntityContentHash(centralId)) ?? centralHash;
+      }
       await copyToProject();
       result.downloadedCentralChanges += 1;
     }
