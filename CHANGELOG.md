@@ -1039,3 +1039,7 @@ Paste/drop a character image now works in the translation pane and its footnotes
 ### Database viewer shows both keys
 
 - The detail card now shows the project key (what documents carry in `@key`) and the central key on separate lines. Browsing the central database previously showed only the central id, which looked like the wrong key.
+
+### Find: a jump that cannot reach its hit now says why
+
+- Clicking a project-wide find result that could not be located in the file did nothing and said nothing. After the retries give up, the console now logs `[find-jump] could not reach the hit` with the stage that failed (file not active, no content, editor not ready, or locating the hit), the offsets and the point where the editor DOM walk broke. This is diagnostic only; the cause of the unreliable jumps is not yet fixed.

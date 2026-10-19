@@ -1,7 +1,50 @@
 import { useActions, useAppState } from '@src/overmind';
 import { useCallback, useEffect, useRef } from 'react';
+import { describeTeiXPathWalkFailure } from '../xpath/teiXPathWalker';
 import { performFindJump } from './performFindJump';
+import { resolveTextHitInXml } from './resolveTextHitInXml';
 import type { PendingFindJump } from './types';
+
+/**
+ * A jump that never lands used to fail silently. Say which stage gave up, so a
+ * failure can be traced to the file/editor mismatch, the offset-to-element
+ * mapping or the editor DOM walk instead of guessed at.
+ */
+const reportFailedJump = (
+  jump: PendingFindJump,
+  currentPath: string | null | undefined,
+  content?: string,
+) => {
+  const writer = window.writer;
+  const mode = writer?.overmindState?.ui?.editorViewMode;
+  const editorContent = jump.contentForJump ?? content;
+  const stage = !writer
+    ? 'no-writer'
+    : currentPath !== jump.filePath
+      ? 'file-not-active'
+      : !editorContent
+        ? 'no-content'
+        : mode !== 'source' && !writer.editor
+          ? 'editor-not-ready'
+          : 'locate-hit';
+  const details: Record<string, unknown> = {
+    stage,
+    mode,
+    file: jump.filePath,
+    activeFile: currentPath,
+    start: jump.start,
+    end: jump.end,
+    contentLength: editorContent?.length,
+  };
+  if (stage === 'locate-hit' && editorContent && mode !== 'source') {
+    const resolved = resolveTextHitInXml(editorContent, jump.start, jump.end);
+    details.resolvedXPath = resolved?.teiXPath ?? null;
+    const body = writer?.editor?.getBody();
+    if (resolved && body)
+      details.walkFailure = describeTeiXPathWalkFailure(body, resolved.teiXPath);
+  }
+  console.warn('[find-jump] could not reach the hit', details);
+};
 
 export const useFindNavigation = (onAfterJump?: () => void) => {
   const { activeTabPath, openTabs } = useAppState().project;
@@ -85,7 +128,14 @@ export const useFindNavigation = (onAfterJump?: () => void) => {
       }, delay);
       retryTimersRef.current.push(timer);
     }
-  }, [tryPerformPendingJump]);
+    const reportTimer = window.setTimeout(() => {
+      const jump = pendingJumpRef.current;
+      if (!jump) return;
+      const currentPath = resourceFilePathRef.current ?? activeTabPathRef.current;
+      reportFailedJump(jump, currentPath, getContentForJump(jump.filePath));
+    }, 2000);
+    retryTimersRef.current.push(reportTimer);
+  }, [getContentForJump, tryPerformPendingJump]);
 
   useEffect(() => {
     const writer = window.writer;
