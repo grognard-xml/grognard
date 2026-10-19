@@ -202,6 +202,8 @@ export const MergedLookupMain = () => {
         const pedbStore = entityStoreFromDesktop();
         let localCandidates: DisambiguationCandidate[] = [];
         let central: { userStableId: string; candidates: DisambiguationCandidate[] } | undefined;
+        let ownDatabaseByAuthority:
+          { store: NonNullable<typeof pedbStore>; origin: 'pedb' | 'cedb' } | undefined;
 
         if (!attachMode && pedbStore) {
           if (syncToCentral) {
@@ -220,6 +222,7 @@ export const MergedLookupMain = () => {
                 userStableId,
                 candidates,
               };
+              ownDatabaseByAuthority = { store: centralStore, origin: 'cedb' };
             }
           } else {
             const sqliteLocal = await loadSqliteDisambiguationCandidates(
@@ -230,6 +233,7 @@ export const MergedLookupMain = () => {
             );
             if (sqliteLocal == null) throw new Error(SQLITE_REQUIRED_LOOKUP_MESSAGE);
             localCandidates = sqliteLocal;
+            ownDatabaseByAuthority = { store: pedbStore, origin: 'pedb' };
           }
         }
 
@@ -256,6 +260,7 @@ export const MergedLookupMain = () => {
           {
             enrichLifespans: false,
             enrichNames: true,
+            ownDatabaseByAuthority,
             onPartialResults: (partial) => {
               if (requestId !== requestIdRef.current) return;
               setCandidates(partial);

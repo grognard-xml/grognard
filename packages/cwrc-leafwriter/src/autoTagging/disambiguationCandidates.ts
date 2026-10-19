@@ -11,7 +11,7 @@ import {
   type AuthoritySourcedFields,
   type EntityKind,
 } from './entities';
-import { formatNorbertAuthorityValue } from './norbertAuthorityId';
+import { formatNorbertAuthorityValue, norbertAuthorityLookupValues } from './norbertAuthorityId';
 import {
   biographicalYearsFromMetadata,
   filterYearsFromMetadata,
@@ -681,11 +681,17 @@ export function candidatesFromSqliteEntities(
   entities: readonly SqliteDisambiguationEntityInput[],
   surface: string,
   origin: 'pedb' | 'cedb' = 'pedb',
+  options?: { skipSurfaceFilter?: boolean },
 ): DisambiguationCandidate[] {
   const out: DisambiguationCandidate[] = [];
   for (const entity of entities) {
     const nameTexts = entity.names.map((name) => name.text.trim()).filter(Boolean);
-    if (!nameTexts.some((text) => stringsMatchExactly(surface, text))) continue;
+    if (
+      !options?.skipSurfaceFilter &&
+      !nameTexts.some((text) => stringsMatchExactly(surface, text))
+    ) {
+      continue;
+    }
     const romanizedName = entity.names
       .find((name) => isLatnLang(name.language ?? null))
       ?.text.trim();
@@ -754,6 +760,76 @@ export function asSyncedEntityCandidate(
 /** How many same-surface PEDB/CEDB hits disambiguation will load from SQLite. */
 const SQLITE_DISAMBIGUATION_SEARCH_LIMIT = 200;
 
+async function sqliteDisambiguationEntityInput(
+  store: EntityStore,
+  id: string,
+  hit?: { label: string; description?: string; idnos: AuthorityId[] },
+): Promise<SqliteDisambiguationEntityInput | null> {
+  const summary = (await store.sqliteEntitySummary(id)) as {
+    id?: string;
+    description?: string | null;
+    authorities?: AuthorityId[];
+    names?: { text: string; language?: string | null; status?: string }[];
+    startYear?: number | null;
+    endYear?: number | null;
+  } | null;
+  if (!summary) return null;
+  const names = (summary.names ?? [])
+    .filter((name) => name.status !== 'rejected' && name.status !== 'withdrawn')
+    .map((name) => ({ text: name.text, language: name.language ?? null }));
+  const label = hit?.label ?? names[0]?.text ?? id;
+  return {
+    id: summary.id ?? id,
+    label,
+    description: summary.description ?? hit?.description ?? null,
+    authorities: summary.authorities ?? hit?.idnos,
+    names: names.length > 0 ? names : [{ text: label, language: null }],
+    startYear: summary.startYear ?? null,
+    endYear: summary.endYear ?? null,
+  };
+}
+
+/**
+ * Entities in the user's own database that carry any of these authority ids —
+ * regardless of what name they were searched under. The name search misses an
+ * entity whose matching name is rejected or only a variant, but the authority
+ * rows still identify it, exactly as auto-tagging resolves a pack hit.
+ */
+export async function loadSqliteCandidatesByAuthority(
+  store: EntityStore,
+  tag: string,
+  authorityIds: readonly AuthorityId[],
+  origin: 'pedb' | 'cedb' = 'pedb',
+  excludeEntityIds: ReadonlySet<string> = new Set(),
+): Promise<DisambiguationCandidate[]> {
+  const kind = tag === 'name' ? 'person' : TAG_TO_KIND[tag];
+  if (!kind) return [];
+  const wanted = new Map<string, AuthorityId>();
+  for (const authority of authorityIds) {
+    const type = authority.type?.trim();
+    const value = authority.value?.trim();
+    if (!type || !value) continue;
+    const values = type.toLowerCase() === 'norbert' ? norbertAuthorityLookupValues(value) : [value];
+    for (const variant of values)
+      wanted.set(`${type.toLowerCase()}\0${variant}`, { type, value: variant });
+  }
+  const found = new Set<string>();
+  for (const authority of [...wanted.values()].slice(0, MAX_AUTHORITY_BRIDGE_LOOKUPS)) {
+    for (const id of await store.sqliteFindAllByAuthority(kind, authority.type, authority.value)) {
+      if (!excludeEntityIds.has(id)) found.add(id);
+    }
+  }
+  const entities: SqliteDisambiguationEntityInput[] = [];
+  for (const id of found) {
+    const entity = await sqliteDisambiguationEntityInput(store, id);
+    if (entity) entities.push(entity);
+  }
+  return candidatesFromSqliteEntities(entities, '', origin, { skipSurfaceFilter: true });
+}
+
+/** Authority-id lookups made per result list, so a long pack list cannot stall the dialog. */
+const MAX_AUTHORITY_BRIDGE_LOOKUPS = 120;
+
 /**
  * Load surface-matching disambiguation candidates from a migrated SQLite store.
  * Returns null when SQLite search is unavailable — callers must fail loud,
@@ -772,27 +848,8 @@ export async function loadSqliteDisambiguationCandidates(
 
   const entities: SqliteDisambiguationEntityInput[] = [];
   for (const hit of hits) {
-    const summary = (await store.sqliteEntitySummary(hit.id)) as {
-      id?: string;
-      description?: string | null;
-      authorities?: AuthorityId[];
-      names?: { text: string; language?: string | null; status?: string }[];
-      startYear?: number | null;
-      endYear?: number | null;
-    } | null;
-    if (!summary) continue;
-    const names = (summary.names ?? [])
-      .filter((name) => name.status !== 'rejected' && name.status !== 'withdrawn')
-      .map((name) => ({ text: name.text, language: name.language ?? null }));
-    entities.push({
-      id: summary.id ?? hit.id,
-      label: hit.label,
-      description: summary.description ?? hit.description ?? null,
-      authorities: summary.authorities ?? hit.idnos,
-      names: names.length > 0 ? names : [{ text: hit.label, language: null }],
-      startYear: summary.startYear ?? null,
-      endYear: summary.endYear ?? null,
-    });
+    const entity = await sqliteDisambiguationEntityInput(store, hit.id, hit);
+    if (entity) entities.push(entity);
   }
   return candidatesFromSqliteEntities(entities, surface, origin);
 }
@@ -1487,6 +1544,12 @@ export interface BuildDisambiguationCandidatesOptions {
   enrichNames?: boolean;
   /** Called once pack/local rows are ready, before live authorities finish. */
   onPartialResults?: (candidates: DisambiguationCandidate[]) => void;
+  /**
+   * Also pull in own-database entities that carry the authority ids of the
+   * pack/live rows, so a result is recognised as already in the database even
+   * when the searched text is not one of the entity's active names.
+   */
+  ownDatabaseByAuthority?: { store: EntityStore; origin: 'pedb' | 'cedb' };
 }
 
 export async function buildDisambiguationCandidates(
@@ -1571,9 +1634,25 @@ export async function buildDisambiguationCandidates(
   ) => {
     const index = (await concordancePromise) ?? null;
     let bdrcIndex = (await bdrcConcordancePromise) ?? emptyBdrcWikidataIndex();
-    const merged = mergeCandidates([local, centralCandidates, packLocal, live], mergeOpts).map(
-      enrichCandidateCrossRefs,
-    );
+    const bridged = buildOptions?.ownDatabaseByAuthority
+      ? await loadSqliteCandidatesByAuthority(
+          buildOptions.ownDatabaseByAuthority.store,
+          tag,
+          [...packLocal, ...live].flatMap((candidate) => candidate.authorityIds ?? []),
+          buildOptions.ownDatabaseByAuthority.origin,
+          new Set(
+            [...local, ...centralCandidates].flatMap((candidate) =>
+              [candidate.localEntityId, candidate.centralEntityId].filter((id): id is string =>
+                Boolean(id),
+              ),
+            ),
+          ),
+        ).catch(() => [] as DisambiguationCandidate[])
+      : [];
+    const merged = mergeCandidates(
+      [local, centralCandidates, bridged, packLocal, live],
+      mergeOpts,
+    ).map(enrichCandidateCrossRefs);
     const viafEnriched = index
       ? enrichCandidatesWithViafWikidataConcordance(merged, index)
       : merged;

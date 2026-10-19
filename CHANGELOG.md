@@ -1032,6 +1032,10 @@ Paste/drop a character image now works in the translation pane and its footnotes
 
 - The first time a project entity is paired with an existing central entity, central's content replaced the project copy, which stripped authority ids only the project had. Those ids are now attached to central first. An id whose type central already holds with a different value is left alone as a genuine conflict.
 
+### Lookup recognises entities in your own database by authority id
+
+- The lookup dialog found your own entities only by an exact match on an active name. Searching 郭景純, a courtesy name that is rejected on the entity, returned only the Norbert row, with no CEDB/PEDB badge, even though both carry the same Norbert and DILA ids. Auto-tagging already resolved such a hit through its authority ids. The dialog now looks up your own database by the ids of the external results, so the entity is merged into the row, badged as yours and linked directly, whatever name was typed.
+
 ### Database viewer shows both keys
 
 - The detail card now shows the project key (what documents carry in `@key`) and the central key on separate lines. Browsing the central database previously showed only the central id, which looked like the wrong key.
