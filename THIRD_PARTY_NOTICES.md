@@ -60,6 +60,15 @@ When shipping releases, keep this document in sync with the actual dependency se
     any later version"); combined into this AGPL-3.0-only program under
     each license's section 13 compatibility clause, same reasoning as
     `@kurgm/kage-engine` above.
+- **BabelStone Han** (`apps/commons/src/fonts/BabelStoneHan.woff2`)
+  - version 16.0.3 (2025-01-01) by Andrew West, derived in part from Arphic
+    Technology's AR PL fonts. The complete font, converted losslessly from
+    TrueType to WOFF2 (no glyphs removed), bundled as the default Han font so
+    ideographs, including Extensions A to I, draw the same on every machine.
+    Arphic Public License, text in
+    `apps/commons/src/fonts/BabelStoneHan-ARPHIC-PUBLIC-LICENSE.txt` and
+    embedded in the font. The original font is available from
+    https://www.babelstone.co.uk/Fonts/. See `apps/commons/src/fonts/README.md`.
 - `Noto Sans` - pre-rendered glyph tiles (SDF/PBF) for map-label rendering,
   bundled under `apps/commons/public/fonts/Noto Sans {Regular,Medium,Italic}/`.
   SIL Open Font License 1.1; full text copied to `OFL-1.1-noto-sans.txt` in

@@ -113,7 +113,7 @@ const theme = createTheme({
     },
   },
   typography: {
-    fontFamily: 'Lato, Helvetica, Arial, sans-serif',
+    fontFamily: "'Grognard Han', Lato, Helvetica, Arial, sans-serif",
   },
   components: {
     MuiCssBaseline: {

@@ -446,7 +446,7 @@ export const XmlMonacoEditor = ({
     editor?.updateOptions({
       fontFamily: tibetanFont
         ? TIBETAN_EDITOR_FONT_FAMILY
-        : 'Menlo, Monaco, "Courier New", monospace',
+        : '"Grognard Han", Menlo, Monaco, "Courier New", monospace',
     });
   }, [editor, tibetanFont]);
 

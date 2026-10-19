@@ -1,0 +1,13 @@
+/* Default Han font; see README.md in this folder for source and licence.
+   First in the font stacks so every ideograph uses it; the unicode-range keeps
+   Latin, kana, Hangul and punctuation on the usual fonts. */
+@font-face {
+  font-family: 'Grognard Han';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('./BabelStoneHan.woff2') format('woff2');
+  unicode-range:
+    U+2E80-2FDF, U+2FF0-2FFF, U+3005-3007, U+3021-3029, U+3038-303B, U+3400-4DBF, U+4E00-9FFF,
+    U+F900-FAFF, U+FE00-FE0F, U+E0100-E01EF, U+20000-323AF;
+}
