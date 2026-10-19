@@ -1,4 +1,4 @@
-import { partCountFor, type IdsOperator } from './kageCompose';
+import { IDS_OPERATORS, partCountFor, type IdsOperator } from './kageCompose';
 
 /**
  * Phase D (plugins/composer-visual-redesign.md §4): the composer's state as
@@ -152,4 +152,54 @@ export const applyPaletteOperator = (
       parts: resizePartsForOperator(next, target.parts),
     }),
   };
+};
+
+/** Circled numbers stand for components that have no Unicode character of their own. */
+const isUnencodedPlaceholder = (char: string): boolean => /^[\u2460-\u2473]$/u.test(char);
+
+const isIdsOperator = (char: string): char is IdsOperator =>
+  IDS_OPERATORS.some((entry) => entry.operator === char);
+
+export interface ParsedIds {
+  operator: IdsOperator;
+  parts: ComposerSlot[];
+  /** How many components in the IDS have no encoded character (left empty). */
+  unencodedCount: number;
+}
+
+/**
+ * Turns an IDS string such as "⿰言某" or "⿱⿰ab c" into the composer's tree,
+ * nesting wherever the IDS nests. Returns null for anything that is not one
+ * well-formed IDS with an operator at the top (a bare character, malformed or
+ * trailing input). Unencoded placeholders become empty slots, counted in
+ * `unencodedCount`, so the scholar can fill them in.
+ */
+export const parseIdsToComposerTree = (ids: string): ParsedIds | null => {
+  const chars = Array.from(ids.trim());
+  let index = 0;
+  let unencodedCount = 0;
+
+  const parseSlot = (): ComposerSlot | null => {
+    const char = chars[index];
+    if (char === undefined) return null;
+    index += 1;
+    if (isIdsOperator(char)) {
+      const parts: ComposerSlot[] = [];
+      for (let i = 0; i < partCountFor(char); i++) {
+        const part = parseSlot();
+        if (!part) return null;
+        parts.push(part);
+      }
+      return { kind: 'nested', operator: char, parts };
+    }
+    if (isUnencodedPlaceholder(char)) {
+      unencodedCount += 1;
+      return emptyLeafSlot();
+    }
+    return { kind: 'leaf', input: char };
+  };
+
+  const root = parseSlot();
+  if (!root || root.kind !== 'nested' || index !== chars.length) return null;
+  return { operator: root.operator, parts: root.parts, unencodedCount };
 };

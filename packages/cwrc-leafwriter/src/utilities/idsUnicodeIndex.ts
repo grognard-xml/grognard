@@ -34,3 +34,30 @@ const index = (): Map<string, string> => {
  * decomposition on record - most compositions won't match, but per
  * composer-visual-redesign.md's own empirical check, a real fraction do. */
 export const findEncodedCharacterForIds = (ids: string): string | null => index().get(ids) ?? null;
+
+let byChar: Map<string, string[]> | null = null;
+
+const reverseIndex = (): Map<string, string[]> => {
+  if (byChar) return byChar;
+  byChar = new Map();
+  for (const [rawIds, char] of RAW_ENTRIES) {
+    // The bundled data has one entry with a leftover regional tag (`[O]"`).
+    const ids = rawIds.replace(/\[[A-Z,]*\]"?$/, '');
+    // A character that decomposes to itself (a stroke, a radical) is atomic.
+    if (ids === char) continue;
+    const list = byChar.get(char);
+    if (!list) byChar.set(char, [ids]);
+    else if (!list.includes(ids)) list.push(ids);
+  }
+  return byChar;
+};
+
+/** Every IDS the data records for this character (e.g. "謀" -> ["⿰言某"]), in
+ * the data's own order, or `[]` when it cannot be broken apart: an atomic
+ * component, a character the data has no entry for, or anything that is not a
+ * single character. Only the first code point is considered. */
+export const findIdsDecompositions = (input: string): string[] => {
+  const char = Array.from(input.trim())[0];
+  if (!char) return [];
+  return reverseIndex().get(char) ?? [];
+};

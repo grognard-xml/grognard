@@ -100,4 +100,54 @@ describe('ComposeCharacterDialog', () => {
     expect(screen.queryByLabelText('Left')).toBeNull();
     expect(screen.queryByRole('button', { name: 'Remove this layout' })).toBeNull();
   });
+
+  describe('break apart', () => {
+    const breakApart = (char: string) => {
+      fireEvent.change(screen.getByLabelText('Break apart a character'), {
+        target: { value: char },
+      });
+      fireEvent.click(screen.getByRole('button', { name: 'Break apart' }));
+    };
+
+    it('loads the components of a character into the layout square', () => {
+      renderWithOvermind(<ComposeCharacterDialog writer={makeFakeWriter()} />);
+
+      breakApart('謀');
+
+      expect((screen.getByLabelText('Left') as HTMLInputElement).value).toBe('言');
+      expect((screen.getByLabelText('Right') as HTMLInputElement).value).toBe('某');
+      expect(screen.getByText('⿰言某', { selector: 'p' })).toBeTruthy();
+    });
+
+    it('nests where the decomposition nests', () => {
+      renderWithOvermind(<ComposeCharacterDialog writer={makeFakeWriter()} />);
+
+      breakApart('万');
+
+      expect((screen.getByLabelText('Above') as HTMLInputElement).value).toBe('一');
+      expect(screen.getByRole('group', { name: /left \/ right layout/i })).toBeTruthy();
+      expect((screen.getByLabelText('Left') as HTMLInputElement).value).toBe('丿');
+    });
+
+    it('leaves the composer alone when the character cannot be broken', () => {
+      renderWithOvermind(<ComposeCharacterDialog writer={makeFakeWriter()} />);
+      fireEvent.change(screen.getByLabelText('Left'), { target: { value: '木' } });
+
+      breakApart('一');
+
+      expect(screen.getByText(/can't be broken apart/)).toBeTruthy();
+      expect((screen.getByLabelText('Left') as HTMLInputElement).value).toBe('木');
+    });
+
+    it('lists every decomposition when there are several and loads the one picked', () => {
+      renderWithOvermind(<ComposeCharacterDialog writer={makeFakeWriter()} />);
+
+      breakApart('丟');
+
+      expect(screen.getByRole('button', { name: '⿱王厶' })).toBeTruthy();
+      fireEvent.click(screen.getByRole('button', { name: '⿱一去' }));
+      expect((screen.getByLabelText('Above') as HTMLInputElement).value).toBe('一');
+      expect((screen.getByLabelText('Below') as HTMLInputElement).value).toBe('去');
+    });
+  });
 });

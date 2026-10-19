@@ -1,4 +1,13 @@
-import { Alert, Box, Button, ButtonBase, Tooltip, Typography } from '@mui/material';
+import {
+  Alert,
+  Box,
+  Button,
+  ButtonBase,
+  Chip,
+  TextField,
+  Tooltip,
+  Typography,
+} from '@mui/material';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type Writer from '../../js/Writer';
 import { insertAtCursor } from '../../utilities/chhivSymbols';
@@ -7,10 +16,12 @@ import {
   draftIds,
   emptyLeafSlot,
   isSlotFilled,
+  parseIdsToComposerTree,
   slotAt,
   type ComposerSlot,
 } from '../../utilities/composerTree';
 import type { GlyphwikiCandidate } from '../../utilities/glyphwikiIndex';
+import { findIdsDecompositions } from '../../utilities/idsUnicodeIndex';
 import { canonicalUnicodeChar, partCountFor, type IdsOperator } from '../../utilities/kageCompose';
 import { renderKageToSvg } from '../../utilities/kageRenderer';
 import {
@@ -74,6 +85,14 @@ export const ComposeCharacterDialog = ({ writer }: { writer: Writer }) => {
   // focused, even before React has re-rendered.
   const [selection, setSelection] = useState<number[]>([]);
   const selectionRef = useRef<number[]>([]);
+  // "Break apart": the character typed, every IDS on record for it (only those
+  // the composer can load), and which one is currently loaded.
+  const [breakInput, setBreakInput] = useState('');
+  const [breakResult, setBreakResult] = useState<
+    | { status: 'cannot'; char: string }
+    | { status: 'ok'; char: string; options: string[]; chosen: number; unencoded: number }
+    | null
+  >(null);
 
   useEffect(() => {
     const projectRoot = getProjectRootPath();
@@ -110,6 +129,31 @@ export const ComposeCharacterDialog = ({ writer }: { writer: Writer }) => {
     if (selectionRef.current.length > 0 && !slotAt(applied.parts, selectionRef.current)) {
       select([]);
     }
+  };
+
+  const loadDecomposition = (char: string, options: string[], chosen: number) => {
+    const parsed = parseIdsToComposerTree(options[chosen] ?? '');
+    if (!parsed) return;
+    setFlattenNotice(null);
+    setSaveError(null);
+    setInsertedMessage(null);
+    setOperator(parsed.operator);
+    setParts(parsed.parts);
+    select([]);
+    setBreakResult({ status: 'ok', char, options, chosen, unencoded: parsed.unencodedCount });
+  };
+
+  /** Loads the first decomposition into the layout square and lists every other
+   * one on record. A character that cannot be broken leaves the composer as it is. */
+  const handleBreakApart = () => {
+    const char = Array.from(breakInput.trim())[0];
+    if (!char) return;
+    const options = findIdsDecompositions(char).filter((ids) => parseIdsToComposerTree(ids));
+    if (options.length === 0) {
+      setBreakResult({ status: 'cannot', char });
+      return;
+    }
+    loadDecomposition(char, options, 0);
   };
 
   const selectedSlot = slotAt(parts, selection);
@@ -172,6 +216,64 @@ export const ComposeCharacterDialog = ({ writer }: { writer: Writer }) => {
         Click a box and pick another layout to compose inside it. Click the square itself to change
         the outer layout again.
       </Typography>
+
+      <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+        <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
+          <TextField
+            size="small"
+            label="Break apart a character"
+            value={breakInput}
+            onChange={(event) => setBreakInput(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter') {
+                event.preventDefault();
+                handleBreakApart();
+              }
+            }}
+            slotProps={{ htmlInput: { style: { fontFamily: 'serif', fontSize: 18 } } }}
+            sx={{ width: 220 }}
+          />
+          <Button variant="outlined" disabled={!breakInput.trim()} onClick={handleBreakApart}>
+            Break apart
+          </Button>
+        </Box>
+        {breakResult?.status === 'cannot' && (
+          <Alert severity="info">
+            {breakResult.char} can&apos;t be broken apart: it is a basic component, or there is no
+            decomposition for it in the data. The composer is unchanged.
+          </Alert>
+        )}
+        {breakResult?.status === 'ok' && (
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5 }}>
+            <Typography variant="body2" color="text.secondary">
+              {breakResult.options.length === 1
+                ? `${breakResult.char} is loaded below as ${breakResult.options[0]}.`
+                : `${breakResult.char} has ${breakResult.options.length} decompositions on record. Pick one to load:`}
+            </Typography>
+            {breakResult.options.length > 1 && (
+              <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
+                {breakResult.options.map((ids, index) => (
+                  <Chip
+                    key={ids}
+                    label={ids}
+                    color={index === breakResult.chosen ? 'primary' : 'default'}
+                    variant={index === breakResult.chosen ? 'filled' : 'outlined'}
+                    onClick={() => loadDecomposition(breakResult.char, breakResult.options, index)}
+                    sx={{ fontFamily: 'serif', fontSize: 16 }}
+                  />
+                ))}
+              </Box>
+            )}
+            {breakResult.unencoded > 0 && (
+              <Typography variant="caption" color="text.secondary">
+                {breakResult.unencoded === 1
+                  ? '1 component has no Unicode character and is left empty.'
+                  : `${breakResult.unencoded} components have no Unicode character and are left empty.`}
+              </Typography>
+            )}
+          </Box>
+        )}
+      </Box>
 
       <Box sx={{ display: 'flex', gap: 2, alignItems: 'flex-start' }}>
         <Box sx={{ width: 280, flexShrink: 0 }}>

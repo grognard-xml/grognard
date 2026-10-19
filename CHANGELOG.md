@@ -1043,3 +1043,11 @@ Paste/drop a character image now works in the translation pane and its footnotes
 ### Find: a jump that cannot reach its hit now says why
 
 - Clicking a project-wide find result that could not be located in the file did nothing and said nothing. After the retries give up, the console now logs `[find-jump] could not reach the hit` with the stage that failed (file not active, no content, editor not ready, or locating the hit), the offsets and the point where the editor DOM walk broke. This is diagnostic only; the cause of the unreliable jumps is not yet fixed.
+
+### Character composer: Break apart
+
+- Type a character into the new "Break apart a character" box and press Enter or click the button: its components are loaded into the layout square, nested where the decomposition nests, ready to edit (謀 → 言 + 某). The data is the CHISE IDS index already bundled for the composer's "is this already encoded" check, read in reverse.
+- A character that cannot be broken apart (a basic component, or one the data has no entry for) is reported and leaves the composer unchanged.
+- A character with several decompositions on record (丟: ⿱王厶, ⿱一去) loads the first and lists all of them as chips; clicking one loads it.
+- Components that have no Unicode character of their own are left empty, with a note saying how many.
+- The bundled index still stops at Ext F; Ext G–I characters do not break apart until it is rebuilt from a current `ids.txt`.
