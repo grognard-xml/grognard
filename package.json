@@ -30,6 +30,9 @@
     "apps/*",
     "packages/*"
   ],
+  "lint-staged": {
+    "*": "prettier --write --ignore-unknown"
+  },
   "scripts": {
     "prepare": "husky",
     "test": "jest --silent --onlyChanged",
@@ -73,6 +76,7 @@
     "eslint": "^10.9.0",
     "eslint-config-custom": "*",
     "husky": "^9.1.7",
+    "lint-staged": "^17.6.0",
     "jest": "^30.2.0",
     "js-yaml": "^4.3.0",
     "monaco-editor": "0.52.2",

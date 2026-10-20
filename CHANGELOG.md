@@ -1069,3 +1069,8 @@ Paste/drop a character image now works in the translation pane and its footnotes
 
 - `<respStmt>` is no longer greyed out in the Wrap and Insert popups wherever the schema allows it. TEI can never approve it by content alone (a `<respStmt>` needs a `<resp>`, and `<resp>` is only valid inside a `<respStmt>`), so it is now selectable whenever the schema lists it for that position; add the `<resp>` and name inside it afterwards.
 - Inside a `<bibl>`, `<respStmt>` and `<resp>` now sit on the line, without the line breaks and 1em left margin that `tei.css` gave them, so 郭璞注 reads as part of the citation.
+
+### Formatting is checked earlier
+
+- Staged files are now formatted by Prettier on every commit (a pre-commit hook using lint-staged), so unformatted files, including generated ones, no longer reach CI.
+- In CI the formatting check now runs first, so a formatting slip fails in seconds instead of after the test run.
