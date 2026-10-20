@@ -1,4 +1,5 @@
 import idsUnicodeIndexData from '../resources/ids/idsUnicodeIndex.json';
+import { formsOf } from './radicalForms';
 
 /**
  * Phase A of the composer visual redesign (see
@@ -29,11 +30,37 @@ const index = (): Map<string, string> => {
   return byIds;
 };
 
-/** The already-assigned Unicode character for this exact IDS string (e.g.
- * "⿰言某" -> "謀"), or `null` if this exact structure has no standard
+/** The IDS with every radical written as its family's base form, so 業刀 and
+ * 業刂 (the same character, the radical drawn differently) compare equal. */
+const withBaseRadicals = (ids: string): string =>
+  Array.from(ids)
+    .map((char) => formsOf(char)[0] ?? char)
+    .join('');
+
+let byBaseRadicals: Map<string, string | null> | null = null;
+
+/** Base-radical IDS -> character; `null` when two different characters share it,
+ * because then the radical forms alone cannot tell them apart. */
+const baseRadicalIndex = (): Map<string, string | null> => {
+  if (byBaseRadicals) return byBaseRadicals;
+  byBaseRadicals = new Map();
+  for (const [ids, char] of RAW_ENTRIES) {
+    const key = withBaseRadicals(ids);
+    const known = byBaseRadicals.get(key);
+    if (known === undefined) byBaseRadicals.set(key, char);
+    else if (known !== char) byBaseRadicals.set(key, null);
+  }
+  return byBaseRadicals;
+};
+
+/** The already-assigned Unicode character for this IDS string (e.g.
+ * "⿰言某" -> "謀"), or `null` if this structure has no standard
  * decomposition on record - most compositions won't match, but per
- * composer-visual-redesign.md's own empirical check, a real fraction do. */
-export const findEncodedCharacterForIds = (ids: string): string | null => index().get(ids) ?? null;
+ * composer-visual-redesign.md's own empirical check, a real fraction do.
+ * An exact match wins; failing that, the radicals are compared by family, so
+ * "⿰業刀" finds 𠟪, which the data records as "⿰業刂". */
+export const findEncodedCharacterForIds = (ids: string): string | null =>
+  index().get(ids) ?? baseRadicalIndex().get(withBaseRadicals(ids)) ?? null;
 
 let byChar: Map<string, string[]> | null = null;
 

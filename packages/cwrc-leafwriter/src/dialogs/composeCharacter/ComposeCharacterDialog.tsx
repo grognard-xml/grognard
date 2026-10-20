@@ -19,6 +19,7 @@ import {
   parseIdsToComposerTree,
   replaceSlotAt,
   slotAt,
+  slotHasContent,
   type ComposerSlot,
 } from '../../utilities/composerTree';
 import type { GlyphwikiCandidate } from '../../utilities/glyphwikiIndex';
@@ -73,6 +74,10 @@ const GlyphThumbnail = ({ svg, size = 160 }: { svg: string; size?: number }) => 
  * there's no host API for a dialog body to close its own SimpleDialog
  * wrapper from the inside; only its own action-button/backdrop handlers can.
  */
+const componentsOf = (ids: string): string[] => [
+  ...new Set(Array.from(ids).filter((char) => !/[\u2FF0-\u2FFF\u31EF]/.test(char))),
+];
+
 export const ComposeCharacterDialog = ({ writer }: { writer: Writer }) => {
   const [operator, setOperator] = useState<IdsOperator>('⿰');
   const [parts, setParts] = useState<ComposerSlot[]>([emptyLeafSlot(), emptyLeafSlot()]);
@@ -92,7 +97,15 @@ export const ComposeCharacterDialog = ({ writer }: { writer: Writer }) => {
   const [breakInput, setBreakInput] = useState('');
   const [breakResult, setBreakResult] = useState<
     | { status: 'cannot'; char: string }
-    | { status: 'ok'; char: string; options: string[]; chosen: number; unencoded: number }
+    | {
+        status: 'ok';
+        char: string;
+        options: string[];
+        chosen: number;
+        unencoded: number;
+        /** False when the composer already held something, so it was left alone. */
+        loaded: boolean;
+      }
     | null
   >(null);
 
@@ -142,11 +155,35 @@ export const ComposeCharacterDialog = ({ writer }: { writer: Writer }) => {
     setOperator(parsed.operator);
     setParts(parsed.parts);
     select([]);
-    setBreakResult({ status: 'ok', char, options, chosen, unencoded: parsed.unencodedCount });
+    setBreakResult({
+      status: 'ok',
+      char,
+      options,
+      chosen,
+      unencoded: parsed.unencodedCount,
+      loaded: true,
+    });
+  };
+
+  /** The decomposition on offer without touching the layout square. */
+  const offerDecomposition = (char: string, options: string[]) => {
+    const parsed = parseIdsToComposerTree(options[0] ?? '');
+    if (!parsed) return;
+    setBreakResult({
+      status: 'ok',
+      char,
+      options,
+      chosen: 0,
+      unencoded: parsed.unencodedCount,
+      loaded: false,
+    });
   };
 
   /** Loads the first decomposition into the layout square and lists every other
-   * one on record. A character that cannot be broken leaves the composer as it is. */
+   * one on record. Only an empty composer is filled in: once something is typed
+   * there, a later split just offers its components (to copy, or to load by hand)
+   * rather than wiping the boxes. A character that cannot be broken leaves the
+   * composer as it is. */
   const handleBreakApart = () => {
     const char = Array.from(breakInput.trim())[0];
     if (!char) return;
@@ -155,7 +192,12 @@ export const ComposeCharacterDialog = ({ writer }: { writer: Writer }) => {
       setBreakResult({ status: 'cannot', char });
       return;
     }
-    loadDecomposition(char, options, 0);
+    if (parts.some(slotHasContent)) offerDecomposition(char, options);
+    else loadDecomposition(char, options, 0);
+  };
+
+  const copyComponent = (component: string) => {
+    void navigator.clipboard?.writeText(component).catch(() => undefined);
   };
 
   const selectedSlot = slotAt(parts, selection);
@@ -291,24 +333,44 @@ export const ComposeCharacterDialog = ({ writer }: { writer: Writer }) => {
         {breakResult?.status === 'ok' && (
           <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5 }}>
             <Typography variant="body2" color="text.secondary">
-              {breakResult.options.length === 1
-                ? `${breakResult.char} is loaded below as ${breakResult.options[0]}.`
-                : `${breakResult.char} has ${breakResult.options.length} decompositions on record. Pick one to load:`}
+              {breakResult.loaded
+                ? breakResult.options.length === 1
+                  ? `${breakResult.char} is loaded below as ${breakResult.options[0]}.`
+                  : `${breakResult.char} has ${breakResult.options.length} decompositions on record. Pick one to load:`
+                : `${breakResult.char} is ${breakResult.options[0]}. The composer already holds something, so it was left alone. Copy a component below, or pick a decomposition to load it (this replaces the boxes):`}
             </Typography>
-            {breakResult.options.length > 1 && (
+            {(!breakResult.loaded || breakResult.options.length > 1) && (
               <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
                 {breakResult.options.map((ids, index) => (
                   <Chip
                     key={ids}
                     label={ids}
-                    color={index === breakResult.chosen ? 'primary' : 'default'}
-                    variant={index === breakResult.chosen ? 'filled' : 'outlined'}
+                    color={
+                      breakResult.loaded && index === breakResult.chosen ? 'primary' : 'default'
+                    }
+                    variant={
+                      breakResult.loaded && index === breakResult.chosen ? 'filled' : 'outlined'
+                    }
                     onClick={() => loadDecomposition(breakResult.char, breakResult.options, index)}
                     sx={{ fontFamily: 'serif', fontSize: 16 }}
                   />
                 ))}
               </Box>
             )}
+            <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5, alignItems: 'center' }}>
+              <Typography variant="caption" color="text.secondary">
+                Components (click to copy):
+              </Typography>
+              {componentsOf(breakResult.options[breakResult.chosen] ?? '').map((component) => (
+                <Chip
+                  key={component}
+                  label={component}
+                  size="small"
+                  onClick={() => copyComponent(component)}
+                  sx={{ fontFamily: 'serif', fontSize: 16 }}
+                />
+              ))}
+            </Box>
             {breakResult.unencoded > 0 && (
               <Typography variant="caption" color="text.secondary">
                 {breakResult.unencoded === 1

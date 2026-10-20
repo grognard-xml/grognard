@@ -139,6 +139,32 @@ describe('ComposeCharacterDialog', () => {
       expect((screen.getByLabelText('Left') as HTMLInputElement).value).toBe('木');
     });
 
+    it('fills the boxes once: a second split offers its components and leaves the boxes alone', () => {
+      renderWithOvermind(<ComposeCharacterDialog writer={makeFakeWriter()} />);
+
+      breakApart('謀');
+      breakApart('万');
+
+      expect((screen.getByLabelText('Left') as HTMLInputElement).value).toBe('言');
+      expect((screen.getByLabelText('Right') as HTMLInputElement).value).toBe('某');
+      expect(screen.getByText(/left alone/)).toBeTruthy();
+      expect(screen.getByRole('button', { name: '一' })).toBeTruthy();
+      // Picking the decomposition replaces the boxes, on request.
+      fireEvent.click(screen.getByRole('button', { name: /^⿱一/ }));
+      expect((screen.getByLabelText('Above') as HTMLInputElement).value).toBe('一');
+    });
+
+    it('fills an emptied composer again', () => {
+      renderWithOvermind(<ComposeCharacterDialog writer={makeFakeWriter()} />);
+
+      breakApart('謀');
+      fireEvent.change(screen.getByLabelText('Left'), { target: { value: '' } });
+      fireEvent.change(screen.getByLabelText('Right'), { target: { value: '' } });
+      breakApart('万');
+
+      expect((screen.getByLabelText('Above') as HTMLInputElement).value).toBe('一');
+    });
+
     it('lists every decomposition when there are several and loads the one picked', () => {
       renderWithOvermind(<ComposeCharacterDialog writer={makeFakeWriter()} />);
 
