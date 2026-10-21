@@ -1,4 +1,4 @@
-import { loadGaijiOverrides } from '../../utilities/gaijiOverrides';
+import { loadEffectiveGaijiOverrides } from '../../utilities/gaijiOverrides';
 import {
   Alert,
   Box,
@@ -800,7 +800,7 @@ export const KanripoImportDialog = ({
 
     const destDir = joinPath(rootPath, 'imported', 'kanripo', selected.id);
     await api.ensureDirectory?.(destDir);
-    const gaijiOverrides = await loadGaijiOverrides(rootPath);
+    const gaijiOverrides = await loadEffectiveGaijiOverrides(rootPath);
 
     let alignedJuanSources: Record<string, ParallelSource[]> | undefined;
     let alignedMatches: AlignedParagraphMatch[] | undefined;

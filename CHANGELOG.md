@@ -1079,3 +1079,8 @@ Paste/drop a character image now works in the translation pane and its footnotes
 
 - Typing 業刀 now finds 𠟪, the character it is, instead of only offering to draw it. The search for an existing character compares the radicals by family, so 刀 and 刂 (or 言 and 訁, 水 and 氵) are the same radical. An exact match still wins, and if two different characters would match once the radical forms are ignored, none is suggested.
 - Break apart fills the boxes only while the composer is empty. A later split leaves what you typed alone and shows the new character's decomposition with its components, which you can click to copy; picking a decomposition still loads it into the boxes. Clear the boxes and the next split fills them again.
+
+### Kanripo import: built-in gaiji equivalents
+
+- The 56 Kanripo gaiji equivalents established for the GuoPu corpus now ship with Grognard, so those characters import as text rather than images in any project. They sit between the project's own `gaiji-overrides.json` (which still wins) and the bundled KR-Gaiji charlist, and they are never written into the project file.
+- A table value written as an IDS string in square brackets, such as `[⿰言某]`, is now looked up in the Unicode IDS index at import time and becomes that character when one exists (謀 here); otherwise it is left as written. "Apply gaiji table to project" uses the same merged table.

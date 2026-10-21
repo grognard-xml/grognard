@@ -1,4 +1,6 @@
 import {
+  BUILTIN_GAIJI_EQUIVALENTS,
+  effectiveGaijiOverrides,
   isValidGaijiCharacter,
   parseGaijiOverrides,
   replaceKanripoGaijiWithCharacter,
@@ -44,5 +46,16 @@ describe('replaceKanripoGaijiWithCharacter', () => {
     expect(count).toBe(2);
     expect(document.body.textContent).toBe('旋龜𪁺魚𪁺');
     expect(document.querySelectorAll('[n="KR9999"]')).toHaveLength(1);
+  });
+});
+
+describe('effectiveGaijiOverrides', () => {
+  it('ships the built-in equivalents, lets the project override them, and resolves IDS', () => {
+    expect(Object.keys(BUILTIN_GAIJI_EQUIVALENTS).length).toBeGreaterThan(50);
+    const [id] = Object.keys(BUILTIN_GAIJI_EQUIVALENTS);
+    expect(effectiveGaijiOverrides({})[id]).toBe(BUILTIN_GAIJI_EQUIVALENTS[id]);
+    expect(effectiveGaijiOverrides({ [id]: '字' })[id]).toBe('字');
+    expect(effectiveGaijiOverrides({ KR9999: '[⿰言某]' }).KR9999).toBe('謀');
+    expect(effectiveGaijiOverrides({ KR9998: '[⿰言言言言]' }).KR9998).toBe('[⿰言言言言]');
   });
 });

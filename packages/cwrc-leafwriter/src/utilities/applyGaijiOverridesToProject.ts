@@ -1,5 +1,5 @@
 import { collectXmlFiles } from '../../../../apps/commons/src/desktop/xpath/collectXmlFiles';
-import { loadGaijiOverrides, type GaijiOverrides } from './gaijiOverrides';
+import { loadEffectiveGaijiOverrides, type GaijiOverrides } from './gaijiOverrides';
 
 const GAIJI_ELEMENT = /<g\b([^>]*)>\s*<graphic\b[^>]*?\/>\s*<\/g>/g;
 
@@ -93,7 +93,7 @@ export const runApplyGaijiTableToProject = async (): Promise<ApplyGaijiTableOutc
     return { ok: false, message: 'Open a project first.' };
   }
 
-  const overrides = await loadGaijiOverrides(rootPath);
+  const overrides = await loadEffectiveGaijiOverrides(rootPath);
   if (Object.keys(overrides).length === 0) {
     return {
       ok: false,

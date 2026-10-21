@@ -1,4 +1,6 @@
+import builtinEquivalents from '../resources/gaiji/builtinGaijiEquivalents.json';
 import { joinPath } from './assetPaths';
+import { findEncodedCharacterForIds } from './idsUnicodeIndex';
 
 /**
  * Project-level `KRnnnn -> character` table for Kanripo gaiji the bundled KR-Gaiji charlist
@@ -109,3 +111,32 @@ export const replaceGlyphWithCharacter = (
   }
   return matches.length;
 };
+
+/** Equivalents established for the GuoPu corpus, shipped with the app. The project table wins. */
+export const BUILTIN_GAIJI_EQUIVALENTS: GaijiOverrides = parseGaijiOverrides(
+  JSON.stringify(builtinEquivalents),
+);
+
+/** A bracketed IDS value that names an already-encoded character becomes that character;
+ * anything else is returned unchanged. */
+export const resolveGaijiValue = (value: string): string => {
+  if (value.length > 2 && value.startsWith('[') && value.endsWith(']')) {
+    return findEncodedCharacterForIds(value.slice(1, -1)) ?? value;
+  }
+  return value;
+};
+
+/** Built-in equivalents under the project table, with IDS values resolved to characters
+ * where Unicode has them. For import and for applying the table - never written back to the
+ * project file, which holds only the user's own entries. */
+export const effectiveGaijiOverrides = (project: GaijiOverrides): GaijiOverrides =>
+  Object.fromEntries(
+    Object.entries({ ...BUILTIN_GAIJI_EQUIVALENTS, ...project }).map(([id, value]) => [
+      id,
+      resolveGaijiValue(value),
+    ]),
+  );
+
+export const loadEffectiveGaijiOverrides = async (
+  rootPath: string | undefined | null,
+): Promise<GaijiOverrides> => effectiveGaijiOverrides(await loadGaijiOverrides(rootPath));
