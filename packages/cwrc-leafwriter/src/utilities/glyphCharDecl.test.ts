@@ -74,8 +74,8 @@ describe('ensureGlyphCharDeclEntry', () => {
     expect(graphics.map((el) => el.getAttribute('type'))).toEqual(['source', 'normalized']);
     expect(graphics[0].getAttribute('url')).toBe('_glyphs/glyph-1.png');
     expect(graphics[1].getAttribute('url')).toBe('_glyphs/glyph-1.svg');
-    expect(graphics[1].getAttribute('width')).toBe('41');
-    expect(graphics[1].getAttribute('height')).toBe('49');
+    expect(graphics[1].getAttribute('width')).toBe('41px');
+    expect(graphics[1].getAttribute('height')).toBe('49px');
   });
 
   it('reuses an existing charDecl and appends a second glyph beside the first', () => {
@@ -110,7 +110,7 @@ describe('ensureGlyphCharDeclEntry', () => {
       (el) => el.getAttribute('type') === 'normalized',
     );
     expect(normalized?.getAttribute('url')).toBe('_glyphs/glyph-1-retraced.svg');
-    expect(normalized?.getAttribute('width')).toBe('50');
+    expect(normalized?.getAttribute('width')).toBe('50px');
   });
 
   it('returns null for unparseable XML', () => {
@@ -132,6 +132,18 @@ describe('findGlyphCharDeclEntry', () => {
       svgUrl: '_glyphs/glyph-1.svg',
       width: 41,
       height: 49,
+    });
+  });
+
+  it('reads dimensions written without a unit by earlier versions', () => {
+    const xml = `<?xml version="1.0"?><TEI xmlns="${TEI_NS}"><teiHeader><encodingDesc><charDecl>
+      <glyph xml:id="old"><graphic type="source" url="a.png"/><graphic type="normalized" url="a.svg" width="30" height="32"/></glyph>
+    </charDecl></encodingDesc></teiHeader><text><body/></text></TEI>`;
+    expect(findGlyphCharDeclEntry(xml, 'old')).toEqual({
+      sourceUrl: 'a.png',
+      svgUrl: 'a.svg',
+      width: 30,
+      height: 32,
     });
   });
 

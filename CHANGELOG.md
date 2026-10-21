@@ -1084,3 +1084,20 @@ Paste/drop a character image now works in the translation pane and its footnotes
 
 - The 56 Kanripo gaiji equivalents established for the GuoPu corpus now ship with Grognard, so those characters import as text rather than images in any project. They sit between the project's own `gaiji-overrides.json` (which still wins) and the bundled KR-Gaiji charlist, and they are never written into the project file.
 - A table value written as an IDS string in square brackets, such as `[⿰言某]`, is now looked up in the Unicode IDS index at import time and becomes that character when one exists (謀 here); otherwise it is left as written. "Apply gaiji table to project" uses the same merged table.
+- The built-in table grew from 56 to 181 entries: gaiji in 前漢書 and 爾雅注疏 identified against the Wikisource text and checked against the images, in three batches (49, 35 and 41).
+
+### Glyph sizes are written with a unit
+
+- The size of a vectorised glyph's SVG, on its `<charDecl>` entry, was written as a bare number (`width="30"`). TEI requires a unit there, so every such `<graphic type="normalized">` failed RelaxNG validation; it is now written in pixels (`30px`). Files written before still read correctly.
+
+### Kanripo import: paragraphs, 註疏 entries and structure
+
+The last step of an import (and `finalize_body` run over a file already in the project) now also does the following. Han characters and page breaks are never changed.
+
+- **Manuscript lines are joined.** Kanripo's Siku files end every physical line with `¶`, so a sentence was split into several `<p>`s mid-way. A run of paragraphs that stop short of a sentence end is joined, provided the text there is punctuated: a paragraph ends on a terminal mark or on a closed note (unless a comma comes before that note), the parallel-punctuation `<seg>`s and page breaks are not text, title lines never join, and unpunctuated stretches are left alone. The 考證 (collation notes) keep one paragraph per source line, since their lemma and comment run together.
+- **註疏 entries.** In 爾雅注疏 and similar works, each 經 entry is now one paragraph holding its 注, 音義 and 疏 notes, which carry `subtype="zhu"`, `"yinyi"` or `"shu"`. A 音 that had been swallowed by the previous note is returned to its 義, and plain 注 text before 音義 becomes a note.
+- **Valid juan structure.** A `<byline>` followed by a `<head>` is wrapped in an `<opener>`, and what follows the `<trailer>` (the 考證) goes in a `<div type="kaozheng">` beside a `<div type="text">`. Both are needed for the juan to validate.
+
+### Kanripo import: □ placeholders are filled from the reference text
+
+- Kanripo writes `□` where its own text had a character it could not encode (旭旭、□□憍也). After the parallel punctuation passes, each run of `□` is now looked up in the reference text as its context before, the right number of characters, and its context after (at least 7 Han characters, 2 on each side), and filled when every match agrees. A gaiji or another `□` in the context matches any character. A run that matches nothing, or matches differently in different places, stays as it was. The import result reports `placeholders_filled` and `placeholders_left`, and a new `fill_placeholders` operation runs the same step on a file already in the project.

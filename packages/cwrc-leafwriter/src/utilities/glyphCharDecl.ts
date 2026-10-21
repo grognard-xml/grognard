@@ -104,8 +104,9 @@ export const ensureGlyphCharDeclEntry = (xml: string, spec: GlyphGraphicSpec): s
   normalized.setAttribute('type', 'normalized');
   normalized.setAttribute('url', spec.svgUrl);
   normalized.setAttribute('mimeType', 'image/svg+xml');
-  normalized.setAttribute('width', String(spec.svgWidth));
-  normalized.setAttribute('height', String(spec.svgHeight));
+  // TEI's data.outputMeasurement requires a unit; a bare number fails RelaxNG validation.
+  normalized.setAttribute('width', `${spec.svgWidth}px`);
+  normalized.setAttribute('height', `${spec.svgHeight}px`);
   glyph.appendChild(normalized);
 
   charDecl.appendChild(glyph);
@@ -128,8 +129,9 @@ export const findGlyphCharDeclEntry = (xml: string, glyphId: string): GlyphGraph
   const normalized = graphics.find((el) => el.getAttribute('type') === 'normalized');
   if (!source || !normalized) return null;
 
-  const width = Number(normalized.getAttribute('width'));
-  const height = Number(normalized.getAttribute('height'));
+  // Files written before the unit was added hold bare numbers; both forms read the same.
+  const width = Number.parseFloat(normalized.getAttribute('width') ?? '');
+  const height = Number.parseFloat(normalized.getAttribute('height') ?? '');
   if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) return null;
 
   return {
