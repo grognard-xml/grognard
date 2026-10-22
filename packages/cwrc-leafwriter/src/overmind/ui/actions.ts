@@ -15,8 +15,10 @@ import { shouldOpenTeiInSourceMode } from '../../utilities/teiMilestoneHeuristic
 import type { ContextMenuState, NotificationProps, PaletteMode, PanelId, Side } from '../../types';
 import { MARKUP_TREE_SYNC_MODE_STORAGE_KEY, type EditorViewMode } from './state';
 import { checkWellFormedness } from '../../utilities/checkWellFormedness';
+import { placeVisualCaretWhenReady } from '../../utilities/cursorSession';
 import {
   getVisualCaretForSourceSync,
+  mapSourceOffsetToVisualCaret,
   mapVisualCaretToSourceOffset,
 } from '../../utilities/sourceCursorSync';
 import { refreshGraphicsInBody } from '../../js/schema/mappings/utitlities';
@@ -785,12 +787,22 @@ export const exitSourceMode = async ({ state, actions }: Context): Promise<boole
   const leavingWithEdits = state.ui.sourceCurrentContent !== state.ui.sourceOriginalContent;
   const visualOutOfSync = state.ui.sourceVisualOutOfSync;
 
+  // Where the Source cursor is, in the terms the Visual editor understands, so the caret lands
+  // in the same place instead of at the start of the document.
+  const contentAtExit = state.ui.sourceCurrentContent;
+  const sourceOffset = window.__leafWriterSourceFind?.getCursorOffset?.();
+  const visualCaret =
+    typeof sourceOffset === 'number'
+      ? mapSourceOffsetToVisualCaret(contentAtExit, sourceOffset)
+      : null;
+
   // The visual editor already contains the exact document that Source mode
   // received — but only if nothing was saved/edited in Source since then.
   // After a Source-mode save, original===current (so leavingWithEdits is false)
   // while TinyMCE still holds the pre-source snapshot.
   if (!leavingWithEdits && !visualOutOfSync) {
     actions.ui.setEditorViewMode('visual');
+    if (visualCaret) placeVisualCaretWhenReady(visualCaret);
     // No XML reload on this path — re-apply graphic chrome so insert-time
     // \uFEFF sentinels (and any stale mask styles) get cleared the same way
     // a full documentLoaded refresh would.
@@ -828,7 +840,6 @@ export const exitSourceMode = async ({ state, actions }: Context): Promise<boole
 
   // Re-read after possible discard/revert so visual gets the live Source buffer.
   const contentToLoad = state.ui.sourceCurrentContent;
-
   if (shouldOpenTeiInSourceMode(contentToLoad, state.document.url)) {
     // exitSourceMode is only reachable when visualLocked is false in the UI; keep
     // this guard for menu shortcuts and older builds.
@@ -838,6 +849,11 @@ export const exitSourceMode = async ({ state, actions }: Context): Promise<boole
   // Source edits do not refresh the hidden WYSIWYG tree; reload so the markup
   // panel and visual mode match the changed XML buffer.
   actions.document.setIsReload(true);
+  // A discard or revert replaces the buffer, which makes the cursor offset meaningless.
+  // Subscribe before the load starts so its completion is not missed.
+  if (visualCaret && contentToLoad === contentAtExit) {
+    placeVisualCaretWhenReady(visualCaret, { afterReload: true });
+  }
   actions.document.loadDocumentXML(contentToLoad);
   state.ui.sourceVisualOutOfSync = false;
   actions.ui.setEditorViewMode('visual');

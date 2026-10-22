@@ -45,7 +45,7 @@ const findElementByTeiXPath = (xpath: string): Element | null => {
   return current;
 };
 
-const setVisualCaret = ({ offsetInElementText, teiXPath }: VisualCaretPosition): boolean => {
+export const setVisualCaret = ({ offsetInElementText, teiXPath }: VisualCaretPosition): boolean => {
   const editor = window.writer?.editor;
   const element = findElementByTeiXPath(teiXPath);
   if (!editor || !element) {
@@ -82,6 +82,46 @@ const setVisualCaret = ({ offsetInElementText, teiXPath }: VisualCaretPosition):
   element.scrollIntoView({ block: 'center' });
   window.writer?.event('nodeChanged').publish(element);
   return true;
+};
+
+/**
+ * Puts the Visual editor's caret at `caret` once the editor can take it. Leaving Source mode shows
+ * the editor again (and, when Source edits changed the document, reloads it first, which resets the
+ * caret to the start), so the placement is retried for a moment and, after a reload, waits for the
+ * document to finish loading. Call it before the reload is started so the load is not missed.
+ */
+export const placeVisualCaretWhenReady = (
+  caret: VisualCaretPosition,
+  options?: { afterReload?: boolean },
+): void => {
+  const run = () => {
+    const place = () => {
+      if (window.writer?.overmindState?.ui?.editorViewMode !== 'visual') return;
+      setVisualCaret(caret);
+    };
+    for (const delay of [0, 100, 300, 800]) window.setTimeout(place, delay);
+  };
+
+  const writer = window.writer;
+  if (!options?.afterReload || !writer) {
+    run();
+    return;
+  }
+
+  let finished = false;
+  const onLoaded = () => {
+    if (finished) return;
+    finished = true;
+    writer.event('documentLoaded').unsubscribe(onLoaded);
+    run();
+  };
+  writer.event('documentLoaded').subscribe(onLoaded);
+  // A reload that never reports back must not leave the listener behind.
+  window.setTimeout(() => {
+    if (finished) return;
+    finished = true;
+    writer.event('documentLoaded').unsubscribe(onLoaded);
+  }, 10000);
 };
 
 export const captureLeafWriterCursorPosition = (): LeafWriterCursorPosition | null => {

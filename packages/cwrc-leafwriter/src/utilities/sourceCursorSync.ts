@@ -304,3 +304,134 @@ export const mapVisualCaretToSourceOffset = (
   if (textOffset !== null) return textOffset;
   return findElementOpenTagStartInXml(content, caret.teiXPath);
 };
+
+/** Decoded characters in content[from..to): an entity reference such as &amp; or &#8211; is one,
+ * matching how the editor DOM presents the text. */
+const decodedCharCount = (content: string, from: number, to: number): number => {
+  let count = 0;
+  let i = from;
+  while (i < to) {
+    if (content[i] === '&') {
+      const semi = content.indexOf(';', i + 1);
+      if (semi !== -1 && semi < to && semi - i <= 12) {
+        count += 1;
+        i = semi + 1;
+        continue;
+      }
+    }
+    count += 1;
+    i += 1;
+  }
+  return count;
+};
+
+/**
+ * The inverse of `mapVisualCaretToSourceOffset`: where the Visual editor's caret belongs for a
+ * cursor at `offset` in the XML source. Returns the innermost element containing the offset and
+ * the number of text characters from the start of that element's content to the offset, text in
+ * its child elements included (what `getVisualCaretForSourceSync` measures). A cursor inside a tag
+ * maps to the start of the element that tag opens, or the end of the one it closes. Null when the
+ * offset is outside the root element.
+ */
+export const mapSourceOffsetToVisualCaret = (
+  content: string,
+  offset: number,
+): VisualCaretPosition | null => {
+  if (offset < 0 || offset > content.length) return null;
+
+  const stack: StackEntry[] = [];
+  const siblingCounts = new Map<string, number>();
+  /** Text counted so far for each open element, children's text included once they close. */
+  const textAtLevel: number[] = [];
+
+  const parentPathKey = () =>
+    stack.length === 0 ? '' : stack.map((entry) => `${entry.name}[${entry.index + 1}]`).join('/');
+  const xpathForStack = () =>
+    `/${stack
+      .map((entry) => (entry.index === 0 ? entry.name : `${entry.name}[${entry.index + 1}]`))
+      .join('/')}`;
+  const countSibling = (name: string) => {
+    const key = `${parentPathKey()}/${name}`;
+    const index = siblingCounts.get(key) ?? 0;
+    siblingCounts.set(key, index + 1);
+    return index;
+  };
+  const here = (extraChars: number): VisualCaretPosition | null =>
+    stack.length === 0
+      ? null
+      : {
+          teiXPath: xpathForStack(),
+          offsetInElementText: (textAtLevel[textAtLevel.length - 1] ?? 0) + extraChars,
+        };
+  const addText = (n: number) => {
+    if (textAtLevel.length > 0) textAtLevel[textAtLevel.length - 1] += n;
+  };
+
+  let i = 0;
+  while (i < content.length) {
+    if (content[i] !== '<') {
+      const nextTag = content.indexOf('<', i);
+      const textEnd = nextTag === -1 ? content.length : nextTag;
+      if (offset <= textEnd) return here(decodedCharCount(content, i, offset));
+      addText(decodedCharCount(content, i, textEnd));
+      i = textEnd;
+      continue;
+    }
+
+    if (offset === i) return here(0);
+
+    const tagEnd = findTagEnd(content, i);
+    if (tagEnd === -1) break;
+    const inner = content.slice(i + 1, tagEnd);
+
+    if (inner.startsWith('![CDATA[')) {
+      const cdataStart = i + '<![CDATA['.length;
+      const cdataEnd = content.indexOf(']]>', cdataStart);
+      if (cdataEnd === -1) break;
+      if (offset <= cdataEnd) return here(Math.max(0, offset - cdataStart));
+      addText(cdataEnd - cdataStart);
+      i = cdataEnd + 3;
+      continue;
+    }
+
+    if (inner.startsWith('?') || inner.startsWith('!')) {
+      if (offset <= tagEnd) return here(0);
+      i = tagEnd + 1;
+      continue;
+    }
+
+    if (inner.startsWith('/')) {
+      if (offset <= tagEnd) return here(0);
+      const closing = inner
+        .slice(1)
+        .trim()
+        .match(/^([\w:.-]+)/)?.[1];
+      const top = stack[stack.length - 1];
+      if (closing && top && localTagName(top.name) === localTagName(closing)) {
+        stack.pop();
+        const childText = textAtLevel.pop() ?? 0;
+        addText(childText);
+      }
+      i = tagEnd + 1;
+      continue;
+    }
+
+    const parsed = parseOpenTag(inner);
+    if (parsed) {
+      const index = countSibling(parsed.name);
+      if (parsed.selfClosing) {
+        if (offset <= tagEnd) return here(0);
+      } else {
+        stack.push({ name: parsed.name, index });
+        textAtLevel.push(0);
+        if (offset <= tagEnd) return here(0);
+      }
+    } else if (offset <= tagEnd) {
+      return here(0);
+    }
+
+    i = tagEnd + 1;
+  }
+
+  return null;
+};
