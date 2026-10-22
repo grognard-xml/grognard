@@ -1101,3 +1101,9 @@ The last step of an import (and `finalize_body` run over a file already in the p
 ### Kanripo import: □ placeholders are filled from the reference text
 
 - Kanripo writes `□` where its own text had a character it could not encode (旭旭、□□憍也). After the parallel punctuation passes, each run of `□` is now looked up in the reference text as its context before, the right number of characters, and its context after (at least 7 Han characters, 2 on each side), and filled when every match agrees. A gaiji or another `□` in the context matches any character. A run that matches nothing, or matches differently in different places, stays as it was. The import result reports `placeholders_filled` and `placeholders_left`, and a new `fill_placeholders` operation runs the same step on a file already in the project.
+
+### Find and XPath: search history
+
+- Both panels have a history button (a clock) at the end of the search field. It lists the last 50 searches, newest first, each with the options and scope it was run with (Aa, .*, scope) and, for Find, the replacement it was used with. A search is recorded when it runs, and a replacement when Replace or Replace all is used with it; running the same search again moves it to the top instead of adding a copy.
+- Choosing an entry puts it back in the panel: the text, the options, the scope, and (Find) its replacement. An entry with no replacement clears the Replace box, so a replacement left over from another search is never paired with the restored find. Nothing runs, and the previous results are dropped, so a restored query cannot be applied to hits from the one before. Entries can be removed one by one or all at once.
+- History is kept on this machine (`localStorage`), separately for Find and XPath, and is not tied to a project.

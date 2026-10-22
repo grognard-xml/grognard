@@ -6,6 +6,7 @@ import {
   CircularProgress,
   Collapse,
   FormControl,
+  InputAdornment,
   InputLabel,
   List,
   ListItemButton,
@@ -23,6 +24,13 @@ import { clearFindHighlights } from '@src/desktop/find/findEditorHighlights';
 import { DOC_SCOPE_LABEL_KEYS, type DocScope } from '@src/desktop/find/docScope';
 import { useFindPanelUndo } from '@src/desktop/find/findPanelUndo';
 import { readStoredFindQuery, writeStoredFindQuery } from '@src/desktop/find/findQueryPrefs';
+import { SearchHistoryButton, type SearchHistoryItem } from '@src/desktop/find/SearchHistoryButton';
+import {
+  addFindEntry,
+  readFindHistory,
+  writeFindHistory,
+  type FindHistoryEntry,
+} from '@src/desktop/find/searchHistory';
 import {
   DESKTOP_EDITOR_VIEW_MODE_EVENT,
   DESKTOP_FIND_FOCUS_EVENT,
@@ -36,7 +44,7 @@ import { useFindReplace } from '@src/desktop/find/useFindReplace';
 import { useTranslationHitJump } from '@src/desktop/find/useTranslationHitJump';
 import { isTranslationFile } from '@src/desktop/translationFileNaming';
 import { ScopeFields } from '@src/desktop/shared/ScopeFields';
-import type { SearchScope } from '@src/desktop/shared/searchScope';
+import { SEARCH_SCOPE_LABEL_KEYS, type SearchScope } from '@src/desktop/shared/searchScope';
 import { useAppState } from '@src/overmind';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -105,6 +113,7 @@ export const SidebarFindTab = () => {
   const [loading, setLoading] = useState(false);
   const [replacing, setReplacing] = useState(false);
   const [walkMode, setWalkMode] = useState<'find' | 'replace' | null>(null);
+  const [history, setHistory] = useState<FindHistoryEntry[]>(() => readFindHistory());
 
   const resultsContainerRef = useRef<HTMLDivElement>(null);
   const findInputRef = useRef<HTMLInputElement>(null);
@@ -177,6 +186,30 @@ export const SidebarFindTab = () => {
         useRegex,
       }),
     [customPath, docScope, findQuery, ignoreCase, scope, useRegex],
+  );
+
+  const updateHistory = useCallback((next: FindHistoryEntry[]) => {
+    setHistory(next);
+    writeFindHistory(next);
+  }, []);
+
+  /** Remembers this search, and the replacement when one is part of it (an empty one deletes the match). */
+  const recordFind = useCallback(
+    (replace?: string) => {
+      if (!findQuery.trim()) return;
+      updateHistory(
+        addFindEntry(history, {
+          query: findQuery,
+          replace,
+          ignoreCase,
+          useRegex,
+          scope,
+          docScope,
+          customPath,
+        }),
+      );
+    },
+    [customPath, docScope, findQuery, history, ignoreCase, scope, updateHistory, useRegex],
   );
 
   const handleSearchComplete = useCallback(
@@ -514,12 +547,15 @@ export const SidebarFindTab = () => {
         totalMatches: count,
         error: searchError,
       });
+      if (!searchError) recordFind(replaceQuery === '' ? undefined : replaceQuery);
     } catch {
       setError('Search failed.');
     } finally {
       setLoading(false);
     }
   }, [
+    recordFind,
+    replaceQuery,
     activeTabPath,
     customPath,
     docScope,
@@ -607,20 +643,62 @@ export const SidebarFindTab = () => {
   const handleReplace = useCallback(async () => {
     setReplacing(true);
     try {
+      recordFind(replaceQuery);
       await replaceCurrentHit();
     } finally {
       setReplacing(false);
     }
-  }, [replaceCurrentHit]);
+  }, [recordFind, replaceCurrentHit, replaceQuery]);
 
   const handleReplaceAll = useCallback(async () => {
     setReplacing(true);
     try {
+      recordFind(replaceQuery);
       await replaceAllInScope();
     } finally {
       setReplacing(false);
     }
-  }, [replaceAllInScope]);
+  }, [recordFind, replaceAllInScope, replaceQuery]);
+
+  /** Puts a remembered search back in the panel: text, options, scope and the replacement it was
+   * used with (or none). It never runs anything, and it drops the old results so a restored query
+   * cannot be applied to hits that belong to the previous one. */
+  const applyHistoryEntry = useCallback(
+    (index: number) => {
+      const entry = history[index];
+      if (!entry) return;
+      clearFindHighlights();
+      lastSearchKeyRef.current = '';
+      searchedSignaturesRef.current = new Map();
+      setWalkMode(null);
+      setResults([]);
+      setTotalMatches(0);
+      setCollapsedFilePaths(new Set());
+      setSelectedIndex(-1);
+      selectedIndexRef.current = -1;
+      setError(null);
+      setFindQuery(entry.query);
+      setReplaceQuery(entry.replace ?? '');
+      setIgnoreCase(entry.ignoreCase);
+      setUseRegex(entry.useRegex);
+      setScope(entry.scope);
+      setDocScope(entry.docScope);
+      setCustomPath(entry.customPath);
+      requestAnimationFrame(() => findInputRef.current?.focus());
+    },
+    [history],
+  );
+
+  const historyItems: SearchHistoryItem[] = history.map((entry) => ({
+    primary: entry.query,
+    replacement: entry.replace,
+    chips: [
+      ...(entry.ignoreCase ? ['Aa'] : []),
+      ...(entry.useRegex ? ['.*'] : []),
+      t(SEARCH_SCOPE_LABEL_KEYS[entry.scope]),
+      ...(entry.docScope !== 'both' ? [t(DOC_SCOPE_LABEL_KEYS[entry.docScope])] : []),
+    ],
+  }));
 
   const canReplace =
     !loading &&
@@ -691,7 +769,24 @@ export const SidebarFindTab = () => {
               }
             }}
             slotProps={{
-              input: { sx: { fontSize: '0.8125rem' } },
+              input: {
+                sx: { fontSize: '0.8125rem' },
+                endAdornment: (
+                  <InputAdornment position="end">
+                    <SearchHistoryButton
+                      items={historyItems}
+                      onSelect={applyHistoryEntry}
+                      onRemove={(index) =>
+                        updateHistory(history.filter((_, position) => position !== index))
+                      }
+                      onClear={() => updateHistory([])}
+                      label={t('LWC.desktop.sidebar.find.history', {
+                        defaultValue: 'Search history',
+                      })}
+                    />
+                  </InputAdornment>
+                ),
+              },
             }}
           />
           <ToggleButtonGroup size="small" sx={{ alignSelf: 'stretch', flexShrink: 0 }}>

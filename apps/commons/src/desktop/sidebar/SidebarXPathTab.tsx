@@ -4,6 +4,7 @@ import {
   Box,
   CircularProgress,
   Collapse,
+  InputAdornment,
   List,
   ListItemButton,
   ListItemIcon,
@@ -14,10 +15,17 @@ import {
 import { useAppState } from '@src/overmind';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { SearchHistoryButton, type SearchHistoryItem } from '../find/SearchHistoryButton';
+import {
+  addXPathEntry,
+  readXPathHistory,
+  writeXPathHistory,
+  type XPathHistoryEntry,
+} from '../find/searchHistory';
 import { searchXPath } from '../xpath/searchXPath';
 import type { XPathFileResult } from '../xpath/types';
 import { ScopeFields } from '../shared/ScopeFields';
-import type { SearchScope } from '../shared/searchScope';
+import { SEARCH_SCOPE_LABEL_KEYS, type SearchScope } from '../shared/searchScope';
 import { useXPathJump } from '../xpath/useXPathJump';
 import {
   DESKTOP_LEFT_PANEL_EVENT,
@@ -66,6 +74,8 @@ export const SidebarXPathTab = () => {
   const [selectedIndex, setSelectedIndex] = useState(-1);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [history, setHistory] = useState<XPathHistoryEntry[]>(() => readXPathHistory());
+  const historyRef = useRef(history);
 
   const resultsContainerRef = useRef<HTMLDivElement>(null);
   const itemRefs = useRef<Map<number, HTMLDivElement>>(new Map());
@@ -186,6 +196,39 @@ export const SidebarXPathTab = () => {
     }
   };
 
+  const updateHistory = useCallback((next: XPathHistoryEntry[]) => {
+    historyRef.current = next;
+    setHistory(next);
+    writeXPathHistory(next);
+  }, []);
+
+  const recordSearch = useCallback(
+    (entry: XPathHistoryEntry) => updateHistory(addXPathEntry(historyRef.current, entry)),
+    [updateHistory],
+  );
+
+  /** Puts a remembered search back in the panel. It never runs anything, and it drops the old
+   * results, which belong to the previous query. */
+  const applyHistoryEntry = useCallback(
+    (index: number) => {
+      const entry = history[index];
+      if (!entry) return;
+      setQuery(entry.query);
+      setScope(entry.scope);
+      setCustomPath(entry.customPath);
+      setResults([]);
+      setCollapsedFilePaths(new Set());
+      setSelectedIndex(-1);
+      setError(null);
+    },
+    [history],
+  );
+
+  const historyItems: SearchHistoryItem[] = history.map((entry) => ({
+    primary: entry.query,
+    chips: [t(SEARCH_SCOPE_LABEL_KEYS[entry.scope])],
+  }));
+
   const handleSearch = useCallback(async () => {
     setLoading(true);
     setError(null);
@@ -207,15 +250,16 @@ export const SidebarXPathTab = () => {
 
       if (searchError) {
         setError(searchError);
-      } else if (nextResults.length === 0) {
-        setError('No results.');
+      } else {
+        recordSearch({ query, scope, customPath });
+        if (nextResults.length === 0) setError('No results.');
       }
     } catch {
       setError('Search failed.');
     } finally {
       setLoading(false);
     }
-  }, [activeTabPath, customPath, openTabs, query, rootPath, scope]);
+  }, [activeTabPath, customPath, openTabs, query, recordSearch, rootPath, scope]);
 
   useEffect(() => {
     const handlePrefill = (event: Event) => {
@@ -238,13 +282,16 @@ export const SidebarXPathTab = () => {
           }).then(({ results: nextResults, error: searchError }) => {
             setResults(nextResults);
             setError(searchError ?? (nextResults.length === 0 ? 'No results.' : null));
+            if (!searchError) {
+              recordSearch({ query: detail.query, scope: 'currentFile', customPath: '' });
+            }
           }),
       );
     };
 
     window.addEventListener(DESKTOP_XPATH_SEARCH_EVENT, handlePrefill);
     return () => window.removeEventListener(DESKTOP_XPATH_SEARCH_EVENT, handlePrefill);
-  }, [activeTabPath, openTabs, rootPath]);
+  }, [activeTabPath, openTabs, recordSearch, rootPath]);
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
@@ -275,7 +322,26 @@ export const SidebarXPathTab = () => {
               resultsContainerRef.current?.focus();
             }
           }}
-          slotProps={{ input: { sx: { fontSize: '0.8125rem' } } }}
+          slotProps={{
+            input: {
+              sx: { fontSize: '0.8125rem' },
+              endAdornment: (
+                <InputAdornment position="end">
+                  <SearchHistoryButton
+                    items={historyItems}
+                    onSelect={applyHistoryEntry}
+                    onRemove={(index) =>
+                      updateHistory(history.filter((_, position) => position !== index))
+                    }
+                    onClear={() => updateHistory([])}
+                    label={t('LWC.desktop.sidebar.xpath.history', {
+                      defaultValue: 'Search history',
+                    })}
+                  />
+                </InputAdornment>
+              ),
+            },
+          }}
         />
         <ScopeFields
           scope={scope}
