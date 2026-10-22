@@ -1116,3 +1116,7 @@ The last step of an import (and `finalize_body` run over a file already in the p
 ### Tabs: the mouse wheel scrolls the tab row
 
 - With more tabs open than fit, turning the mouse wheel over the tab bar now scrolls it left and right (a sideways trackpad swipe works too). At either end the wheel is left alone, and nothing changes while every tab fits. Pinch-zoom gestures are ignored.
+
+### Source mode: changing tabs no longer collapses the side panels
+
+- Entering Source mode collapsed both side panels, and it did so every time, including when it was entered for you: changing tab re-opened the document in Source mode (or put a tab back in the mode it was last in), which closed Find and the explorer you had open. Now only choosing Source mode yourself, with the Source button or the XML editing entry, collapses them. Changing tabs, opening a file that has to open in Source mode, and restoring a tab's Source cursor leave the panels as they are. (Opening such a file used to collapse the panels as well; it no longer does, so close them yourself if you want the full width.)

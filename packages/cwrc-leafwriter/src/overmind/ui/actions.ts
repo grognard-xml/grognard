@@ -363,12 +363,6 @@ export const setEditorViewMode = ({ state }: Context, mode: EditorViewMode) => {
   if (state.ui.editorViewMode === mode) return;
 
   state.ui.editorViewMode = mode;
-  if (mode === 'source') {
-    // Source mode is most useful as a focused, full-width editing surface.
-    // Keep the icon strips available so either panel can still be reopened.
-    window.__desktopLeftPanel?.collapse();
-    window.__desktopRightPanel?.collapse();
-  }
   window.writer?.layoutManager?.setEditorViewMode(mode);
   window.dispatchEvent(new CustomEvent('desktop:editor-view-mode-changed', { detail: { mode } }));
 };
@@ -610,7 +604,17 @@ export const openDocumentInSourceMode = (
   actions.document.setLoaded(true);
 };
 
-export const enterSourceMode = async ({ state, actions }: Context) => {
+/**
+ * Switches to Source mode. Asked for by the user (the Source button, the XML editing entry), it
+ * also collapses the side panels: Source mode is most useful as a focused, full-width editing
+ * surface, and the icon strips stay available so either panel can be reopened. `restoring` is for
+ * the app putting a tab back in the mode it was in (after a tab switch), which must leave the
+ * panels, and whatever is open in them such as Find, as they are.
+ */
+export const enterSourceMode = async (
+  { state, actions }: Context,
+  options?: { restoring?: boolean },
+) => {
   if (!state.editor.enableXmlEditing) return;
   const visualCaret = getVisualCaretForSourceSync();
   const content = await resolveSourceEditorContent(state);
@@ -624,6 +628,10 @@ export const enterSourceMode = async ({ state, actions }: Context) => {
 
   if (state.ui.editorViewMode !== 'source') {
     actions.ui.setEditorViewMode('source');
+    if (!options?.restoring) {
+      window.__desktopLeftPanel?.collapse();
+      window.__desktopRightPanel?.collapse();
+    }
   }
 };
 

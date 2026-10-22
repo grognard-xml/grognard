@@ -139,7 +139,7 @@ export const restoreLeafWriterCursorPosition = async (
   position: LeafWriterCursorPosition,
 ): Promise<boolean> => {
   if (position.mode === 'source') {
-    await window.writer?.overmindActions?.ui?.enterSourceMode?.();
+    await window.writer?.overmindActions?.ui?.enterSourceMode?.({ restoring: true });
     return (
       window.__leafWriterSourceFind?.setCursorOffset?.({
         offset: position.offset,
