@@ -103,4 +103,54 @@ describe('placeVisualCaretWhenReady', () => {
     }).not.toThrow();
     expect(selected).toEqual([]);
   });
+
+  it('finds the element when the editor wraps the root element instead of making it a direct child', () => {
+    document.body.innerHTML =
+      '<div id="root"><div class="wrapper"><div _tag="TEI"><div _tag="text"><div _tag="body"><div _tag="p">hello world</div></div></div></div></div></div>';
+    const selected: { node: Node; offset: number }[] = [];
+    const editor = {
+      getBody: () => document.getElementById('root') as HTMLElement,
+      selection: {
+        setRng: (range: Range) =>
+          selected.push({ node: range.startContainer, offset: range.startOffset }),
+      },
+      focus: jest.fn(),
+      currentNode: null as Element | null,
+    };
+    Element.prototype.scrollIntoView = jest.fn();
+    installWriter(editor, 'visual');
+
+    placeVisualCaretWhenReady(caret);
+    jest.advanceTimersByTime(1000);
+
+    expect(selected[0]?.node.textContent).toBe('hello world');
+    expect(selected[0]?.offset).toBe(6);
+  });
+
+  it('says why when the caret cannot be placed', () => {
+    const { editor } = buildEditor();
+    installWriter(editor, 'visual');
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+    placeVisualCaretWhenReady({ teiXPath: '/TEI/text/body/div', offsetInElementText: 0 });
+    jest.advanceTimersByTime(2000);
+
+    expect(warn).toHaveBeenCalledWith(
+      '[caret-restore] could not place the Visual caret',
+      expect.objectContaining({ elementFound: false, mode: 'visual' }),
+    );
+    warn.mockRestore();
+  });
+
+  it('does not warn when it lands', () => {
+    const { editor } = buildEditor();
+    installWriter(editor, 'visual');
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+    placeVisualCaretWhenReady(caret);
+    jest.advanceTimersByTime(2000);
+
+    expect(warn).not.toHaveBeenCalled();
+    warn.mockRestore();
+  });
 });

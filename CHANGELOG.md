@@ -1118,6 +1118,7 @@ The last step of an import (and `finalize_body` run over a file already in the p
 ### Source → Visual: the caret stays where it was
 
 - Switching from Visual to Source already put the cursor in the same place; the other way round it landed at the start of the document. Leaving Source mode now maps the Source cursor back to the Visual editor (the element it is in and the character within it) and places the caret there, scrolling it into view. This works whether or not the Source text was edited: after edits the document is reloaded, so the caret is placed once the reload has finished.
+- The caret is placed with the same element lookup the location bar uses, which also finds a root element the editor has wrapped, instead of requiring it to be a direct child of the editor body. When the caret still cannot be placed, the console now says why (`[caret-restore] …`) instead of leaving it at the start of the document without a word.
 - A cursor inside a tag goes to the start of that element (or the end of the one a closing tag closes). A cursor outside the body text (the XML declaration, or the teiHeader, which the Visual editor does not show) leaves the caret where the editor puts it. If the Source edits are discarded on the way out, the caret is not moved, because the cursor position no longer applies.
 
 ### Tabs: the mouse wheel scrolls the tab row

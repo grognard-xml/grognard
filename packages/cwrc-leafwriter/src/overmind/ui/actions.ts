@@ -808,6 +808,14 @@ export const exitSourceMode = async ({ state, actions }: Context): Promise<boole
   // received — but only if nothing was saved/edited in Source since then.
   // After a Source-mode save, original===current (so leavingWithEdits is false)
   // while TinyMCE still holds the pre-source snapshot.
+  if (!visualCaret) {
+    console.warn('[caret-restore] no Visual caret for the Source cursor', {
+      sourceOffset,
+      sourceEditorRegistered: Boolean(window.__leafWriterSourceFind?.getCursorOffset),
+      contentLength: contentAtExit.length,
+    });
+  }
+
   if (!leavingWithEdits && !visualOutOfSync) {
     actions.ui.setEditorViewMode('visual');
     if (visualCaret) placeVisualCaretWhenReady(visualCaret);

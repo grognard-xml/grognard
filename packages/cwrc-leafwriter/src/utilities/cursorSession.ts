@@ -1,4 +1,5 @@
 import { getVisualCaretForSourceSync, type VisualCaretPosition } from './sourceCursorSync';
+import { findEditorNodeByTeiXPath } from './teiXPath';
 
 export type { StoredCursorPosition } from './cursorPositionFilter';
 export { filterVisualCursorPositions } from './cursorPositionFilter';
@@ -6,43 +7,11 @@ export { filterVisualCursorPositions } from './cursorPositionFilter';
 export type LeafWriterCursorPosition =
   ({ mode: 'source' } & { offset: number }) | ({ mode: 'visual' } & VisualCaretPosition);
 
-const localTagName = (name: string) => (name.includes(':') ? name.split(':').pop()! : name);
-
-const parseXPathSegments = (xpath: string) =>
-  xpath
-    .replace(/^\/+/, '')
-    .split('/')
-    .filter(Boolean)
-    .map((segment) => {
-      const match = segment.match(/^(?:[\w.-]+:)*([\w.-]+)(?:\[(\d+)\])?$/);
-      return {
-        tag: localTagName(match?.[1] ?? segment.replace(/\[.*\]/, '')),
-        index: match?.[2] ? parseInt(match[2], 10) - 1 : 0,
-      };
-    });
-
+/** The editor's root element is not always a direct child of the editor body, so use the lookup
+ * the location bar uses, which also finds a wrapped root. */
 const findElementByTeiXPath = (xpath: string): Element | null => {
   const body = window.writer?.editor?.getBody();
-  if (!body) {
-    return null;
-  }
-
-  let scope: ParentNode = body;
-  let current: Element | null = null;
-
-  for (const segment of parseXPathSegments(xpath)) {
-    const matches = Array.from(scope.children).filter((element) => {
-      const tag = element.getAttribute('_tag');
-      return tag && localTagName(tag).toLowerCase() === segment.tag.toLowerCase();
-    });
-    current = matches[segment.index] ?? null;
-    if (!current) {
-      return null;
-    }
-    scope = current;
-  }
-
-  return current;
+  return body ? findEditorNodeByTeiXPath(body, xpath) : null;
 };
 
 export const setVisualCaret = ({ offsetInElementText, teiXPath }: VisualCaretPosition): boolean => {
@@ -95,11 +64,33 @@ export const placeVisualCaretWhenReady = (
   options?: { afterReload?: boolean },
 ): void => {
   const run = () => {
+    let placed = false;
     const place = () => {
       if (window.writer?.overmindState?.ui?.editorViewMode !== 'visual') return;
-      setVisualCaret(caret);
+      if (setVisualCaret(caret)) placed = true;
     };
-    for (const delay of [0, 100, 300, 800]) window.setTimeout(place, delay);
+    const delays = [0, 100, 300, 800];
+    for (const delay of delays) window.setTimeout(place, delay);
+    // Say why when it never lands, instead of leaving the caret at the start without a word.
+    window.setTimeout(
+      () => {
+        if (placed) return;
+        const body = window.writer?.editor?.getBody();
+        console.warn('[caret-restore] could not place the Visual caret', {
+          caret,
+          mode: window.writer?.overmindState?.ui?.editorViewMode,
+          hasEditorBody: Boolean(body),
+          bodyChildTags: body
+            ? Array.from(body.children)
+                .slice(0, 5)
+                .map((child) => child.getAttribute('_tag') ?? child.tagName)
+            : [],
+          rootFound: Boolean(body?.querySelector('[_tag]')),
+          elementFound: Boolean(findElementByTeiXPath(caret.teiXPath)),
+        });
+      },
+      delays[delays.length - 1]! + 100,
+    );
   };
 
   const writer = window.writer;
