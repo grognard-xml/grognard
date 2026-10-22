@@ -1091,7 +1091,7 @@ Paste/drop a character image now works in the translation pane and its footnotes
 
 - The 56 Kanripo gaiji equivalents established for the GuoPu corpus now ship with Grognard, so those characters import as text rather than images in any project. They sit between the project's own `gaiji-overrides.json` (which still wins) and the bundled KR-Gaiji charlist, and they are never written into the project file.
 - A table value written as an IDS string in square brackets, such as `[⿰言某]`, is now looked up in the Unicode IDS index at import time and becomes that character when one exists (謀 here); otherwise it is left as written. "Apply gaiji table to project" uses the same merged table.
-- The built-in table grew from 56 to 181 entries: gaiji in 前漢書 and 爾雅注疏 identified against the Wikisource text and checked against the images, in three batches (49, 35 and 41).
+- The built-in table grew from 56 to 204 entries: gaiji in 前漢書 and 爾雅注疏 identified against the Wikisource text and checked against the images, and from 山海經, in four batches (49, 35, 41 and 23).
 
 ### Glyph sizes are written with a unit
 
