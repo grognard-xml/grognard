@@ -864,7 +864,7 @@ export const SidebarFindTab = () => {
             selectedHit?.replaceable === false && !sourceMode
               ? 'This match crosses XML markup. Switch to XML source mode to replace it.'
               : useRegex
-                ? 'Capture groups: $1 or \\1'
+                ? 'Capture groups: $1 or \\1 · \\n new line · \\t tab'
                 : undefined
           }
           slotProps={{

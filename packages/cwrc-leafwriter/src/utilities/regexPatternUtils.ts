@@ -51,15 +51,63 @@ export const tryCompileFindRegex = (pattern: string, ignoreCase = false): RegExp
 export const compileFindLiteralRegex = (query: string, ignoreCase = false): RegExp =>
   new RegExp(query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), ignoreCase ? 'giu' : 'gu');
 
-/** Shared replacement dialect: $1, \\1, #1, and $$ for a literal dollar. */
+/**
+ * Shared replacement dialect: $1, \1 and #1 for capture groups, $$ for a literal dollar, and \n,
+ * \t and \r for a new line, a tab and a carriage return. A backslash before anything else is kept
+ * as it is, and \\ is one backslash (so \\n is the two characters \n), except before a digit,
+ * where it stays a backslash followed by that group, as it always was.
+ */
 export const applyRegexReplacement = (match: RegExpExecArray, replacement: string): string => {
-  const withBackrefs = replacement.replace(/[\\#]([1-9]\d*)/g, (_full, digits: string) => {
+  const group = (digits: string): string => {
     const index = Number.parseInt(digits, 10);
     return index >= 1 && index < match.length ? (match[index] ?? '') : '';
-  });
-  return withBackrefs.replace(/\$(\$|\d+)/g, (_full, token: string) => {
-    if (token === '$') return '$';
-    const index = Number.parseInt(token, 10);
-    return index >= 1 && index < match.length ? (match[index] ?? '') : '';
-  });
+  };
+
+  let out = '';
+  let i = 0;
+  while (i < replacement.length) {
+    const char = replacement[i]!;
+    const next = replacement[i + 1];
+
+    if (char === '\\' && next !== undefined) {
+      const digits = /^[1-9]\d*/.exec(replacement.slice(i + 1))?.[0];
+      if (digits) {
+        out += group(digits);
+        i += 1 + digits.length;
+        continue;
+      }
+      const escapes: Record<string, string> = { n: '\n', t: '\t', r: '\r', '\\': '\\' };
+      // \\1 has always meant a backslash followed by group 1: leave the second backslash to the
+      // group rule on the next turn.
+      if (next === '\\' && /[1-9]/.test(replacement[i + 2] ?? '')) {
+        out += '\\';
+        i += 1;
+        continue;
+      }
+      const escaped = escapes[next];
+      if (escaped !== undefined) {
+        out += escaped;
+        i += 2;
+        continue;
+      }
+    } else if (char === '#') {
+      const digits = /^#([1-9]\d*)/.exec(replacement.slice(i))?.[1];
+      if (digits) {
+        out += group(digits);
+        i += 1 + digits.length;
+        continue;
+      }
+    } else if (char === '$') {
+      const token = /^\$(\$|\d+)/.exec(replacement.slice(i))?.[1];
+      if (token !== undefined) {
+        out += token === '$' ? '$' : group(token);
+        i += 1 + token.length;
+        continue;
+      }
+    }
+
+    out += char;
+    i += 1;
+  }
+  return out;
 };

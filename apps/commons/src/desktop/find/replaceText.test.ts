@@ -65,6 +65,27 @@ describe('replaceText', () => {
     expect(skippedNonReplaceable).toBe(1);
   });
 
+  test('a regex replacement with \\n inserts a real new line and splits the paragraph', () => {
+    const xml = '<root><p>前文音義<note>注</note></p></root>';
+    const { content, count } = replaceAllInContent(
+      xml,
+      '音義<note',
+      '</p>\\n<p>音義<note',
+      true,
+      false,
+      true,
+    );
+
+    expect(count).toBe(1);
+    expect(content).toBe('<root><p>前文</p>\n<p>音義<note>注</note></p></root>');
+  });
+
+  test('without regex mode a \\n in the replacement is left as typed', () => {
+    const xml = '<root><p>aa</p></root>';
+    const { content } = replaceAllInContent(xml, 'aa', 'x\\ny', false);
+    expect(content).toBe('<root><p>x\\ny</p></root>');
+  });
+
   test('replaceAllInContent can replace raw XML when markup is allowed', () => {
     const xml = '<root><p><persName>Ada</persName></p></root>';
     const { content, count, skippedNonReplaceable } = replaceAllInContent(

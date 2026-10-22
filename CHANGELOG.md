@@ -1120,3 +1120,7 @@ The last step of an import (and `finalize_body` run over a file already in the p
 ### Source mode: changing tabs no longer collapses the side panels
 
 - Entering Source mode collapsed both side panels, and it did so every time, including when it was entered for you: changing tab re-opened the document in Source mode (or put a tab back in the mode it was last in), which closed Find and the explorer you had open. Now only choosing Source mode yourself, with the Source button or the XML editing entry, collapses them. Changing tabs, opening a file that has to open in Source mode, and restoring a tab's Source cursor leave the panels as they are. (Opening such a file used to collapse the panels as well; it no longer does, so close them yourself if you want the full width.)
+
+### Find and replace: `\n` and `\t` in a regex replacement
+
+- With the regex option on, `\n` in the Replace box inserted the two characters `\` and `n`. It now inserts a new line, `\t` a tab and `\r` a carriage return, alongside the capture groups `$1`, `\1` and `#1`. A backslash before anything else is left as typed, and `\\` is one backslash, so `\\n` gives a literal `\n` (`\\1` still means a backslash followed by group 1). The hint under the Replace box lists them. Without the regex option nothing is interpreted, as before. The same replacement rules are used by purge in the auto-tagging tools.
