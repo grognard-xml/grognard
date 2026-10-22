@@ -370,6 +370,8 @@ declare global {
      * setValue (clearing the undo stack) instead of an undoable edit. Set by desktop reload
      * paths after translation reindexing so id writes can't be undone. */
     __leafWriterNextSourceSyncResetsUndo?: boolean;
+    /** The last change of the Source editor's cursor and what caused it (see XmlMonacoEditor). */
+    __leafWriterSourceCursorTrace?: { at: number; offset: number; reason: number; source: string };
     __leafWriterSourceFind?: {
       applyJump: typeof applyFindJumpInSourceEditor;
       clear: typeof clearFindHighlightsInSourceEditor;

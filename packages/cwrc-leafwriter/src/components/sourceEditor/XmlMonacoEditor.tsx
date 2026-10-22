@@ -12,6 +12,7 @@ import {
 } from '../../sourceEditor/findInSourceEditor';
 import { SOURCE_CURSOR_MOVED_EVENT, type SourceCursorMovedDetail } from '../editorLocationBar';
 import { registerSourceEditorForCommands } from '../../sourceEditor/sourceEditorCommands';
+import { replaceEditorValue } from './replaceEditorValue';
 import { registerClosingTagAutoInsert } from './closingTagAutoInsert';
 import { registerClosingTagCompletion } from './closingTagCompletion';
 import { findEnclosingTagPair, getUnwrapEdits } from './closingTagParser';
@@ -166,6 +167,7 @@ export const XmlMonacoEditor = ({
   const onChangeRef = useRef(onChange);
   const onEditorInstanceRef = useRef(onEditorInstance);
   const lastEditorValueRef = useRef(value);
+  const syncedDocumentPathRef = useRef<string | null>(documentPath ?? null);
   // Document whose saved folds have been applied; fold changes are only saved
   // for it (see registerFoldPersistence).
   const foldsRestoredForRef = useRef<string | null>(null);
@@ -279,10 +281,18 @@ export const XmlMonacoEditor = ({
       onChangeRef.current(nextValue);
     });
 
-    monacoEditor.onDidChangeCursorSelection(() => {
+    monacoEditor.onDidChangeCursorSelection((event) => {
       const model = monacoEditor.getModel();
       if (!model) return;
       const offset = model.getOffsetAt(monacoEditor.getPosition() ?? { lineNumber: 1, column: 1 });
+      // What last moved the cursor (the scholar, code, or a content change), for diagnosing a
+      // cursor that ends up somewhere unexpected.
+      window.__leafWriterSourceCursorTrace = {
+        offset,
+        reason: event.reason,
+        source: event.source,
+        at: Date.now(),
+      };
       window.dispatchEvent(
         new CustomEvent<SourceCursorMovedDetail>(SOURCE_CURSOR_MOVED_EVENT, {
           detail: { offset },
@@ -463,16 +473,14 @@ export const XmlMonacoEditor = ({
     // executeEdits preserves undo/redo; setValue clears the stack. Reindex/reload syncs
     // request a stack reset via the one-shot flag so translation indexing writes can never
     // be reverted with Cmd+Z (matching the visual editor, which clears undo on reload).
-    if (window.__leafWriterNextSourceSyncResetsUndo) {
-      window.__leafWriterNextSourceSyncResetsUndo = false;
-      model.setValue(value);
-    } else {
-      editor.executeEdits('external-sync', [
-        { range: model.getFullModelRange(), text: value, forceMoveMarkers: true },
-      ]);
-    }
+    const resetUndo = window.__leafWriterNextSourceSyncResetsUndo === true;
+    window.__leafWriterNextSourceSyncResetsUndo = false;
+    // The same document with new text keeps its cursor; a different document starts afresh.
+    const keepSelection = syncedDocumentPathRef.current === (documentPath ?? null);
+    replaceEditorValue(editor, value, { keepSelection, resetUndo });
+    syncedDocumentPathRef.current = documentPath ?? null;
     lastEditorValueRef.current = value;
-  }, [editor, value]);
+  }, [documentPath, editor, value]);
 
   // Restore this document's collapsed regions (or fold its teiHeader the first
   // time). Retried on content sync: the new document's text can arrive after its

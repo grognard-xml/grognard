@@ -813,6 +813,12 @@ export const exitSourceMode = async ({ state, actions }: Context): Promise<boole
       sourceOffset,
       sourceEditorRegistered: Boolean(window.__leafWriterSourceFind?.getCursorOffset),
       contentLength: contentAtExit.length,
+      lastCursorChange: window.__leafWriterSourceCursorTrace
+        ? {
+            ...window.__leafWriterSourceCursorTrace,
+            msAgo: Date.now() - window.__leafWriterSourceCursorTrace.at,
+          }
+        : null,
     });
   }
 
