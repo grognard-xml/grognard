@@ -1082,6 +1082,8 @@ Paste/drop a character image now works in the translation pane and its footnotes
 - Staged files are now formatted by Prettier on every commit (a pre-commit hook using lint-staged), so unformatted files, including generated ones, no longer reach CI.
 - In CI the formatting check now runs first, so a formatting slip fails in seconds instead of after the test run.
 
+## v0.1.1-beta.10
+
 ### Character composer: radical forms in the existing-character search, and Break apart fills once
 
 - Typing 業刀 now finds 𠟪, the character it is, instead of only offering to draw it. The search for an existing character compares the radicals by family, so 刀 and 刂 (or 言 and 訁, 水 and 氵) are the same radical. An exact match still wins, and if two different characters would match once the radical forms are ignored, none is suggested.
