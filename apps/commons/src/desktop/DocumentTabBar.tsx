@@ -6,6 +6,7 @@ import { useActions, useAppState } from '@src/overmind';
 import { isDesktop } from '@src/types/desktop';
 import { useAtom } from 'jotai';
 import { useEffect, useRef } from 'react';
+import { documentTabIndicatorSx, documentTabSx } from './documentTabStyles';
 import { attachTabWheelScroll } from './tabWheelScroll';
 import { mergeEditorBodyWithStoredHeader, stripTeiHeaderForVisualEditor } from './teiHeaderXml';
 
@@ -90,6 +91,7 @@ export const DocumentTabBar = () => {
       variant="scrollable"
       scrollButtons="auto"
       sx={{ minHeight: 28 }}
+      slotProps={{ indicator: { sx: documentTabIndicatorSx } }}
       TabScrollButtonProps={{ style: { WebkitAppRegion: 'no-drag' } as React.CSSProperties }}
     >
       {openTabs.map((tab) => {
@@ -122,13 +124,13 @@ export const DocumentTabBar = () => {
                   component="span"
                   size="small"
                   onClick={(event) => void handleClose(event, tab.filePath)}
-                  sx={{ p: 0.25 }}
+                  sx={{ p: 0.25, color: 'inherit' }}
                 >
                   <CloseIcon sx={{ fontSize: 14 }} />
                 </IconButton>
               </Box>
             }
-            sx={{ minHeight: 28, textTransform: 'none' }}
+            sx={documentTabSx}
             style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
           />
         );

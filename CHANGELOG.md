@@ -1124,3 +1124,7 @@ The last step of an import (and `finalize_body` run over a file already in the p
 ### Find and replace: `\n` and `\t` in a regex replacement
 
 - With the regex option on, `\n` in the Replace box inserted the two characters `\` and `n`. It now inserts a new line, `\t` a tab and `\r` a carriage return, alongside the capture groups `$1`, `\1` and `#1`. A backslash before anything else is left as typed, and `\\` is one backslash, so `\\n` gives a literal `\n` (`\\1` still means a backslash followed by group 1). The hint under the Replace box lists them. Without the regex option nothing is interpreted, as before. The same replacement rules are used by purge in the auto-tagging tools.
+
+### Tabs: the open document is easy to find
+
+- The tab of the open document is now filled with the theme's primary colour (the dark teal of the Database Window button in light mode, a light teal in dark mode) with matching text, against flat tabs with dimmer text. It has a small corner radius, not the button's pill shape, so it still reads as a tab. Before, only the text colour changed, which was hard to see among many tabs. The weight stays the same, so selecting a tab does not move the ones beside it, and the close button takes the tab's text colour. The dirty mark (`*`) and the changed-on-disk mark (`↻`) are unchanged.
