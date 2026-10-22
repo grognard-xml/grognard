@@ -1112,3 +1112,7 @@ The last step of an import (and `finalize_body` run over a file already in the p
 
 - Switching from Visual to Source already put the cursor in the same place; the other way round it landed at the start of the document. Leaving Source mode now maps the Source cursor back to the Visual editor (the element it is in and the character within it) and places the caret there, scrolling it into view. This works whether or not the Source text was edited: after edits the document is reloaded, so the caret is placed once the reload has finished.
 - A cursor inside a tag goes to the start of that element (or the end of the one a closing tag closes). A cursor outside the body text (the XML declaration, or the teiHeader, which the Visual editor does not show) leaves the caret where the editor puts it. If the Source edits are discarded on the way out, the caret is not moved, because the cursor position no longer applies.
+
+### Tabs: the mouse wheel scrolls the tab row
+
+- With more tabs open than fit, turning the mouse wheel over the tab bar now scrolls it left and right (a sideways trackpad swipe works too). At either end the wheel is left alone, and nothing changes while every tab fits. Pinch-zoom gestures are ignored.

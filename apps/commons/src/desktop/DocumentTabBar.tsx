@@ -5,6 +5,8 @@ import { leafwriterAtom } from '@src/jotai';
 import { useActions, useAppState } from '@src/overmind';
 import { isDesktop } from '@src/types/desktop';
 import { useAtom } from 'jotai';
+import { useEffect, useRef } from 'react';
+import { attachTabWheelScroll } from './tabWheelScroll';
 import { mergeEditorBodyWithStoredHeader, stripTeiHeaderForVisualEditor } from './teiHeaderXml';
 
 const canonicalizeActiveEditorContent = (
@@ -27,8 +29,15 @@ export const DocumentTabBar = () => {
   const { contentHasChanged } = useAppState().editor;
   const { closeTab, promptCloseDirtyTab, switchTab } = useActions().project;
   const [leafWriter] = useAtom(leafwriterAtom);
+  const tabsRef = useRef<HTMLDivElement>(null);
+  const hasTabs = openTabs.length > 0;
 
-  if (openTabs.length === 0) return null;
+  useEffect(() => {
+    const root = tabsRef.current;
+    return root ? attachTabWheelScroll(root) : undefined;
+  }, [hasTabs]);
+
+  if (!hasTabs) return null;
 
   const handleChange = async (_event: React.SyntheticEvent, filePath: string) => {
     if (filePath === activeTabPath) return;
@@ -75,6 +84,7 @@ export const DocumentTabBar = () => {
 
   return (
     <Tabs
+      ref={tabsRef}
       value={activeTabPath ?? false}
       onChange={(event, value) => void handleChange(event, value as string)}
       variant="scrollable"
