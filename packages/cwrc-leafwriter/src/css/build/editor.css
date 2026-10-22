@@ -720,7 +720,7 @@ body.hideBreaks *[_tag='pb'] {
 }
 
 /* Layer 3: cursor is at a tag boundary — glow on all tag types.
-   This is the "still outside" position: typing extends the previous segment. */
+   This is the "just outside" position. */
 *[_tag].tag-at-boundary {
   background-color: rgba(90, 130, 210, 0.1);
   border-radius: 2px;
@@ -730,6 +730,11 @@ body.hideBreaks *[_tag='pb'] {
    the same as the glow above; the bar is how you can tell them apart. */
 *[_tag].tag-inside-start {
   box-shadow: inset 3px 0 0 rgba(90, 130, 210, 0.9);
+}
+
+/* Last character inside the segment. Same pixel as the glow just after it. */
+*[_tag].tag-inside-end {
+  box-shadow: inset -3px 0 0 rgba(90, 130, 210, 0.9);
 }
 
 /* Pill bubble — shown when showTagBubble body class is set and tags are hidden.
@@ -792,6 +797,9 @@ body.showTagBubble:not(.showTags)
   }
   *[_tag].tag-inside-start {
     box-shadow: inset 3px 0 0 rgba(160, 190, 255, 0.95);
+  }
+  *[_tag].tag-inside-end {
+    box-shadow: inset -3px 0 0 rgba(160, 190, 255, 0.95);
   }
   body.showTagBubble:not(.showTags) span[_tag].tag-cursor-active::after,
   body.showTagBubble:not(.showTags)

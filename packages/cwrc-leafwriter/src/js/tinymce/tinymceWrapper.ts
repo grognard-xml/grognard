@@ -26,12 +26,14 @@ import {
 } from './normalizePastedParagraphs';
 import {
   buildLeafWriterClipboardPayload,
+  clipboardPayloadIsTextOnly,
   detectPasteAmbiguity,
   escapeHtml,
   isLeafWriterClipboardPayload,
   LEAF_WRITER_CLIPBOARD_MIME,
   normalizeClipboardText,
   parseXmlFragment,
+  selectionIsTextOnly,
   textToLineBreakXml,
 } from './pasteSpecial';
 import {
@@ -57,6 +59,7 @@ import { initEditorZoom } from './editorZoom';
 import {
   boundaryArrowAction,
   caretAtEndOfTag,
+  caretBesideTagEnd,
   caretFromSelection,
   deleteFirstVisibleGrapheme,
   ensureEndCaret,
@@ -70,6 +73,7 @@ import {
   placeTypedText,
   pullCompositionInside,
   relocateCompositionOutside,
+  stepPastOutsideCaret,
   tagEdgeText,
   type BoundaryInsertSnapshot,
   type TextCaret,
@@ -1000,7 +1004,8 @@ export const tinymceWrapperInit = function ({
           s
             .replace(/\s*\btag-cursor-active\b/g, '')
             .replace(/\s*\btag-at-boundary\b/g, '')
-            .replace(/\s*\btag-inside-start\b/g, '');
+            .replace(/\s*\btag-inside-start\b/g, '')
+            .replace(/\s*\btag-inside-end\b/g, '');
 
         editor.on('BeforeAddUndo', (e: any) => {
           if (!e.level?.content) return;
@@ -1241,6 +1246,7 @@ export const tinymceWrapperInit = function ({
           rememberEditorRange(editor);
         });
         editor.on('copy', onCopyHandler);
+        editor.on('cut', onCutHandler);
         editor.on(
           'paste',
           (event: ClipboardEvent) => {
@@ -1329,6 +1335,19 @@ export const tinymceWrapperInit = function ({
                     : undefined;
                 pasteTextAtTarget(editor, target, pasteText, false, afterPaste);
               });
+              return;
+            }
+
+            // A drag-select inside an inline tag is characters only, but the
+            // browser HTML clipboard wraps those characters in the ancestor
+            // (so pasting 陽之山 out of a <seg> cloned the <seg> and its xml:id).
+            if (
+              fromLeafWriter &&
+              clipboardPayloadIsTextOnly(clipboard.getData(LEAF_WRITER_CLIPBOARD_MIME))
+            ) {
+              event.preventDefault();
+              event.stopImmediatePropagation();
+              pasteTextAtTarget(editor, capturePasteTarget(editor), text, true);
               return;
             }
 
@@ -1496,7 +1515,16 @@ export const tinymceWrapperInit = function ({
   // Caret was stepped into the first character of an inline segment. TinyMCE
   // otherwise treats that offset as "just before the segment" and types outside.
   let pinnedInsideStart: { tag: Element; text: Text } | null = null;
-  let pendingBoundaryStep: { caret: TextCaret; pin: boolean; tag: Element } | null = null;
+  // Caret was stepped out of the end of an inline segment. The same pixel is
+  // also the end of the segment and the start of the next one, and TinyMCE
+  // puts the caret back inside one of them.
+  let pinnedOutsideAfter: { tag: Element; text: Text } | null = null;
+  let pendingBoundaryStep: {
+    caret: TextCaret;
+    pin: boolean;
+    pinOutside: boolean;
+    tag: Element;
+  } | null = null;
   let boundaryStepGeneration = 0;
 
   const applyBoundaryClasses = (
@@ -1510,6 +1538,7 @@ export const tinymceWrapperInit = function ({
         'tag-cursor-active',
         'tag-at-boundary',
         'tag-inside-start',
+        'tag-inside-end',
       );
       (currentActiveElement as HTMLElement).style.removeProperty('--lw-bubble-left');
     }
@@ -1656,6 +1685,20 @@ export const tinymceWrapperInit = function ({
     ) {
       pinnedInsideStart = null;
     }
+    if (pinnedOutsideAfter && isAttached(pinnedOutsideAfter.tag)) {
+      const outside = isAttached(pinnedOutsideAfter.text) ? pinnedOutsideAfter.text : null;
+      const onPin = !!outside && container === outside && offset === 0;
+      const beside = caretBesideTagEnd(
+        pinnedOutsideAfter.tag,
+        outside,
+        container,
+        offset,
+        isInlineEdgeTag,
+      );
+      if (!onPin && !beside) pinnedOutsideAfter = null;
+    } else if (pinnedOutsideAfter) {
+      pinnedOutsideAfter = null;
+    }
 
     let tagEl: Element | null = null;
     let atBoundary = false;
@@ -1722,6 +1765,21 @@ export const tinymceWrapperInit = function ({
       }
     }
 
+    // The caret was stepped out past the end of this tag. TinyMCE often reports
+    // that same pixel as still inside the tag, or as no tag at all. Keep the
+    // outside position: blue wash, and the path shows the parent, not the tag.
+    if (pinnedOutsideAfter && isAttached(pinnedOutsideAfter.tag)) {
+      tagEl = pinnedOutsideAfter.tag;
+      atBoundary = true;
+      externalBoundary = true;
+      boundarySide = 'after';
+      const parent = tagEl.parentElement;
+      if (writer.editor && parent && writer.editor.currentNode !== parent) {
+        writer.editor.currentNode = parent;
+        writer.event('nodeChanged').publish(parent);
+      }
+    }
+
     if (!tagEl) {
       applyBoundaryClasses(null, null);
       return;
@@ -1738,8 +1796,18 @@ export const tinymceWrapperInit = function ({
       isFirstTextInParent(container as Text);
     if (atInsideStart) atBoundary = false;
 
+    // The end of an inline segment is its own position: typing appends to it.
+    // The blue wash is the other position, just after the segment.
+    const atInsideEnd =
+      !externalBoundary &&
+      !atInsideStart &&
+      isInlineEdgeTag(tagEl) &&
+      caretAtEndOfTag(tagEl, container, offset);
+    if (atInsideEnd) atBoundary = false;
+
     applyBoundaryClasses(tagEl, atBoundary ? tagEl : null, externalBoundary, boundarySide);
     currentActiveElement?.classList.toggle('tag-inside-start', atInsideStart);
+    currentActiveElement?.classList.toggle('tag-inside-end', atInsideEnd);
   };
 
   const publishBoundaryContentChanged = debounce(() => {
@@ -1766,9 +1834,65 @@ export const tinymceWrapperInit = function ({
     publishBoundaryContentChanged();
   };
 
+  /**
+   * The text node just after a tag, when the caret was stepped there.
+   * Returns null and drops the pin when the caret has moved away from that pixel.
+   */
+  const outsidePinCaret = (): TextCaret | null => {
+    const editor = writer.editor;
+    const pin = pinnedOutsideAfter;
+    if (!editor || !pin || !isAttached(pin.tag)) return null;
+    const rng = editor.selection.getRng();
+    if (!rng.collapsed) {
+      pinnedOutsideAfter = null;
+      return null;
+    }
+    const outside = isAttached(pin.text) ? pin.text : null;
+    const onPin = !!outside && rng.startContainer === outside && rng.startOffset === 0;
+    const beside = caretBesideTagEnd(
+      pin.tag,
+      outside,
+      rng.startContainer,
+      rng.startOffset,
+      isInlineEdgeTag,
+    );
+    if (!onPin && !beside) {
+      pinnedOutsideAfter = null;
+      return null;
+    }
+    const text = outside ?? ensureOutsideText(pin.tag, 'after', editor.getDoc());
+    pinnedOutsideAfter = { tag: pin.tag, text };
+    return { node: text, offset: 0 };
+  };
+
+  /** Put the caret back on the text after the tag if TinyMCE pulled it inside. */
+  const holdOutsideCaret = () => {
+    const caret = outsidePinCaret();
+    if (!caret || !writer.editor) return;
+    const rng = writer.editor.selection.getRng();
+    if (rng.startContainer === caret.node && rng.startOffset === 0) return;
+    placeCaret(caret);
+    updateTagBoundaryState();
+  };
+
   const captureBoundaryInsertSnapshot = (withLengths: boolean): BoundaryInsertSnapshot | null => {
     const editor = writer.editor;
     if (!editor) return null;
+    const pinned = outsidePinCaret();
+    if (pinned && pinnedOutsideAfter && isAttached(pinnedOutsideAfter.tag)) {
+      const insideEdge = tagEdgeText(pinnedOutsideAfter.tag, 'after');
+      return {
+        kind: 'outside',
+        outside: pinned.node,
+        offset: 0,
+        side: 'after',
+        tag: pinnedOutsideAfter.tag,
+        insideEdge,
+        ...(withLengths
+          ? { outsideLength: pinned.node.length, insideLength: insideEdge?.length ?? 0 }
+          : {}),
+      };
+    }
     const rng = editor.selection.getRng();
     if (!rng.collapsed) return null;
 
@@ -1811,6 +1935,8 @@ export const tinymceWrapperInit = function ({
     snap: BoundaryInsertSnapshot | null,
     editor: LeafWriterEditor,
   ): TextCaret | null => {
+    const pinned = outsidePinCaret();
+    if (pinned) return pinned;
     if (snap?.kind === 'outside') {
       if (isAttached(snap.outside)) {
         return { node: snap.outside, offset: Math.min(snap.offset, snap.outside.length) };
@@ -1892,11 +2018,60 @@ export const tinymceWrapperInit = function ({
    * boundary. Returns true when this key is that step and must not also
    * move the caret the normal way.
    */
+  const commitBoundaryCaret = (
+    caret: TextCaret,
+    tag: Element,
+    pinInside: boolean,
+    pinOutside: boolean,
+  ) => {
+    const generation = ++boundaryStepGeneration;
+    pendingBoundaryStep = { caret, pin: pinInside, pinOutside, tag };
+    pinnedInsideStart = pinInside ? { tag, text: caret.node } : null;
+    pinnedOutsideAfter = pinOutside ? { tag, text: caret.node } : null;
+    placeCaret(caret);
+    updateTagBoundaryState();
+    // TinyMCE drops this caret back onto the shared pixel: into the element,
+    // or into the text at the end of the tag, or into the next tag's first
+    // character. Put it back. A later arrow that left this pixel should stay.
+    window.setTimeout(() => {
+      if (generation !== boundaryStepGeneration || !writer.editor) return;
+      if (pinOutside) {
+        holdOutsideCaret();
+        return;
+      }
+      if (!isAttached(caret.node)) return;
+      const now = writer.editor.selection.getRng();
+      if (now.startContainer === caret.node && now.startOffset === caret.offset) return;
+      if (now.startContainer.nodeType !== Node.ELEMENT_NODE) return;
+      if (pinInside) pinnedInsideStart = { tag, text: caret.node };
+      placeCaret(caret);
+      updateTagBoundaryState();
+    }, 0);
+  };
+
   const stepAcrossInlineBoundary = (direction: 'forward' | 'backward'): boolean => {
     const editor = writer.editor;
     if (!editor) return false;
     const rng = editor.selection.getRng();
     if (!rng.collapsed) return false;
+
+    // Already on the "just after this tag" pixel. Right moves into whatever
+    // follows; left returns to the end of the tag. Don't treat a caret TinyMCE
+    // pulled back inside the tag as a fresh request to leave.
+    const outsidePin = outsidePinCaret();
+    if (outsidePin && pinnedOutsideAfter) {
+      const tag = pinnedOutsideAfter.tag;
+      const doc = editor.getDoc();
+      if (direction === 'backward') {
+        pinnedOutsideAfter = null;
+        commitBoundaryCaret(ensureEndCaret(tag, doc), tag, false, false);
+        return true;
+      }
+      const next = stepPastOutsideCaret(outsidePin.node, doc, isInlineEdgeTag);
+      pinnedOutsideAfter = null;
+      commitBoundaryCaret(next.caret, next.enterTag ?? tag, next.enterTag !== null, false);
+      return true;
+    }
 
     const action = boundaryArrowAction({
       direction,
@@ -1912,11 +2087,12 @@ export const tinymceWrapperInit = function ({
     const doc = editor.getDoc();
     let caret: TextCaret;
     let tag: Element;
-    let pin = false;
+    let pinInside = false;
+    let pinOutside = false;
     if (action === 'enter-start' && currentBoundaryElement) {
       tag = currentBoundaryElement;
       caret = { node: ensureEntryText(tag, doc), offset: 0 };
-      pin = true;
+      pinInside = true;
     } else if (action === 'enter-end' && currentBoundaryElement) {
       tag = currentBoundaryElement;
       caret = ensureEndCaret(tag, doc);
@@ -1930,28 +2106,13 @@ export const tinymceWrapperInit = function ({
       } else {
         const node = ensureOutsideText(tag, 'after', doc);
         caret = { node, offset: 0 };
+        pinOutside = true;
       }
     } else {
       return false;
     }
 
-    const generation = ++boundaryStepGeneration;
-    pendingBoundaryStep = { caret, pin, tag };
-    pinnedInsideStart = pin ? { tag, text: caret.node } : null;
-    placeCaret(caret);
-    updateTagBoundaryState();
-    // TinyMCE sometimes drops this caret onto the element itself. Put it back
-    // only in that case — a later arrow that moved within the text should stay.
-    window.setTimeout(() => {
-      if (generation !== boundaryStepGeneration || !writer.editor || !isAttached(caret.node)) {
-        return;
-      }
-      const now = writer.editor.selection.getRng();
-      if (now.startContainer.nodeType !== Node.ELEMENT_NODE) return;
-      if (pin) pinnedInsideStart = { tag, text: caret.node };
-      placeCaret(caret);
-      updateTagBoundaryState();
-    }, 0);
+    commitBoundaryCaret(caret, tag, pinInside, pinOutside);
     return true;
   };
 
@@ -1961,6 +2122,7 @@ export const tinymceWrapperInit = function ({
     pendingBoundaryStep = null;
     if (!isAttached(step.caret.node)) return;
     if (step.pin) pinnedInsideStart = { tag: step.tag, text: step.caret.node };
+    if (step.pinOutside) pinnedOutsideAfter = { tag: step.tag, text: step.caret.node };
     placeCaret(step.caret);
   };
 
@@ -1968,6 +2130,15 @@ export const tinymceWrapperInit = function ({
 
   const onMouseUpHandler = (event: MouseEvent) => {
     if (!writer.editor) return;
+    // A click chooses its own caret. Stop holding the "just after the tag" position.
+    if (pinnedOutsideAfter) {
+      const rng = writer.editor.selection.getRng();
+      const onPin =
+        isAttached(pinnedOutsideAfter.text) &&
+        rng.startContainer === pinnedOutsideAfter.text &&
+        rng.startOffset === 0;
+      if (!onPin) pinnedOutsideAfter = null;
+    }
     doHighlightCheck(event);
     updateTagBoundaryState();
 
@@ -2029,6 +2200,9 @@ export const tinymceWrapperInit = function ({
     // if (writer.isReadOnly === true) return
 
     writer.editor.lastKeyPress = event.code; // store the last key press
+    // Before reading the selection: TinyMCE may have pulled this caret back
+    // inside the tag we just stepped out of.
+    holdOutsideCaret();
 
     // Remember the text node before TinyMCE's fake caret rewrites the selection.
     // Leave an in-progress IME snapshot alone; compositionend consumes it.
@@ -2446,22 +2620,74 @@ export const tinymceWrapperInit = function ({
     updateTagBoundaryState();
   };
 
-  const onCopyHandler = (event: any) => {
-    if (!writer.editor) return;
+  const clearStructureClipboard = () => {
+    if (!writer.editor?.copiedElement?.element) return;
+    $(writer.editor.copiedElement.element).remove();
+    writer.editor.copiedElement.element = undefined;
+  };
 
-    if (event.clipboardData?.setData) {
+  /**
+   * Own the clipboard for a character selection. TinyMCE's copy handler
+   * otherwise calls clearData() and writes HTML that wraps the selection in
+   * its ancestor tag, so pasting the characters clones that tag.
+   */
+  const writeTextOnlyClipboard = (event: ClipboardEvent, text: string) => {
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    const data = event.clipboardData;
+    if (!data) return;
+    data.clearData();
+    data.setData('text/plain', text);
+    data.setData('text/html', escapeHtml(text));
+    data.setData(LEAF_WRITER_CLIPBOARD_MIME, buildLeafWriterClipboardPayload(true));
+  };
+
+  const deleteTextSelection = (range: Range) => {
+    if (!writer.editor) return;
+    const editor = writer.editor;
+    const remove = () => {
+      range.deleteContents();
+      editor.selection.setRng(range);
+    };
+    if (typeof editor.undoManager.transact === 'function') {
+      editor.undoManager.transact(remove);
+    } else {
+      remove();
+    }
+    writer.overmindActions.editor.setContentHasChanged(true);
+    editor.isNotDirty = false;
+    writer.event('contentChanged').publish();
+  };
+
+  const onCopyHandler = (event: ClipboardEvent) => {
+    if (!writer.editor) return;
+    const range = writer.editor.selection.getRng();
+    if (selectionIsTextOnly(range)) {
+      writeTextOnlyClipboard(event, range.toString());
+    } else if (event.clipboardData?.setData) {
       event.clipboardData.setData(LEAF_WRITER_CLIPBOARD_MIME, buildLeafWriterClipboardPayload());
     }
+    clearStructureClipboard();
+    writer.event('contentCopied').publish();
+  };
 
-    if (writer.editor.copiedElement?.element) {
-      $(writer.editor.copiedElement.element).remove();
-      writer.editor.copiedElement.element = undefined;
+  const onCutHandler = (event: ClipboardEvent) => {
+    if (!writer.editor) return;
+    const range = writer.editor.selection.getRng();
+    if (selectionIsTextOnly(range)) {
+      const tinymceWillDelete = event.defaultPrevented;
+      writeTextOnlyClipboard(event, range.toString());
+      if (!tinymceWillDelete) deleteTextSelection(range);
+    } else if (event.clipboardData?.setData) {
+      event.clipboardData.setData(LEAF_WRITER_CLIPBOARD_MIME, buildLeafWriterClipboardPayload());
     }
+    clearStructureClipboard();
     writer.event('contentCopied').publish();
   };
 
   const doHighlightCheck = (event: any) => {
     if (!writer.editor) return;
+    holdOutsideCaret();
     // let range = writer.editor?.selection.getRng(true);
     let range = writer.editor.selection.getRng();
 

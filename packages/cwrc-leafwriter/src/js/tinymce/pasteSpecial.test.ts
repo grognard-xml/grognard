@@ -1,9 +1,12 @@
 import {
+  buildLeafWriterClipboardPayload,
+  clipboardPayloadIsTextOnly,
   detectPasteAmbiguity,
   decodeHtmlEntities,
   hasAmbiguousLineBreaks,
   isLeafWriterClipboardPayload,
   looksLikeXml,
+  selectionIsTextOnly,
   textToLineBreakXml,
   textToParagraphHtml,
 } from './pasteSpecial';
@@ -60,5 +63,26 @@ describe('pasteSpecial', () => {
   test('recognizes clipboard marker payloads', () => {
     expect(isLeafWriterClipboardPayload('{"app":"grognard","version":1}')).toBe(true);
     expect(isLeafWriterClipboardPayload('{"app":"something-else","version":1}')).toBe(false);
+    expect(clipboardPayloadIsTextOnly(buildLeafWriterClipboardPayload(true))).toBe(true);
+    expect(clipboardPayloadIsTextOnly(buildLeafWriterClipboardPayload())).toBe(false);
+  });
+
+  test('a character selection inside a seg is text, selecting the seg is not', () => {
+    const host = document.createElement('div');
+    host.innerHTML = '<span _tag="seg" xml:id="lem-1">杻陽之山</span>，';
+    document.body.appendChild(host);
+    const seg = host.querySelector('span') as HTMLElement;
+    const text = seg.firstChild as Text;
+    const range = document.createRange();
+
+    range.setStart(text, 1);
+    range.setEnd(text, text.length);
+    expect(range.toString()).toBe('陽之山');
+    expect(selectionIsTextOnly(range)).toBe(true);
+
+    range.selectNode(seg);
+    expect(selectionIsTextOnly(range)).toBe(false);
+
+    host.remove();
   });
 });

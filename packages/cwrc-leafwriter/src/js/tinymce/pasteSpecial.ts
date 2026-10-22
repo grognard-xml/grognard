@@ -7,6 +7,13 @@ export interface LeafWriterClipboardPayload {
   app: 'grognard';
   copiedAt: string;
   version: 1;
+  /**
+   * The editor selection contained characters only, no elements. The browser's
+   * HTML clipboard still wraps that text in the ancestor tag (a partial
+   * selection inside `<seg>` copies the whole `<seg>`, including xml:id).
+   * Paste must use the characters, not that HTML.
+   */
+  textOnly?: boolean;
 }
 
 const XML_DECLARATION = /^\s*<\?xml[\s\S]*?\?>/i;
@@ -15,11 +22,12 @@ const INLINE_XML_LIKE =
   /<([A-Za-z_][\w:.-]*)(?:\s[^<>]*)?>[\s\S]*?<\/\1>|<[A-Za-z_][\w:.-]*(?:\s[^<>]*)?\/>/;
 const ENTITY_LIKE = /&(lt|gt|amp|quot|apos|nbsp|#\d+|#x[\da-f]+);/i;
 
-export const buildLeafWriterClipboardPayload = (): string =>
+export const buildLeafWriterClipboardPayload = (textOnly = false): string =>
   JSON.stringify({
     app: 'grognard',
     copiedAt: new Date().toISOString(),
     version: 1,
+    ...(textOnly ? { textOnly: true } : {}),
   } satisfies LeafWriterClipboardPayload);
 
 export const isLeafWriterClipboardPayload = (value: string | null | undefined): boolean => {
@@ -30,6 +38,38 @@ export const isLeafWriterClipboardPayload = (value: string | null | undefined): 
   } catch {
     return false;
   }
+};
+
+export const clipboardPayloadIsTextOnly = (value: string | null | undefined): boolean => {
+  if (!value) return false;
+  try {
+    const parsed = JSON.parse(value) as Partial<LeafWriterClipboardPayload>;
+    return parsed.app === 'grognard' && parsed.version === 1 && parsed.textOnly === true;
+  } catch {
+    return false;
+  }
+};
+
+/**
+ * True when the selection covers characters and no real elements. A range that
+ * starts and ends inside one text node (the usual drag-select inside a `<seg>`)
+ * clones as text only, even though the browser HTML clipboard wraps it in the
+ * ancestor tag. Selecting the element node itself is not text-only.
+ */
+export const selectionIsTextOnly = (range: Range): boolean => {
+  if (range.collapsed) return false;
+  let fragment: DocumentFragment;
+  try {
+    fragment = range.cloneContents();
+  } catch {
+    return false;
+  }
+  const elements = fragment.querySelectorAll('*');
+  for (const el of elements) {
+    if (el.hasAttribute('data-mce-bogus')) continue;
+    return false;
+  }
+  return range.toString().length > 0;
 };
 
 export const decodeHtmlEntities = (value: string): string => {

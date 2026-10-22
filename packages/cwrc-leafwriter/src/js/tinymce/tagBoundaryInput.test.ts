@@ -1,6 +1,7 @@
 import {
   boundaryArrowAction,
   caretAtEndOfTag,
+  caretBesideTagEnd,
   caretFromSelection,
   deleteFirstVisibleGrapheme,
   ensureOutsideText,
@@ -9,6 +10,7 @@ import {
   placeTypedText,
   pullCompositionInside,
   relocateCompositionOutside,
+  stepPastOutsideCaret,
   tagEdgeText,
   type InsideStartSnapshot,
   type OutsideInsertSnapshot,
@@ -326,5 +328,47 @@ describe('boundaryArrowAction', () => {
         isInlineEdge: inline,
       }),
     ).toBe('leave-to-after');
+  });
+});
+
+describe('caret beside the end of a tag', () => {
+  const inline = (el: Element) => el.getAttribute('_tag') !== 'p';
+
+  it('treats the end of the tag and the text just after it as the same pixel', () => {
+    const root = host('<span _tag="seg">杻陽之山</span>，<span _tag="seg">下</span>');
+    const tag = root.querySelector('span')!;
+    const inside = tag.firstChild as Text;
+    const after = tag.nextSibling as Text;
+    const next = root.querySelectorAll('span')[1]!;
+
+    expect(caretBesideTagEnd(tag, after, inside, inside.length, inline)).toBe(true);
+    expect(caretBesideTagEnd(tag, after, after, 0, inline)).toBe(true);
+    expect(caretBesideTagEnd(tag, after, after, 1, inline)).toBe(false);
+    expect(caretBesideTagEnd(tag, after, inside, 1, inline)).toBe(false);
+    expect(caretBesideTagEnd(tag, after, next.firstChild as Text, 0, inline)).toBe(false);
+  });
+
+  it('treats the first character of the next tag as the same pixel when nothing is between them', () => {
+    const root = host('<span _tag="seg">山</span><span _tag="note">注</span>');
+    const tag = root.querySelector('span')!;
+    const next = root.querySelectorAll('span')[1]!;
+    expect(caretBesideTagEnd(tag, null, next.firstChild as Text, 0, inline)).toBe(true);
+  });
+
+  it('steps from the outside caret into the following text, or into the next tag', () => {
+    const root = host('<span _tag="seg">山</span>，');
+    const after = root.querySelector('span')!.nextSibling as Text;
+    const intoText = stepPastOutsideCaret(after, document, inline);
+    expect(intoText.caret.offset).toBe(1);
+    expect(intoText.enterTag).toBeNull();
+
+    const pair = host('<span _tag="seg">山</span><span _tag="note">注</span>');
+    const gap = document.createTextNode('');
+    const first = pair.querySelector('span')!;
+    first.parentNode!.insertBefore(gap, first.nextSibling);
+    const intoTag = stepPastOutsideCaret(gap, document, inline);
+    expect(intoTag.enterTag).toBe(pair.querySelectorAll('span')[1]);
+    expect(intoTag.caret.offset).toBe(0);
+    expect(intoTag.caret.node.parentElement).toBe(intoTag.enterTag);
   });
 });

@@ -145,6 +145,99 @@ export const caretFromSelection = (container: Node, offset: number): TextCaret |
   return null;
 };
 
+/** Skip TinyMCE's fake caret and empty text nodes. */
+const nextSignificant = (node: Node | null): Node | null => {
+  let current = node;
+  while (current) {
+    if (isBogus(current)) {
+      current = current.nextSibling;
+      continue;
+    }
+    if (
+      current.nodeType === Node.TEXT_NODE &&
+      (current as Text).data.replace(/[\uFEFF\u200B]/g, '').length === 0
+    ) {
+      current = current.nextSibling;
+      continue;
+    }
+    return current;
+  }
+  return null;
+};
+
+/** The next inline tag, when no real text sits between it and `tag`. */
+export const adjacentInlineAfter = (
+  tag: Element,
+  isInlineEdge: (el: Element) => boolean,
+): Element | null => {
+  const next = nextSignificant(tag.nextSibling);
+  if (!next || next.nodeType !== Node.ELEMENT_NODE) return null;
+  return isInlineEdge(next as Element) ? (next as Element) : null;
+};
+
+/**
+ * The caret is on the pixel shared by the end of `tag` and whatever follows it.
+ * That includes the last character inside the tag, offset 0 of the text after
+ * it, and the first character of the next inline tag when nothing is between them.
+ * The editor collapses those DOM positions onto one another.
+ */
+export const caretBesideTagEnd = (
+  tag: Element,
+  outside: Text | null,
+  container: Node,
+  offset: number,
+  isInlineEdge: (el: Element) => boolean,
+): boolean => {
+  if (outside && container === outside && offset === 0) return true;
+  if (caretAtEndOfTag(tag, container, offset)) return true;
+  if (container.nodeType === Node.TEXT_NODE && offset === 0) {
+    const parent = (container as Text).parentElement;
+    if (
+      parent &&
+      parent !== tag &&
+      isInlineEdge(parent) &&
+      isFirstTextInParent(container as Text) &&
+      adjacentInlineAfter(tag, isInlineEdge) === parent
+    ) {
+      return true;
+    }
+  }
+  if (container.nodeType === Node.ELEMENT_NODE) {
+    const el = container as Element;
+    if (el === tag && offset >= tag.childNodes.length) return true;
+    if (el.childNodes[offset] === tag || el.childNodes[offset - 1] === tag) return true;
+  }
+  return false;
+};
+
+/**
+ * One step to the right of the "just after this tag" caret.
+ * A following character moves into that text. An empty gap before another
+ * inline tag steps into that tag, at its first character.
+ */
+export const stepPastOutsideCaret = (
+  outside: Text,
+  doc: Document,
+  isInlineEdge: (el: Element) => boolean,
+): { caret: TextCaret; enterTag: Element | null } => {
+  if (outside.length > 0) {
+    const step = firstGraphemeLength(outside.data);
+    return {
+      caret: { node: outside, offset: Math.min(step, outside.length) },
+      enterTag: null,
+    };
+  }
+  const next = nextSignificant(outside.nextSibling);
+  if (next?.nodeType === Node.TEXT_NODE) {
+    return { caret: { node: next as Text, offset: 0 }, enterTag: null };
+  }
+  if (next && next.nodeType === Node.ELEMENT_NODE && isInlineEdge(next as Element)) {
+    const tag = next as Element;
+    return { caret: { node: ensureEntryText(tag, doc), offset: 0 }, enterTag: tag };
+  }
+  return { caret: { node: outside, offset: outside.length }, enterTag: null };
+};
+
 /** A text node on `side` of `tag`, creating an empty one when the side has none. */
 export const ensureOutsideText = (tag: Element, side: BoundarySide, doc: Document): Text => {
   const parent = tag.parentNode;
