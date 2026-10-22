@@ -23,6 +23,16 @@ jest.mock('./pluginPythonBridge', () => ({
   invokePluginPython: (...args: unknown[]) => mockInvokePython(...args),
 }));
 
+// Delegates to the real atomic write; a test can wrap it to act while a job state is being saved.
+const mockWriteAtomic = jest.fn();
+jest.mock('./atomicWrite', () => {
+  const actual = jest.requireActual('./atomicWrite');
+  return {
+    ...actual,
+    writeFileAtomic: (...args: unknown[]) => mockWriteAtomic(...args),
+  };
+});
+
 const mockProcessJuan = jest.fn();
 jest.mock('./kanripoImportPipeline', () => {
   class ImportJobBlockedError extends Error {
@@ -107,6 +117,10 @@ beforeEach(async () => {
   jest.resetModules();
   mockInvokePython.mockReset();
   mockProcessJuan.mockReset();
+  mockWriteAtomic.mockReset();
+  mockWriteAtomic.mockImplementation((...args: unknown[]) =>
+    jest.requireActual('./atomicWrite').writeFileAtomic(...args),
+  );
   for (const key of Object.keys(mockFiles)) delete mockFiles[key];
   mockFiles.KR9z0001 = [
     '/cache/KR9z0001/KR9z0001_001.txt',
@@ -395,9 +409,11 @@ describe('saved jobs', () => {
   it('a local model needs no key to resume', async () => {
     mockProcessJuan.mockImplementation(
       (p: { signal: AbortSignal }) =>
-        new Promise((_resolve, reject) =>
-          p.signal.addEventListener('abort', () => reject(abortError())),
-        ),
+        new Promise((_resolve, reject) => {
+          // Like the real call: a signal that is already aborted rejects at once.
+          if (p.signal.aborted) reject(abortError());
+          p.signal.addEventListener('abort', () => reject(abortError()));
+        }),
     );
     const jobId = await mod.startImportJob(
       kanripoOptions({
@@ -413,6 +429,33 @@ describe('saved jobs', () => {
     );
     mod.resumeImportJob(jobId);
     await waitFor(() => snapshotOf(jobId).status === 'completed', 'completed');
+  });
+
+  it('a pause that lands while a juan is being saved does not start that juan', async () => {
+    mockProcessJuan.mockImplementation(
+      (p: { signal: AbortSignal }) =>
+        new Promise((_resolve, reject) => {
+          if (p.signal.aborted) reject(abortError());
+          p.signal.addEventListener('abort', () => reject(abortError()));
+        }),
+    );
+    let jobId = '';
+    let paused = false;
+    mockWriteAtomic.mockImplementation(async (file: string, body: string) => {
+      // The state write that follows a juan being marked running: pause exactly here.
+      if (!paused && jobId && file.includes(jobId) && /"state":"running"/.test(body)) {
+        paused = true;
+        mod.pauseImportJob(jobId);
+      }
+      return jest.requireActual('./atomicWrite').writeFileAtomic(file, body);
+    });
+    jobId = await mod.startImportJob(kanripoOptions());
+
+    await waitFor(() => snapshotOf(jobId).status === 'paused', 'paused');
+
+    expect(paused).toBe(true);
+    expect(mockProcessJuan).not.toHaveBeenCalled();
+    expect(snapshotOf(jobId).juan.every((j) => j.state === 'pending')).toBe(true);
   });
 
   it('a dismissed job is deleted and does not come back', async () => {

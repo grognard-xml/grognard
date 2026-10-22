@@ -681,6 +681,13 @@ const runKanripoJob = async (runtime: RuntimeJob, tickElapsed: () => void): Prom
     tickElapsed();
     broadcast();
     await persistJob(runtime);
+    // A pause or cancel can land during the write above. Do not start the juan only to abort it:
+    // it goes back to pending and is done again after Resume.
+    if (signal.aborted || runtime.pauseRequested) {
+      juan.state = 'pending';
+      juan.detail = undefined;
+      throw new DOMException('Aborted', 'AbortError');
+    }
 
     const t0 = Date.now();
     try {

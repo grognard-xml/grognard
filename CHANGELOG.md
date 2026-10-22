@@ -1147,3 +1147,7 @@ The last step of an import (and `finalize_body` run over a file already in the p
 - Copying or cutting part of a tag's text (some characters inside a `<seg>`, say) now gives plain text. The browser used to put the whole `<seg>` on the clipboard, so pasting it elsewhere brought the tag and its `xml:id` along, duplicating the id.
 - Commentary notes (`<note type="comm">`) no longer show a "comm:" label in front of the text; they are already green.
 - The planning note `docs/tag-boundary-navigation-planning.md` now says what the code does: the three-position navigator it describes was removed in June, and this is a smaller two-position version.
+
+### Import jobs: pausing at the moment a juan starts
+
+- A pause (or cancel) that arrived while a Kanripo import job was saving its state, just after marking a juan as running, still started that juan, so the pause was not honoured until the juan finished, and in a test it never completed (a CI failure in `importJob.test.ts`). The job now checks again after the save and puts the juan back to pending instead of starting it. The CBETA and Daozang importers did not have this gap.
