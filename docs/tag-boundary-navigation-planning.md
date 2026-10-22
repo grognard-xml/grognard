@@ -1,6 +1,8 @@
 # Tag boundary keyboard navigation
 
-**Status (2026-08-01):** **Mostly shipped** — three-position tag-boundary nav live. Still open: Bugs B/C/H (typing/delete edges); Bug G likely accept-as-is; remove debug `console.log`s.
+**Status (2026-10-22):** The three-position navigator described below is **not in the code**. It was removed on 2026-06-30 (`06ba60649`, "Window screwed up"). The 2026-08-01 "mostly shipped" line was added a month later and is wrong. What remains is boundary highlighting plus immediate unwrap when Backspace/Delete is aimed into a tag. Bug H is retired with the second stop. Bugs B and C (and the regressed inside-offset-0 insert) are tracked in GitHub issue 40. The fix being tried owns the edit in `beforeinput` / `compositionend` via `packages/cwrc-leafwriter/src/js/tinymce/tagBoundaryInput.ts`, instead of restoring arrow-key stops.
+
+The sections below are the design note for the removed navigator. Read them as history.
 
 ## Goal
 

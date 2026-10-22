@@ -494,6 +494,15 @@ distinguishable at a glance. */
   color: green;
 }
 
+/* The schema stylesheet paints the note's @type in front of the text
+   (comm: , in small caps, so it reads COMM:). Commentary is already green,
+   so the label is redundant. !important is required because that schema rule
+   is injected after this file. */
+[_tag='note'][type='comm']::before {
+  content: none !important;
+  display: none !important;
+}
+
 /* Kanripo inline gaiji: character-sized PNGs from _gaiji/ beside imported XML */
 .showTags *[_tag='g'][type='kanripo']:before,
 .showTags *[_tag='g'][type='kanripo']:after,
@@ -710,10 +719,17 @@ body.hideBreaks *[_tag='pb'] {
   text-decoration: none;
 }
 
-/* Layer 3: cursor is at a tag boundary — glow on all tag types */
+/* Layer 3: cursor is at a tag boundary — glow on all tag types.
+   This is the "still outside" position: typing extends the previous segment. */
 *[_tag].tag-at-boundary {
   background-color: rgba(90, 130, 210, 0.1);
   border-radius: 2px;
+}
+
+/* The other position, first character inside the segment. The caret pixel is
+   the same as the glow above; the bar is how you can tell them apart. */
+*[_tag].tag-inside-start {
+  box-shadow: inset 3px 0 0 rgba(90, 130, 210, 0.9);
 }
 
 /* Pill bubble — shown when showTagBubble body class is set and tags are hidden.
@@ -773,6 +789,9 @@ body.showTagBubble:not(.showTags)
   }
   *[_tag].tag-at-boundary {
     background-color: rgba(130, 170, 255, 0.12);
+  }
+  *[_tag].tag-inside-start {
+    box-shadow: inset 3px 0 0 rgba(160, 190, 255, 0.95);
   }
   body.showTagBubble:not(.showTags) span[_tag].tag-cursor-active::after,
   body.showTagBubble:not(.showTags)

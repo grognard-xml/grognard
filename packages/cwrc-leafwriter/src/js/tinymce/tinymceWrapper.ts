@@ -54,6 +54,26 @@ import {
 } from '../../utilities/gaijiImport';
 import { refreshGraphicsInBody } from '../schema/mappings/utitlities';
 import { initEditorZoom } from './editorZoom';
+import {
+  boundaryArrowAction,
+  caretAtEndOfTag,
+  caretFromSelection,
+  deleteFirstVisibleCodePoint,
+  ensureEndCaret,
+  ensureEntryText,
+  ensureOutsideText,
+  insideStartText,
+  insertAt,
+  isAttached,
+  isFirstTextInParent,
+  previousTextOutside,
+  placeTypedText,
+  pullCompositionInside,
+  relocateCompositionOutside,
+  tagEdgeText,
+  type BoundaryInsertSnapshot,
+  type TextCaret,
+} from './tagBoundaryInput';
 import { DEFAULT_EDITOR_FONT_SIZE } from '../../overmind/editor/state';
 import {
   isChineseLanguageCode,
@@ -977,7 +997,10 @@ export const tinymceWrapperInit = function ({
         // Strip our transient classes from the level content, then cancel the level
         // entirely if the stripped content is identical to the previous level.
         const stripLWClasses = (s: string) =>
-          s.replace(/\s*\btag-cursor-active\b/g, '').replace(/\s*\btag-at-boundary\b/g, '');
+          s
+            .replace(/\s*\btag-cursor-active\b/g, '')
+            .replace(/\s*\btag-at-boundary\b/g, '')
+            .replace(/\s*\btag-inside-start\b/g, '');
 
         editor.on('BeforeAddUndo', (e: any) => {
           if (!e.level?.content) return;
@@ -1035,6 +1058,10 @@ export const tinymceWrapperInit = function ({
               return;
             }
 
+            // Tag-edge typing/delete. The browser and TinyMCE disagree about
+            // which side of an inline tag this caret is on; insert it ourselves.
+            if (applyBoundaryBeforeInput(event)) return;
+
             if (event.inputType !== 'insertFromPaste') return;
 
             const targetRanges =
@@ -1080,6 +1107,35 @@ export const tinymceWrapperInit = function ({
             if (!shouldBlockEditorTextInput()) return;
             event.preventDefault();
             abortBlockedComposition();
+          },
+          true,
+        );
+        // IME commits cannot be cancelled in Chromium. Remember which side of
+        // the tag the caret was on, and move the finished string if it grew
+        // the wrong text node. See tagBoundaryInput.ts.
+        body.addEventListener(
+          'compositionstart',
+          () => {
+            if (shouldBlockEditorTextInput()) return;
+            boundaryComposing = true;
+            boundaryInsertSnapshot = captureBoundaryInsertSnapshot(true);
+          },
+          true,
+        );
+        body.addEventListener(
+          'compositionend',
+          (event: CompositionEvent) => {
+            boundaryComposing = false;
+            const snap = boundaryInsertSnapshot;
+            boundaryInsertSnapshot = null;
+            if (shouldBlockEditorTextInput() || !snap || !event.data) return;
+            const next =
+              snap.kind === 'outside'
+                ? relocateCompositionOutside(event.data, snap)
+                : pullCompositionInside(event.data, snap);
+            if (!next) return;
+            placeCaret(next);
+            finishBoundaryEdit();
           },
           true,
         );
@@ -1433,6 +1489,15 @@ export const tinymceWrapperInit = function ({
   // normally); 'after' means the tag is the next thing to the left (Backspace should unwrap
   // it, Delete should act on following text normally). null when not at an external boundary.
   let currentBoundarySide: 'before' | 'after' | null = null;
+  // Text node the caret was in at keydown, before TinyMCE rewrites the selection.
+  // Held through an IME composition until compositionend.
+  let boundaryInsertSnapshot: BoundaryInsertSnapshot | null = null;
+  let boundaryComposing = false;
+  // Caret was stepped into the first character of an inline segment. TinyMCE
+  // otherwise treats that offset as "just before the segment" and types outside.
+  let pinnedInsideStart: { tag: Element; text: Text } | null = null;
+  let pendingBoundaryStep: { caret: TextCaret; pin: boolean; tag: Element } | null = null;
+  let boundaryStepGeneration = 0;
 
   const applyBoundaryClasses = (
     activeEl: Element | null,
@@ -1441,7 +1506,11 @@ export const tinymceWrapperInit = function ({
     boundarySide: 'before' | 'after' | null = null,
   ) => {
     if (currentActiveElement) {
-      currentActiveElement.classList.remove('tag-cursor-active', 'tag-at-boundary');
+      currentActiveElement.classList.remove(
+        'tag-cursor-active',
+        'tag-at-boundary',
+        'tag-inside-start',
+      );
       (currentActiveElement as HTMLElement).style.removeProperty('--lw-bubble-left');
     }
     currentActiveElement = activeEl;
@@ -1468,6 +1537,17 @@ export const tinymceWrapperInit = function ({
     isElement(n) &&
     (n as Element).hasAttribute('_tag') &&
     (n as Element).getAttribute('_tag') !== 'pb';
+
+  // Paragraphs are blocks: the caret can already sit at the start of the next
+  // one. Inline segments (a note, a name, a quotation) cannot — their start
+  // is the same pixel as the end of the previous text.
+  const isInlineEdgeTag = (el: Element): boolean => {
+    if (!isTagOrCombinedEl(el)) return false;
+    const view = el.ownerDocument.defaultView;
+    if (!view) return false;
+    const display = view.getComputedStyle(el).display;
+    return display === 'inline' || display.startsWith('inline-');
+  };
 
   // doHighlightCheck() moves the cursor out of entity wrappers, so "end of persName"
   // lands at offset=0 in the next text node with the entity wrapper as previousSibling.
@@ -1561,12 +1641,21 @@ export const tinymceWrapperInit = function ({
 
     const rng = writer.editor.selection.getRng();
     if (!rng.collapsed) {
+      pinnedInsideStart = null;
       applyBoundaryClasses(null, null);
       return;
     }
 
     const container = rng.startContainer;
     const offset = rng.startOffset;
+    if (
+      pinnedInsideStart &&
+      (container !== pinnedInsideStart.text ||
+        offset !== 0 ||
+        container.nodeType !== Node.TEXT_NODE)
+    ) {
+      pinnedInsideStart = null;
+    }
 
     let tagEl: Element | null = null;
     let atBoundary = false;
@@ -1638,7 +1727,241 @@ export const tinymceWrapperInit = function ({
       return;
     }
 
+    // Offset 0 inside an inline segment is its own position: typing prepends
+    // to this segment. The blue wash means the other position, still outside.
+    const atInsideStart =
+      !externalBoundary &&
+      container.nodeType === Node.TEXT_NODE &&
+      offset === 0 &&
+      isInlineEdgeTag(tagEl) &&
+      (container as Text).parentElement === tagEl &&
+      isFirstTextInParent(container as Text);
+    if (atInsideStart) atBoundary = false;
+
     applyBoundaryClasses(tagEl, atBoundary ? tagEl : null, externalBoundary, boundarySide);
+    currentActiveElement?.classList.toggle('tag-inside-start', atInsideStart);
+  };
+
+  const publishBoundaryContentChanged = debounce(() => {
+    writer.event('contentChanged').publish();
+  }, 150);
+
+  const placeCaret = (caret: TextCaret) => {
+    const editor = writer.editor;
+    if (!editor || !isAttached(caret.node)) return;
+    const range = editor.getDoc().createRange();
+    const offset = Math.max(0, Math.min(caret.offset, caret.node.length));
+    range.setStart(caret.node, offset);
+    range.collapse(true);
+    editor.selection.setRng(range);
+  };
+
+  const finishBoundaryEdit = () => {
+    const editor = writer.editor;
+    if (!editor) return;
+    editor.undoManager.add();
+    writer.overmindActions.editor.setContentHasChanged(true);
+    editor.isNotDirty = false;
+    updateTagBoundaryState();
+    publishBoundaryContentChanged();
+  };
+
+  const captureBoundaryInsertSnapshot = (withLengths: boolean): BoundaryInsertSnapshot | null => {
+    const editor = writer.editor;
+    if (!editor) return null;
+    const rng = editor.selection.getRng();
+    if (!rng.collapsed) return null;
+
+    const inside = insideStartText(rng.startContainer, rng.startOffset, isInlineEdgeTag);
+    if (inside) {
+      const previous = previousTextOutside(inside);
+      return {
+        kind: 'inside-start',
+        inside,
+        previous,
+        ...(withLengths
+          ? { insideLength: inside.length, previousLength: previous?.length ?? 0 }
+          : {}),
+      };
+    }
+
+    if (currentBoundaryIsExternal && currentBoundaryElement && currentBoundarySide) {
+      const caret = caretFromSelection(rng.startContainer, rng.startOffset);
+      const insideEdge = tagEdgeText(currentBoundaryElement, currentBoundarySide);
+      return {
+        kind: 'outside',
+        outside: caret?.node ?? null,
+        offset: caret?.offset ?? 0,
+        side: currentBoundarySide,
+        tag: currentBoundaryElement,
+        insideEdge,
+        ...(withLengths
+          ? {
+              outsideLength: caret?.node.length ?? 0,
+              insideLength: insideEdge?.length ?? 0,
+            }
+          : {}),
+      };
+    }
+
+    return null;
+  };
+
+  const caretForBoundaryInsert = (
+    snap: BoundaryInsertSnapshot | null,
+    editor: LeafWriterEditor,
+  ): TextCaret | null => {
+    if (snap?.kind === 'outside') {
+      if (isAttached(snap.outside)) {
+        return { node: snap.outside, offset: Math.min(snap.offset, snap.outside.length) };
+      }
+      if (!isAttached(snap.tag)) return null;
+      const node = ensureOutsideText(snap.tag, snap.side, editor.getDoc());
+      return { node, offset: snap.side === 'before' ? node.length : 0 };
+    }
+    if (snap?.kind === 'inside-start') {
+      if (!isAttached(snap.inside)) return null;
+      return { node: snap.inside, offset: 0 };
+    }
+
+    const rng = editor.selection.getRng();
+    if (!rng.collapsed) return null;
+    const inside = insideStartText(rng.startContainer, rng.startOffset, isInlineEdgeTag);
+    if (inside) return { node: inside, offset: 0 };
+    if (currentBoundaryIsExternal && currentBoundaryElement && currentBoundarySide) {
+      const live = caretFromSelection(rng.startContainer, rng.startOffset);
+      if (live) return live;
+      const node = ensureOutsideText(currentBoundaryElement, currentBoundarySide, editor.getDoc());
+      return { node, offset: currentBoundarySide === 'before' ? node.length : 0 };
+    }
+    return null;
+  };
+
+  /**
+   * Insert or forward-delete at a tag edge ourselves.
+   * Returns true when the event was handled and must not reach TinyMCE.
+   */
+  const applyBoundaryBeforeInput = (event: InputEvent): boolean => {
+    const editor = writer.editor;
+    if (!editor || event.isComposing) return false;
+
+    if (event.inputType === 'insertText' && event.data) {
+      const snap = boundaryInsertSnapshot;
+      // Snapshot path inserts inside placeTypedText, and skips the insert when
+      // the character is already in that text node. The live-caret path has
+      // no lengths to compare, so it inserts after preventDefault.
+      const next = snap
+        ? placeTypedText(event.data, snap, editor.getDoc())
+        : caretForBoundaryInsert(null, editor);
+      if (!next) return false;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      const placed = snap ? next : insertAt(next, event.data);
+      boundaryInsertSnapshot = null;
+      placeCaret(placed);
+      finishBoundaryEdit();
+      return true;
+    }
+
+    if (event.inputType !== 'deleteContentForward') return false;
+    const rng = editor.selection.getRng();
+    if (!rng.collapsed || rng.startOffset !== 0 || rng.startContainer.nodeType !== Node.TEXT_NODE) {
+      return false;
+    }
+    const text = rng.startContainer as Text;
+    if (!isTagOrCombinedEl(text.parentElement) || !isFirstTextInParent(text)) return false;
+    if (!deleteFirstVisibleCodePoint(text)) return false;
+
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    placeCaret({ node: text, offset: 0 });
+    finishBoundaryEdit();
+    // NodeChange can still walk the caret out of the tag after the deletion.
+    window.setTimeout(() => {
+      if (!isAttached(text) || !writer.editor) return;
+      const now = writer.editor.selection.getRng();
+      if (now.startContainer !== text || now.startOffset !== 0) {
+        placeCaret({ node: text, offset: 0 });
+      }
+    }, 0);
+    return true;
+  };
+
+  /**
+   * Move between the two caret positions that share a pixel at an inline
+   * boundary. Returns true when this key is that step and must not also
+   * move the caret the normal way.
+   */
+  const stepAcrossInlineBoundary = (direction: 'forward' | 'backward'): boolean => {
+    const editor = writer.editor;
+    if (!editor) return false;
+    const rng = editor.selection.getRng();
+    if (!rng.collapsed) return false;
+
+    const action = boundaryArrowAction({
+      direction,
+      external: currentBoundaryIsExternal,
+      side: currentBoundarySide,
+      boundaryTag: currentBoundaryElement,
+      container: rng.startContainer,
+      offset: rng.startOffset,
+      isInlineEdge: isInlineEdgeTag,
+    });
+    if (!action) return false;
+
+    const doc = editor.getDoc();
+    let caret: TextCaret;
+    let tag: Element;
+    let pin = false;
+    if (action === 'enter-start' && currentBoundaryElement) {
+      tag = currentBoundaryElement;
+      caret = { node: ensureEntryText(tag, doc), offset: 0 };
+      pin = true;
+    } else if (action === 'enter-end' && currentBoundaryElement) {
+      tag = currentBoundaryElement;
+      caret = ensureEndCaret(tag, doc);
+    } else if (rng.startContainer.nodeType === Node.TEXT_NODE) {
+      const parent = (rng.startContainer as Text).parentElement;
+      if (!parent) return false;
+      tag = parent;
+      if (action === 'leave-to-before') {
+        const node = ensureOutsideText(tag, 'before', doc);
+        caret = { node, offset: node.length };
+      } else {
+        const node = ensureOutsideText(tag, 'after', doc);
+        caret = { node, offset: 0 };
+      }
+    } else {
+      return false;
+    }
+
+    const generation = ++boundaryStepGeneration;
+    pendingBoundaryStep = { caret, pin, tag };
+    pinnedInsideStart = pin ? { tag, text: caret.node } : null;
+    placeCaret(caret);
+    updateTagBoundaryState();
+    // TinyMCE sometimes drops this caret onto the element itself. Put it back
+    // only in that case — a later arrow that moved within the text should stay.
+    window.setTimeout(() => {
+      if (generation !== boundaryStepGeneration || !writer.editor || !isAttached(caret.node)) {
+        return;
+      }
+      const now = writer.editor.selection.getRng();
+      if (now.startContainer.nodeType !== Node.ELEMENT_NODE) return;
+      if (pin) pinnedInsideStart = { tag, text: caret.node };
+      placeCaret(caret);
+      updateTagBoundaryState();
+    }, 0);
+    return true;
+  };
+
+  const applyPendingBoundaryStep = () => {
+    const step = pendingBoundaryStep;
+    if (!step || !writer.editor) return;
+    pendingBoundaryStep = null;
+    if (!isAttached(step.caret.node)) return;
+    if (step.pin) pinnedInsideStart = { tag: step.tag, text: step.caret.node };
+    placeCaret(step.caret);
   };
 
   // === End tag boundary visualization ===
@@ -1707,6 +2030,22 @@ export const tinymceWrapperInit = function ({
 
     writer.editor.lastKeyPress = event.code; // store the last key press
 
+    // Remember the text node before TinyMCE's fake caret rewrites the selection.
+    // Leave an in-progress IME snapshot alone; compositionend consumes it.
+    if (
+      !boundaryComposing &&
+      !event.isComposing &&
+      writer.isReadOnly !== true &&
+      writer.isTextLocked !== true
+    ) {
+      boundaryInsertSnapshot = null;
+      const isPlainInsert =
+        event.key.length === 1 && !event.ctrlKey && !event.metaKey && !event.altKey;
+      if (isPlainInsert) {
+        boundaryInsertSnapshot = captureBoundaryInsertSnapshot(true);
+      }
+    }
+
     // Option+←/→ (Mac) or Ctrl+←/→ (Windows/Linux): jump by punctuation / whitespace,
     // landing before the boundary. Replaces the browser's Latin-centric "word" jump,
     // which is nearly useless for Chinese and other no-space scripts.
@@ -1728,8 +2067,29 @@ export const tinymceWrapperInit = function ({
       return;
     }
 
-    // At an internal end-boundary (cursor inside _tag element at end of its text), block Delete
-    // so the browser doesn't merge content from after the tag into the element.
+    // Two positions share the pixel at the edge of an inline segment.
+    // Right arrow enters the next segment; left arrow steps back to the
+    // end of the previous one. A paragraph break is left to the browser.
+    if (
+      (event.code === 'ArrowRight' || event.code === 'ArrowLeft') &&
+      !event.shiftKey &&
+      !event.altKey &&
+      !event.metaKey &&
+      !event.ctrlKey
+    ) {
+      const direction = event.code === 'ArrowRight' ? 'forward' : 'backward';
+      if (stepAcrossInlineBoundary(direction)) {
+        event.preventDefault();
+        event.stopPropagation();
+        return;
+      }
+      // This arrow is an ordinary move. Don't reapply the previous boundary step on keyup.
+      pendingBoundaryStep = null;
+    }
+
+    // At the end of a tag's own text, block Delete so the browser doesn't pull
+    // the following sibling into the tag. Offset 0 is not the end: Delete there
+    // removes the first character and is handled in beforeinput.
     if (
       currentBoundaryElement &&
       !currentBoundaryIsExternal &&
@@ -1739,8 +2099,15 @@ export const tinymceWrapperInit = function ({
       !event.metaKey &&
       !event.altKey
     ) {
-      event.preventDefault();
-      return;
+      const rng = writer.editor.selection.getRng();
+      if (
+        rng.collapsed &&
+        caretAtEndOfTag(currentBoundaryElement, rng.startContainer, rng.startOffset)
+      ) {
+        event.preventDefault();
+        event.stopPropagation();
+        return;
+      }
     }
 
     // Shift+Backspace / Shift+Delete: unwrap the phrase/entity tag at the cursor,
@@ -1872,6 +2239,9 @@ export const tinymceWrapperInit = function ({
   const debouncedSyncCurrentEntityContent = debounce(syncCurrentEntityContent, 150);
 
   const onKeyUpHandler = (event: KeyboardEvent) => {
+    // TinyMCE's own keyup can bounce a caret we just placed inside a segment.
+    applyPendingBoundaryStep();
+
     // nav keys and backspace check
     switch (event.code) {
       case 'Home':
@@ -1992,6 +2362,8 @@ export const tinymceWrapperInit = function ({
       }
     }
 
+    if (!boundaryComposing) boundaryInsertSnapshot = null;
+
     writer.event('writerKeyup').publish(event);
   };
 
@@ -2095,7 +2467,15 @@ export const tinymceWrapperInit = function ({
 
     // check if inside boundary tag
     const parent = range.commonAncestorContainer;
-    if (isElement(parent) && parent.hasAttribute('_entity')) {
+    if (
+      pinnedInsideStart &&
+      isAttached(pinnedInsideStart.text) &&
+      isElement(parent) &&
+      (parent === pinnedInsideStart.tag || pinnedInsideStart.tag.contains(parent))
+    ) {
+      placeCaret({ node: pinnedInsideStart.text, offset: 0 });
+      range = writer.editor.selection.getRng();
+    } else if (isElement(parent) && parent.hasAttribute('_entity')) {
       writer.entitiesManager.highlightEntity(); // remove highlight
       if (
         (writer.editor?.dom.hasClass(parent, 'start') && event.code === 'ArrowLeft') ||

@@ -481,6 +481,15 @@ body.project-language-japanese {
   color: green;
 }
 
+// The schema stylesheet paints the note's @type in front of the text
+// (`comm: `, in small caps, so it reads COMM:). Commentary is already green,
+// so the label is redundant. !important is required because that schema rule
+// is injected after this file.
+[_tag='note'][type='comm']::before {
+  content: none !important;
+  display: none !important;
+}
+
 .entity.citation.start,
 .entity.note.start,
 .entity.keyword.start {
