@@ -1137,3 +1137,11 @@ The last step of an import (and `finalize_body` run over a file already in the p
 ### Tabs: the open document is easy to find
 
 - The tab of the open document is now filled with the theme's primary colour (the dark teal of the Database Window button in light mode, a light teal in dark mode) with matching text, against flat tabs with dimmer text. It has a small corner radius, not the button's pill shape, so it still reads as a tab. Before, only the text colour changed, which was hard to see among many tabs. The weight stays the same, so selecting a tab does not move the ones beside it, and the close button takes the tab's text colour. The dirty mark (`*`) and the changed-on-disk mark (`↻`) are unchanged.
+
+### Tag edges: typing, Delete and arrow keys (issue 40)
+
+- At the edge of an inline segment (a name, a note, a quotation) the caret just outside the closing tag and the caret at the last character inside it are the same pixel, so typed characters sometimes landed on the wrong side. Typing, and an IME commit, is now placed on the side the caret was on when the key went down.
+- Forward Delete at the first character inside a tag removes that character and leaves the caret inside the tag, instead of letting the caret slip out and the next character land before the tag. It removes a whole character (a base with its variation selector, a Tibetan stack, a letter with its accent), not a single code point, so nothing is left orphaned.
+- Arrow keys make one stop between the two positions at an inline edge: the arrow that enters a segment lands on its first (or last) character, and the next one leaves it. Paragraphs are not stepped, and a bar on the left of the first character marks the inside position, with the existing glow marking the outside one. Right-to-left text is not handled.
+- Commentary notes (`<note type="comm">`) no longer show a "comm:" label in front of the text; they are already green.
+- The planning note `docs/tag-boundary-navigation-planning.md` now says what the code does: the three-position navigator it describes was removed in June, and this is a smaller two-position version.

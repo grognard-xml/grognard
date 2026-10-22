@@ -2,7 +2,7 @@ import {
   boundaryArrowAction,
   caretAtEndOfTag,
   caretFromSelection,
-  deleteFirstVisibleCodePoint,
+  deleteFirstVisibleGrapheme,
   ensureOutsideText,
   insideStartText,
   insertAt,
@@ -52,25 +52,67 @@ describe('caretAtEndOfTag', () => {
   });
 });
 
-describe('deleteFirstVisibleCodePoint', () => {
-  it('deletes one character and keeps a surrogate pair intact', () => {
-    const text = document.createTextNode('Jean');
-    expect(deleteFirstVisibleCodePoint(text)).toBe(true);
-    expect(text.data).toBe('ean');
+describe('deleteFirstVisibleGrapheme', () => {
+  const after = (data: string) => {
+    const text = document.createTextNode(data);
+    const deleted = deleteFirstVisibleGrapheme(text);
+    return { deleted, data: text.data };
+  };
 
-    const rare = document.createTextNode('𠀀子');
-    expect(deleteFirstVisibleCodePoint(rare)).toBe(true);
-    expect(rare.data).toBe('子');
+  it('deletes one character and keeps a surrogate pair intact', () => {
+    expect(after('Jean')).toEqual({ deleted: true, data: 'ean' });
+    expect(after('𠀀子')).toEqual({ deleted: true, data: '子' });
   });
 
   it('leaves a one-character tag alone and skips a leading word-joiner', () => {
-    const only = document.createTextNode('子');
-    expect(deleteFirstVisibleCodePoint(only)).toBe(false);
-    expect(only.data).toBe('子');
+    expect(after('子')).toEqual({ deleted: false, data: '子' });
+    expect(after('\uFEFFJean')).toEqual({ deleted: true, data: '\uFEFFean' });
+    expect(after('\u200B子')).toEqual({ deleted: false, data: '\u200B子' });
+    expect(after('子\uFEFF')).toEqual({ deleted: false, data: '子\uFEFF' });
+  });
 
-    const marked = document.createTextNode('\uFEFFJean');
-    expect(deleteFirstVisibleCodePoint(marked)).toBe(true);
-    expect(marked.data).toBe('\uFEFFean');
+  it('deletes a character with its variation selector, leaving no orphan', () => {
+    expect(after('渚\u{E0100}乙丙')).toEqual({ deleted: true, data: '乙丙' });
+    expect(after('渚\uFE00乙')).toEqual({ deleted: true, data: '乙' });
+  });
+
+  it('leaves a lone character with a variation selector alone', () => {
+    expect(after('渚\u{E0100}')).toEqual({ deleted: false, data: '渚\u{E0100}' });
+  });
+
+  it('deletes a whole Tibetan stack', () => {
+    expect(after('\u0F40\u0FB1\u0F72\u0F42')).toEqual({ deleted: true, data: '\u0F42' });
+  });
+
+  it('deletes a letter with its accent, a flag and a joined emoji as one character', () => {
+    expect(after('e\u0301x')).toEqual({ deleted: true, data: 'x' });
+    expect(after('\u{1F1EB}\u{1F1F7}\u{1F1E9}\u{1F1EA}')).toEqual({
+      deleted: true,
+      data: '\u{1F1E9}\u{1F1EA}',
+    });
+    expect(after('👨\u200D👩\u200D👧x')).toEqual({ deleted: true, data: 'x' });
+  });
+
+  it('does nothing to an empty node', () => {
+    expect(after('')).toEqual({ deleted: false, data: '' });
+    expect(after('\uFEFF')).toEqual({ deleted: false, data: '\uFEFF' });
+  });
+
+  describe('without Intl.Segmenter', () => {
+    const original = Intl.Segmenter;
+    beforeEach(() => {
+      (Intl as unknown as { Segmenter?: unknown }).Segmenter = undefined;
+      delete (Intl as unknown as { Segmenter?: unknown }).Segmenter;
+    });
+    afterEach(() => {
+      (Intl as unknown as { Segmenter?: unknown }).Segmenter = original;
+    });
+
+    it('falls back to one code point', () => {
+      expect(after('Jean')).toEqual({ deleted: true, data: 'ean' });
+      expect(after('𠀀子')).toEqual({ deleted: true, data: '子' });
+      expect(after('子')).toEqual({ deleted: false, data: '子' });
+    });
   });
 });
 

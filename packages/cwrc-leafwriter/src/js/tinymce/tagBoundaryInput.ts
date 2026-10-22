@@ -1,13 +1,24 @@
 /**
- * Typing and deleting at the edge of an inline tag.
+ * Caret positions, typing and deleting at the edge of an inline tag.
  *
  * Show-tags brackets are CSS ::before/::after, so they cannot hold a caret.
  * "Just after </tag>" and "just inside the tag, at the last character" are
- * the same pixel. TinyMCE's fake caret then inserts on the wrong side.
+ * the same pixel. TinyMCE's fake caret then inserts on the wrong side. Two
+ * things deal with that:
  *
- * Callers snapshot the real text node on keydown, before that rewrite, and
- * use these helpers to put the character on the side the snapshot recorded.
- * Arrow-key stops are intentionally not part of this. See GitHub issue 40.
+ * - Editing. Callers snapshot the real text node on keydown, before that
+ *   rewrite, and use these helpers to put a typed character (or an IME commit)
+ *   on the side the snapshot recorded, and to delete forward at the first
+ *   character of a tag.
+ * - Arrow keys. At the edge of an inline segment there are two caret
+ *   positions, outside and inside, so `boundaryArrowAction` makes one extra
+ *   stop there: the arrow that enters a segment lands on its first (or last)
+ *   character, and the arrow that leaves it lands in the neighbouring text.
+ *   Block tags such as a paragraph are not stepped: the browser already
+ *   handles them. The older three-position navigator (see
+ *   docs/tag-boundary-navigation-planning.md) is not what this is.
+ *
+ * See GitHub issue 40.
  */
 
 export type BoundarySide = 'before' | 'after';
@@ -160,25 +171,41 @@ export const insertAt = (caret: TextCaret, data: string): TextCaret => {
   return { node: caret.node, offset: offset + data.length };
 };
 
+const isInvisibleMark = (char: string | undefined): boolean =>
+  char === '\uFEFF' || char === '\u200B';
+
+/** Length in UTF-16 units of the first user-perceived character of `text`: a base with its
+ * variation selector (IVS), a Tibetan stack, a letter with its accents, a flag. Falls back to one
+ * code point where `Intl.Segmenter` does not exist. */
+const firstGraphemeLength = (text: string): number => {
+  if (text.length === 0) return 0;
+  if (typeof Intl !== 'undefined' && 'Segmenter' in Intl) {
+    const segmenter = new Intl.Segmenter(undefined, { granularity: 'grapheme' });
+    const first = segmenter.segment(text)[Symbol.iterator]().next();
+    if (!first.done) return first.value.segment.length;
+  }
+  return text.codePointAt(0)! > 0xffff ? 2 : 1;
+};
+
 /**
- * Delete one visible code point at the start of `node`.
+ * Delete one visible character (a whole grapheme cluster, so no orphaned variation selector,
+ * subjoined consonant or accent is left behind) at the start of `node`.
  * Returns false when only one real character is left: `prevent_delete.ts`
  * keeps that character's tag alive by inserting U+FEFF, and this helper
  * must not fight it. Leading U+FEFF / U+200B are skipped, not deleted.
  */
-export const deleteFirstVisibleCodePoint = (node: Text): boolean => {
-  const visible = node.data.replace(/[\uFEFF\u200B]/g, '');
-  if ([...visible].length <= 1) return false;
+export const deleteFirstVisibleGrapheme = (node: Text): boolean => {
   let offset = 0;
-  while (
-    offset < node.length &&
-    (node.data[offset] === '\uFEFF' || node.data[offset] === '\u200B')
-  ) {
-    offset += 1;
-  }
-  const codePoint = node.data.codePointAt(offset);
-  if (codePoint === undefined) return false;
-  node.deleteData(offset, codePoint > 0xffff ? 2 : 1);
+  while (offset < node.length && isInvisibleMark(node.data[offset])) offset += 1;
+
+  const rest = node.data.slice(offset);
+  const length = firstGraphemeLength(rest);
+  if (length === 0) return false;
+
+  const visibleRest = rest.replace(/[\uFEFF\u200B]/g, '');
+  if (visibleRest.length === length) return false;
+
+  node.deleteData(offset, length);
   return true;
 };
 

@@ -58,7 +58,7 @@ import {
   boundaryArrowAction,
   caretAtEndOfTag,
   caretFromSelection,
-  deleteFirstVisibleCodePoint,
+  deleteFirstVisibleGrapheme,
   ensureEndCaret,
   ensureEntryText,
   ensureOutsideText,
@@ -1870,7 +1870,7 @@ export const tinymceWrapperInit = function ({
     }
     const text = rng.startContainer as Text;
     if (!isTagOrCombinedEl(text.parentElement) || !isFirstTextInParent(text)) return false;
-    if (!deleteFirstVisibleCodePoint(text)) return false;
+    if (!deleteFirstVisibleGrapheme(text)) return false;
 
     event.preventDefault();
     event.stopImmediatePropagation();
