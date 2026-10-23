@@ -60,7 +60,8 @@ class Validation {
         : (this.autoValidateTimerActive = true);
 
       this.autoValidateTimer = setTimeout(() => {
-        void this.validate();
+        // Automatic, so quiet: it must not open the panel the scholar has put away.
+        void this.writer.overmindActions.validator.validate({ quiet: true });
         this.autoValidateTimerActive = false;
       }, this.AUTO_VALIDATE_ONCHANGE_TIMER);
     });
@@ -108,9 +109,7 @@ class Validation {
         $(`#${this.id}_indicator`).hide();
         this.showValidationResult(result);
         if (result.errors?.length || result.parseError || result.schemaUnavailable) {
-          if (!window.__desktopTagging) {
-            this.writer.layoutManager.showModule('validation');
-          }
+          this.revealPanel();
         }
       },
     );
@@ -177,9 +176,7 @@ class Validation {
     }
 
     if (schemaUnavailable) {
-      if (!window.__desktopTagging) {
-        this.writer.layoutManager.showModule('validation');
-      }
+      this.revealPanel();
 
       list.append(`
         <li>
@@ -218,9 +215,7 @@ class Validation {
     }
 
     if (parseError) {
-      if (!window.__desktopTagging) {
-        this.writer.layoutManager.showModule('validation');
-      }
+      this.revealPanel();
 
       const parseErrors: { message: string }[] = parseError.positions?.length
         ? parseError.positions.map((pos: XMLParseErrorPosition) => ({
@@ -268,9 +263,7 @@ class Validation {
 
     const _this = this;
 
-    if (!window.__desktopTagging) {
-      this.writer.layoutManager.showModule('validation');
-    }
+    this.revealPanel();
 
     this.writer.tagger.removeNoteWrappersForEntities();
 
@@ -342,6 +335,13 @@ class Validation {
 
       _this.createDocumentationComponent($(this));
     });
+  }
+
+  /** Open the panel for a result, unless the app is tagging or the run was a quiet automatic one
+   * (see publishValidated in the validator actions). */
+  private revealPanel() {
+    if (window.__desktopTagging || window.__lwQuietValidation) return;
+    this.writer.layoutManager.showModule('validation');
   }
 
   private collapseAll() {

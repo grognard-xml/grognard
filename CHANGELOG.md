@@ -1153,3 +1153,12 @@ The last step of an import (and `finalize_body` run over a file already in the p
 ### Import jobs: pausing at the moment a juan starts
 
 - A pause (or cancel) that arrived while a Kanripo import job was saving its state, just after marking a juan as running, still started that juan, so the pause was not honoured until the juan finished, and in a test it never completed (a CI failure in `importJob.test.ts`). The job now checks again after the save and puts the juan back to pending instead of starting it. The CBETA and Daozang importers did not have this gap.
+
+### The validation panel no longer opens by itself
+
+- The validation panel opened on every validation result, valid ones included, so in Source mode it came back after every edit and every save, even when the document was valid. Three kinds of run now stay quiet and leave the panel as you left it: the validation that runs as you type in Source mode, the one the panel schedules ten seconds after a change, and the check made when you save or leave Source mode. Their results still reach the markers in the margin and the status bar.
+- The panel still opens when you choose Validate, and when a save or leaving Source mode is blocked (the XML is not well formed, or the schema rejects it), because the message points you to it.
+
+### Source editor: the minimap keeps a steady width
+
+- Monaco sizes its minimap as 120 characters at the editor's font size, so it was about 120 px wide at a small Source zoom, a large strip of the pane, and 45 px at a large zoom. It is now 50 characters, a steady 50 px at every zoom, drawn as colour blocks instead of characters, which is lighter on long files and clearer for Chinese.

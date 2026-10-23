@@ -301,7 +301,34 @@ export const initialize = async ({ state }: Context, options?: { silent?: boolea
   }
 };
 
-export const validate = async ({ state, actions }: Context) => {
+declare global {
+  interface Window {
+    /** True while an automatic validation publishes its result: the validation panel must not
+     * open for it. Set by `validate` below, read by the validation panel. */
+    __lwQuietValidation?: boolean;
+  }
+}
+
+/**
+ * Tell the validation panel whether this result is allowed to open it. Automatic runs (while
+ * typing in Source mode, or the check made when saving) are `quiet`: the panel stays as it is and
+ * the result still reaches the markers and the status bar. Only an explicit Validate reveals it.
+ */
+const publishValidated = (
+  writer: NonNullable<typeof window.writer>,
+  quiet: boolean,
+  ...args: Parameters<ReturnType<NonNullable<typeof window.writer>['event']>['publish']>
+) => {
+  window.__lwQuietValidation = quiet;
+  try {
+    writer.event('documentValidated').publish(...args);
+  } finally {
+    window.__lwQuietValidation = false;
+  }
+};
+
+export const validate = async ({ state, actions }: Context, options?: { quiet?: boolean }) => {
+  const quiet = options?.quiet === true;
   const instrumentation = getValidatorInstrumentation();
   instrumentation.validationRunning = true;
 
@@ -348,7 +375,9 @@ export const validate = async ({ state, actions }: Context) => {
   if (!wellFormed.valid) {
     const parseErrorCount = wellFormed.error.positions?.length ?? 1;
     await actions.validator.updateValidationError(parseErrorCount);
-    writer.event('documentValidated').publish(
+    publishValidated(
+      writer,
+      quiet,
       false,
       {
         state: WorkingState.INVALID,
@@ -364,7 +393,9 @@ export const validate = async ({ state, actions }: Context) => {
 
   if (!state.validator.hasWorkerValidator || !state.validator.hasSchema) {
     await actions.validator.updateValidationError(1);
-    writer.event('documentValidated').publish(
+    publishValidated(
+      writer,
+      quiet,
       false,
       {
         state: WorkingState.INVALID,
@@ -390,7 +421,7 @@ export const validate = async ({ state, actions }: Context) => {
     const totalError = valid ? 0 : (errors?.length ?? 0);
     await actions.validator.updateValidationError(totalError);
 
-    writer.event('documentValidated').publish(valid, { valid, errors }, validationString);
+    publishValidated(writer, quiet, valid, { valid, errors }, validationString);
   };
 
   await workerValidator.validate(validationString, Comlink.proxy(validationProgress));

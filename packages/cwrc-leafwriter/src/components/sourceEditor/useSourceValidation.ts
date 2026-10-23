@@ -91,10 +91,11 @@ export const useSourceValidation = () => {
   useEffect(() => {
     if (editorViewMode !== 'source') return;
 
-    void actions.validator.validate();
+    // Automatic: the markers show the result, the panel is not opened for it.
+    void actions.validator.validate({ quiet: true });
 
     const timer = setTimeout(() => {
-      void actions.validator.validate();
+      void actions.validator.validate({ quiet: true });
     }, AUTO_VALIDATE_DELAY_MS);
 
     return () => clearTimeout(timer);

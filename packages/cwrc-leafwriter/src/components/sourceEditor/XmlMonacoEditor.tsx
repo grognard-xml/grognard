@@ -33,6 +33,15 @@ import { TIBETAN_EDITOR_FONT_FAMILY } from '../../utilities/tibetanEditorFonts';
 const TAG_NAME_RE = /^([a-zA-Z_:][\w:.-]*)/;
 
 /**
+ * Monaco sizes its minimap as `maxColumn` characters at the editor's own font size, so at the
+ * default of 120 columns it was about 120 px wide at a small Source zoom and 45 px at a large one,
+ * and at a small zoom it took a large strip of the pane. Fewer columns give a modest strip of the
+ * same width at every zoom. Colour blocks, not drawn characters, are cheaper on long TEI files and
+ * more legible than CJK drawn at that size.
+ */
+export const SOURCE_MINIMAP_OPTIONS = { maxColumn: 50, renderCharacters: false } as const;
+
+/**
  * Given raw XML text and a cursor offset, returns the start offset and length
  * of the tag name in the nearest enclosing opening tag.
  * Works whether the cursor is in content, inside an opening tag, or in a closing tag.
@@ -225,6 +234,7 @@ export const XmlMonacoEditor = ({
       // word wrap on deeply nested TEI, can size its widget to hundreds of
       // pixels of blank space over the text.
       stickyScroll: { enabled: false },
+      minimap: SOURCE_MINIMAP_OPTIONS,
     });
 
     // Monaco can be created while the Source pane is still hidden. Its

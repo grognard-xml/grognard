@@ -661,8 +661,9 @@ const checkCurrentSourceValidity = async ({
     return { valid: false, message: wellFormed.error.message };
   }
 
-  await actions.validator.validate();
-  window.writer?.layoutManager?.showModule('validation');
+  // The check made when saving or leaving Source mode is quiet: a valid buffer must not open the
+  // validation panel. It opens only when the buffer is blocked, below.
+  await actions.validator.validate({ quiet: true });
 
   // Only treat schema violations as blocking when a schema is actually
   // loaded — `validate()` reports validationErrors=1 when no schema/worker
@@ -675,6 +676,7 @@ const checkCurrentSourceValidity = async ({
     state.validator.validationErrors > 0 &&
     !state.editor.allowSourceModeSchemaViolations
   ) {
+    window.writer?.layoutManager?.showModule('validation');
     return {
       valid: false,
       message: i18n.t('LW.xml_document_schema_invalid', {
