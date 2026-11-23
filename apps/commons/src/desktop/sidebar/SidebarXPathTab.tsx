@@ -24,7 +24,7 @@ import {
 } from '../find/searchHistory';
 import { searchXPath } from '../xpath/searchXPath';
 import type { XPathFileResult } from '../xpath/types';
-import { ScopeFields } from '../shared/ScopeFields';
+import { ScopeFields, folderOfFile } from '../shared/ScopeFields';
 import { SEARCH_SCOPE_LABEL_KEYS, type SearchScope } from '../shared/searchScope';
 import { useXPathJump } from '../xpath/useXPathJump';
 import {
@@ -347,6 +347,7 @@ export const SidebarXPathTab = () => {
           scope={scope}
           onScopeChange={setScope}
           customPath={customPath}
+          defaultFolder={folderOfFile(activeTabPath) || rootPath || ''}
           onCustomPathChange={setCustomPath}
           onEnter={() => void handleSearch()}
           scopeLabelId="xpath-scope-label"

@@ -784,7 +784,8 @@
       },
       "scope_fields": {
         "scope": "Scope",
-        "folder_placeholder": "/path/to/folder"
+        "folder_placeholder": "/path/to/folder",
+        "browse_folder": "Browse for a folder"
       },
       "shared": {
         "doc_scope": {

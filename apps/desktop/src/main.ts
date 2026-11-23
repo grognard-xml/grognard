@@ -3171,6 +3171,26 @@ const registerIpcHandlers = () => {
     },
   );
 
+  ipcMain.handle('pickSearchFolder', async (_event, startPath?: string) => {
+    const dialogParent = getTopNativeDialogWindow() ?? mainWindow;
+    if (!dialogParent) return null;
+    dialogParent.focus();
+    const result = await dialog.showOpenDialog(dialogParent, {
+      properties: ['openDirectory'],
+      title: mainT('choose_search_folder_title'),
+      defaultPath:
+        typeof startPath === 'string' && startPath && existsSync(startPath)
+          ? startPath
+          : await getDialogDefaultPath(),
+    });
+    if (result.canceled || !result.filePaths[0]) return null;
+    // The user chose this folder explicitly, so searching it is allowed even
+    // when it lies outside the project.
+    approveRendererReadRoot(result.filePaths[0]);
+    rememberDialogDir(result.filePaths[0], 'directory');
+    return result.filePaths[0];
+  });
+
   ipcMain.handle('pickSchemaFiles', async () => {
     const dialogParent = getTopNativeDialogWindow() ?? mainWindow;
     if (!dialogParent) return null;

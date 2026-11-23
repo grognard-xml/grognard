@@ -1010,7 +1010,8 @@
       },
       "scope_fields": {
         "scope": "Portée",
-        "folder_placeholder": "/chemin/vers/dossier"
+        "folder_placeholder": "/chemin/vers/dossier",
+        "browse_folder": "Parcourir les dossiers"
       },
       "database_window": {
         "title": "Base de données",

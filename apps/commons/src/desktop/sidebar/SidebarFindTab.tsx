@@ -43,7 +43,7 @@ import { useFindNavigation } from '@src/desktop/find/useFindNavigation';
 import { useFindReplace } from '@src/desktop/find/useFindReplace';
 import { useTranslationHitJump } from '@src/desktop/find/useTranslationHitJump';
 import { isTranslationFile } from '@src/desktop/translationFileNaming';
-import { ScopeFields } from '@src/desktop/shared/ScopeFields';
+import { ScopeFields, folderOfFile } from '@src/desktop/shared/ScopeFields';
 import { SEARCH_SCOPE_LABEL_KEYS, type SearchScope } from '@src/desktop/shared/searchScope';
 import { useAppState } from '@src/overmind';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -907,6 +907,7 @@ export const SidebarFindTab = () => {
               scope={scope}
               onScopeChange={setScope}
               customPath={customPath}
+              defaultFolder={folderOfFile(activeTabPath) || rootPath || ''}
               onCustomPathChange={setCustomPath}
               onEnter={() => runFindOrNext()}
               scopeLabelId="find-scope-label"

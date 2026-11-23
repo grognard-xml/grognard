@@ -516,6 +516,7 @@ export interface ElectronAPI {
     projectName: string,
     snapshotPath: string,
   ) => Promise<{ beforeRestoreSnapshot: TimeMachineSnapshotSummary }>;
+  pickSearchFolder?: (startPath?: string) => Promise<string | null>;
   pickSchemaFiles: () => Promise<PickSchemaFilesResult | null>;
   pickDocumentImportSources: () => Promise<DocumentImportSource[] | null>;
   createTempDocument: (content: string) => Promise<{ filePath: string; filename: string }>;

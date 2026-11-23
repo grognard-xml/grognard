@@ -17,6 +17,7 @@ const STRINGS = {
     open_project_failed_message: 'Could not open this project folder.',
     open_recent_project_failed_message: 'This recent project is no longer available.',
     choose_schema_file_title: 'Choose schema file (.rng)',
+    choose_search_folder_title: 'Choose folder to search',
     choose_css_file_title: 'Choose CSS file (optional)',
     choose_css_file_message: 'Optional: choose a CSS file for this schema, or Cancel to skip.',
     import_documents_title: 'Import documents',
@@ -68,6 +69,7 @@ const STRINGS = {
     open_project_failed_message: 'Impossible d’ouvrir ce dossier de projet.',
     open_recent_project_failed_message: 'Ce projet récent n’est plus disponible.',
     choose_schema_file_title: 'Choisir un fichier de schéma (.rng)',
+    choose_search_folder_title: 'Choisir le dossier à rechercher',
     choose_css_file_title: 'Choisir un fichier CSS (facultatif)',
     choose_css_file_message:
       'Facultatif : choisissez un fichier CSS pour ce schéma, ou Annuler pour ignorer.',

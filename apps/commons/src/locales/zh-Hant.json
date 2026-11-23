@@ -738,7 +738,8 @@
       },
       "scope_fields": {
         "scope": "範圍",
-        "folder_placeholder": "/path/to/folder"
+        "folder_placeholder": "/path/to/folder",
+        "browse_folder": "瀏覽資料夾"
       },
       "shared": {
         "doc_scope": {

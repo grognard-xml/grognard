@@ -730,7 +730,8 @@
       },
       "scope_fields": {
         "scope": "範囲",
-        "folder_placeholder": "/path/to/folder"
+        "folder_placeholder": "/path/to/folder",
+        "browse_folder": "フォルダーを参照"
       },
       "shared": {
         "doc_scope": {

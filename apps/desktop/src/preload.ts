@@ -524,6 +524,7 @@ export interface ElectronAPI {
     projectName: string,
     snapshotPath: string,
   ) => Promise<{ beforeRestoreSnapshot: TimeMachineSnapshotSummary }>;
+  pickSearchFolder: (startPath?: string) => Promise<string | null>;
   pickSchemaFiles: () => Promise<PickSchemaFilesResult | null>;
   pickDocumentImportSources: () => Promise<DocumentImportSource[] | null>;
   createTempDocument: (content: string) => Promise<{ filePath: string; filename: string }>;
@@ -1186,6 +1187,7 @@ const electronAPI: ElectronAPI = {
       projectName,
       snapshotPath,
     ),
+  pickSearchFolder: (startPath?: string) => ipcRenderer.invoke('pickSearchFolder', startPath),
   pickSchemaFiles: () => ipcRenderer.invoke('pickSchemaFiles'),
   pickDocumentImportSources: () => ipcRenderer.invoke('pickDocumentImportSources'),
   createTempDocument: (content: string) => ipcRenderer.invoke('createTempDocument', content),

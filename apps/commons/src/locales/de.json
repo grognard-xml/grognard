@@ -923,7 +923,8 @@
       },
       "scope_fields": {
         "scope": "Bereich",
-        "folder_placeholder": "/pfad/zum/ordner"
+        "folder_placeholder": "/pfad/zum/ordner",
+        "browse_folder": "Ordner auswählen"
       },
       "shared": {
         "doc_scope": {

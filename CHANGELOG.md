@@ -1162,3 +1162,8 @@ The last step of an import (and `finalize_body` run over a file already in the p
 ### Source editor: the minimap keeps a steady width
 
 - Monaco sizes its minimap as 120 characters at the editor's font size, so it was about 120 px wide at a small Source zoom, a large strip of the pane, and 45 px at a large zoom. It is now 50 characters, a steady 50 px at every zoom, drawn as colour blocks instead of characters, which is lighter on long files and clearer for Chinese.
+
+### Find and XPath: the Custom scope starts in the open file's folder
+
+- Choosing the Custom scope with an empty path now fills it with the folder of the open file (the project folder if no file is open), instead of leaving a blank field that reported "Folder path is not accessible".
+- A small folder button inside the right end of the path field opens the system folder picker, starting at the current path. A folder chosen this way can be searched even when it lies outside the project. This applies to both the Find and XPath tabs.
