@@ -2177,6 +2177,33 @@ export const tinymceWrapperInit = function ({
     event.keyCode === 8 ||
     event.keyCode === 46;
 
+  // Keys that move the caret or the selection, or are only modifiers, never change the text.
+  // Pressing them must not mark the document as modified.
+  const NON_EDITING_KEYS = new Set([
+    'ArrowLeft',
+    'ArrowRight',
+    'ArrowUp',
+    'ArrowDown',
+    'Home',
+    'End',
+    'PageUp',
+    'PageDown',
+    'Shift',
+    'Control',
+    'Alt',
+    'Meta',
+    'AltGraph',
+    'CapsLock',
+    'NumLock',
+    'ScrollLock',
+    'Escape',
+    'ContextMenu',
+    'Fn',
+    'Insert',
+  ]);
+  const isNonEditingKey = (event: KeyboardEvent): boolean =>
+    NON_EDITING_KEYS.has(event.key) || /^F\d{1,2}$/.test(event.key);
+
   const isBackspace = (event: KeyboardEvent): boolean =>
     event.key === 'Backspace' || event.code === 'Backspace' || event.keyCode === 8;
 
@@ -2378,8 +2405,10 @@ export const tinymceWrapperInit = function ({
       return;
     }
 
-    writer.overmindActions.editor.setContentHasChanged(true);
-    writer.editor.isNotDirty = false;
+    if (!isNonEditingKey(event)) {
+      writer.overmindActions.editor.setContentHasChanged(true);
+      writer.editor.isNotDirty = false;
+    }
 
     writer.event('writerKeydown').publish(event);
   };

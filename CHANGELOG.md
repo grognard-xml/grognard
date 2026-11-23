@@ -1171,3 +1171,7 @@ The last step of an import (and `finalize_body` run over a file already in the p
 ### Reloading a file changed in another program keeps your place
 
 - Choosing Reload after another program changed an open file used to send you back to the top. Source mode now keeps the cursor and the scroll position. Visual mode keeps the cursor and realigns to the text that was at the top of the view, so it still lines up when the outside change added or removed lines above it.
+
+### Visual mode: moving the cursor no longer marks the document as modified
+
+- Every key press in the Visual editor marked the document as modified, including the arrow keys, Home, End, Page Up and Page Down, and a bare Shift, so simply moving around left an unsaved-changes mark on a file whose XML had not changed. Keys that only move the caret or the selection, and the modifier, Escape and function keys, no longer count as edits. Typing, Backspace, Delete, Enter, Tab and input-method entry still do.
