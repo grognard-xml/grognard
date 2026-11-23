@@ -1167,3 +1167,7 @@ The last step of an import (and `finalize_body` run over a file already in the p
 
 - Choosing the Custom scope with an empty path now fills it with the folder of the open file (the project folder if no file is open), instead of leaving a blank field that reported "Folder path is not accessible".
 - A small folder button inside the right end of the path field opens the system folder picker, starting at the current path. A folder chosen this way can be searched even when it lies outside the project. This applies to both the Find and XPath tabs.
+
+### Reloading a file changed in another program keeps your place
+
+- Choosing Reload after another program changed an open file used to send you back to the top. Source mode now keeps the cursor and the scroll position. Visual mode keeps the cursor and realigns to the text that was at the top of the view, so it still lines up when the outside change added or removed lines above it.

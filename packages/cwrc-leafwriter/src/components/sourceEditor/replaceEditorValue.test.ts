@@ -106,14 +106,14 @@ describe('replaceEditorValue', () => {
     ]);
   });
 
-  it('resetting the undo stack replaces the text with setValue and leaves the cursor alone', () => {
+  it('resetting the undo stack replaces the text with setValue and keeps the cursor', () => {
     const cursor = before.indexOf('three');
     const { editor, text, selections } = makeEditor(before, [[cursor, cursor]]);
 
     replaceEditorValue(editor, after, { keepSelection: true, resetUndo: true });
 
     expect(text()).toBe(after);
-    expect(selections()).toEqual([[0, 0]]);
+    expect(selections()).toEqual([[cursor, cursor]]);
   });
 
   it('does nothing without a model', () => {

@@ -9,6 +9,10 @@ import {
   completePostLoadOnboarding,
 } from '@src/desktop/projectOnboarding';
 import { ensureEntityDbFolder } from '@src/desktop/entityDbOnboarding';
+import {
+  captureVisualPosition,
+  restoreVisualPosition,
+} from '../../../../../packages/cwrc-leafwriter/src/js/tinymce/visualPosition';
 import { ensureImportHeaderEntitiesForPaths } from '@src/desktop/ensureImportHeaderEntities';
 import {
   mergeMetadataIntoHeader,
@@ -249,6 +253,25 @@ const pushContentToEditor = (content: string, options?: { resetUndo?: boolean })
 
   // Visual mode needs no flag: loadDocumentXML already clears the undo stack on documentLoaded.
   window.writer.loadDocumentXML(content);
+};
+
+/**
+ * Visual mode only: remembers the caret and scroll position now, and puts them back once the
+ * document that is about to be loaded has rendered. Call it just before loading. Source mode
+ * keeps its own position.
+ */
+const restoreVisualPositionAfterReload = (): void => {
+  const writer = window.writer;
+  if (!writer?.editor || isSourceEditorMode()) return;
+  const position = captureVisualPosition(writer.editor as never);
+  if (!position) return;
+
+  const restore = () => {
+    writer.event('documentLoaded').unsubscribe(restore);
+    // Let the new body lay out before measuring it.
+    requestAnimationFrame(() => restoreVisualPosition(writer.editor as never, position));
+  };
+  writer.event('documentLoaded').subscribe(restore);
 };
 
 const getExplorerSchemaDirPath = (rootPath: string | null, schema?: { rng?: string } | null) =>
@@ -1687,6 +1710,8 @@ export const reloadTabFromDisk = async ({ state, actions }: Context, filePath: s
         isLocal: true,
       });
 
+      // Reloading rebuilds the editor, which would otherwise start at the top.
+      restoreVisualPositionAfterReload();
       pushContentToEditor(content, { resetUndo: true });
     }
 
