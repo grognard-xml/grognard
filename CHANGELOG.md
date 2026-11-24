@@ -1154,6 +1154,8 @@ The last step of an import (and `finalize_body` run over a file already in the p
 
 - A pause (or cancel) that arrived while a Kanripo import job was saving its state, just after marking a juan as running, still started that juan, so the pause was not honoured until the juan finished, and in a test it never completed (a CI failure in `importJob.test.ts`). The job now checks again after the save and puts the juan back to pending instead of starting it. The CBETA and Daozang importers did not have this gap.
 
+## v0.1.1-beta.11
+
 ### The validation panel no longer opens by itself
 
 - The validation panel opened on every validation result, valid ones included, so in Source mode it came back after every edit and every save, even when the document was valid. Three kinds of run now stay quiet and leave the panel as you left it: the validation that runs as you type in Source mode, the one the panel schedules ten seconds after a change, and the check made when you save or leave Source mode. Their results still reach the markers in the margin and the status bar.
