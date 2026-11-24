@@ -4,6 +4,9 @@ import {
   getDefaultTagColor,
   injectTagColorsCss,
   loadAndInjectTagColors,
+  getAttributeRuleKeys,
+  makeTagRuleKey,
+  parseTagRuleKey,
   mixHex,
   pillColorsFromEntry,
   contrastTextOn,
@@ -40,6 +43,30 @@ describe('tagColors', () => {
     const css = generateTagColorsCss(file);
     expect(css).not.toContain('background-color: #abcabc');
     expect(css).not.toContain('color: #123123');
+  });
+
+  test('rule keys round-trip tag, attribute and value', () => {
+    expect(makeTagRuleKey('persName')).toBe('persName');
+    expect(makeTagRuleKey('persName', 'type', 'author')).toBe('persName[type=author]');
+    expect(parseTagRuleKey('persName')).toEqual({ tagName: 'persName' });
+    expect(parseTagRuleKey('persName[type=a=b]')).toEqual({
+      tagName: 'persName',
+      attrName: 'type',
+      attrValue: 'a=b',
+    });
+  });
+
+  test('generateTagColorsCss emits attribute rules after plain rules', () => {
+    const file = emptyTagColorsFile();
+    file.tags["persName[type=it's]"] = { highlight: '#111111' };
+    file.tags.persName = { highlight: '#abcabc' };
+    const css = generateTagColorsCss(file);
+    const attrRule =
+      "*[_tag='persName'][type='it\\'s'], *[_tag='persName']:where([type='it\\'s']) *";
+    expect(css).toContain(attrRule);
+    expect(css).toContain(".showTags *[_tag='persName'][type='it\\'s']:before");
+    expect(css.indexOf(attrRule)).toBeGreaterThan(css.indexOf('background-color: #abcabc'));
+    expect(getAttributeRuleKeys(file, 'persName')).toEqual(["persName[type=it's]"]);
   });
 
   test('mixHex blends colours toward a target weight', () => {

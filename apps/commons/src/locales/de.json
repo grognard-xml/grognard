@@ -925,7 +925,14 @@
         "tag_appearance": "Tagdarstellung",
         "tag_appearance_hint": "Nur Tags für Textkörper-Annotationen — keine Metadaten oder Strukturelemente (div, p, …).",
         "tag_appearance_open_file": "Öffnen Sie eine Datei, um die Tagdarstellung zu verwalten.",
-        "tag_appearance_empty": "Im Dokumenttext gibt es noch keine Annotationstags."
+        "tag_appearance_empty": "Im Dokumenttext gibt es noch keine Annotationstags.",
+        "tag_appearance_rules": "Attributregeln",
+        "tag_appearance_rules_empty": "Noch keine Attributregeln.",
+        "tag_appearance_rules_no_attributes": "Dieses Tag hat im Projekt noch keine Attribute.",
+        "tag_appearance_rule_attribute": "Attribut",
+        "tag_appearance_rule_value": "Wert",
+        "tag_appearance_rule_add": "Hinzufügen",
+        "tag_appearance_rules_from_css": "Aus dem Projekt-CSS"
       },
       "scope_fields": {
         "scope": "Bereich",

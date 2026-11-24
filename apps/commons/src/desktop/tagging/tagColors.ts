@@ -23,6 +23,35 @@ const DEFAULT_TAG_COLORS: Record<string, TagColorEntry> = {
   title: { highlight: '#fdebd0', text: '#784212' },
 };
 
+/**
+ * Rule keys let one tag carry several appearances depending on an attribute value:
+ * `persName` is the plain tag rule, `persName[type=author]` applies only when
+ * the element has `type="author"`.
+ */
+export interface TagRuleKey {
+  tagName: string;
+  attrName?: string;
+  attrValue?: string;
+}
+
+export const makeTagRuleKey = (tagName: string, attrName?: string, attrValue?: string): string =>
+  attrName ? `${tagName}[${attrName}=${attrValue ?? ''}]` : tagName;
+
+export const parseTagRuleKey = (key: string): TagRuleKey => {
+  const match = /^([^[\]]+)\[([^=\]]+)=([\s\S]*)\]$/.exec(key);
+  if (!match) return { tagName: key };
+  return { tagName: match[1]!, attrName: match[2]!, attrValue: match[3]! };
+};
+
+const cssString = (value: string): string => value.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+
+/** Attribute rules for one tag, in file order. */
+export const getAttributeRuleKeys = (file: TagColorsFile, tagName: string): string[] =>
+  Object.keys(file.tags).filter((key) => {
+    const parsed = parseTagRuleKey(key);
+    return parsed.tagName === tagName && parsed.attrName !== undefined;
+  });
+
 export const emptyTagColorsFile = (): TagColorsFile => ({
   version: 1,
   tags: {},
@@ -128,13 +157,30 @@ export const generateTagColorsCss = (file: TagColorsFile): string => {
   const mergedTags = { ...DEFAULT_TAG_COLORS, ...file.tags };
   const lines = ['/* Generated from schema/tag-colors.json — do not edit by hand */'];
 
-  for (const [tagName, colors] of Object.entries(mergedTags)) {
-    const normalized = normalizeTagColorEntry(colors);
+  // Plain tag rules first so attribute rules, which come later, win on equal specificity.
+  const keys = Object.keys(mergedTags).sort(
+    (a, b) =>
+      Number(parseTagRuleKey(a).attrName !== undefined) -
+      Number(parseTagRuleKey(b).attrName !== undefined),
+  );
+
+  for (const key of keys) {
+    const { tagName, attrName, attrValue } = parseTagRuleKey(key);
+    const normalized = normalizeTagColorEntry(mergedTags[key]);
     if (!normalized) continue;
     const highlight = normalized.highlightEnabled === false ? undefined : normalized.highlight;
     const text = normalized.textEnabled === false ? undefined : normalized.text;
     if (!highlight && !text) continue;
-    const selector = `*[_tag='${tagName}'], *[_tag='${tagName}'] *`;
+
+    const base = `*[_tag='${tagName}']`;
+    // :where() keeps descendants at the same specificity as plain tag rules.
+    const descendantBase =
+      attrName === undefined
+        ? base
+        : `${base}:where([${attrName}='${cssString(attrValue ?? '')}'])`;
+    const selfBase =
+      attrName === undefined ? base : `${base}[${attrName}='${cssString(attrValue ?? '')}']`;
+    const selector = `${selfBase}, ${descendantBase} *`;
     const rules: string[] = ['box-decoration-break: clone', '-webkit-box-decoration-break: clone'];
     if (highlight) rules.push(`background-color: ${highlight}`);
     if (text) rules.push(`color: ${text} !important`);
@@ -146,10 +192,10 @@ export const generateTagColorsCss = (file: TagColorsFile): string => {
       if (pill.background) pillRules.push(`background-color: ${pill.background}`);
       if (pill.text) pillRules.push(`color: ${pill.text} !important`);
       const pillSelector = [
-        `.showTags *[_tag='${tagName}']:before`,
-        `.showTags *[_tag='${tagName}']:after`,
-        `.showTags *[_tag='${tagName}'] *[_tag]:before`,
-        `.showTags *[_tag='${tagName}'] *[_tag]:after`,
+        `.showTags ${selfBase}:before`,
+        `.showTags ${selfBase}:after`,
+        `.showTags ${descendantBase} *[_tag]:before`,
+        `.showTags ${descendantBase} *[_tag]:after`,
       ].join(', ');
       lines.push(`${pillSelector} { ${pillRules.join('; ')}; }`);
     }

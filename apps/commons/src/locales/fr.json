@@ -1012,7 +1012,14 @@
         "tag_appearance": "Apparence des balises",
         "tag_appearance_hint": "Balises d’annotation du corps seulement — pas les métadonnées ni la structure (div, p, …).",
         "tag_appearance_open_file": "Ouvrez un fichier pour gérer l’apparence des balises.",
-        "tag_appearance_empty": "Aucune balise d’annotation dans le corps du document pour l’instant."
+        "tag_appearance_empty": "Aucune balise d’annotation dans le corps du document pour l’instant.",
+        "tag_appearance_rules": "Règles par attribut",
+        "tag_appearance_rules_empty": "Aucune règle par attribut pour l’instant.",
+        "tag_appearance_rules_no_attributes": "Cette balise n’a pas encore d’attributs dans le projet.",
+        "tag_appearance_rule_attribute": "Attribut",
+        "tag_appearance_rule_value": "Valeur",
+        "tag_appearance_rule_add": "Ajouter",
+        "tag_appearance_rules_from_css": "Depuis le CSS du projet"
       },
       "scope_fields": {
         "scope": "Portée",

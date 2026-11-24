@@ -1197,3 +1197,12 @@ The last step of an import (and `finalize_body` run over a file already in the p
 
 - The Intel macOS build in CI now runs on a native Intel runner (`macos-15-intel`) instead of being cross-built on an Apple silicon one, as the release workflow already did.
 - A new workflow re-runs, at most twice, the CI and release jobs that failed without ever getting a runner. Jobs that started and failed are not retried.
+
+### Tag Appearance: colours by attribute value
+
+- Each tag row in the Tag Appearance panel now has a rules button that opens a sub-list of attribute rules. A rule gives one attribute value its own highlight and text colour, so `seg[type=lemma]` can look different from other `seg` elements. Rules are saved in `schema/tag-colors.json` under keys such as `persName[type=author]`; existing files load unchanged, and a rule overrides the plain tag colour on the elements it matches. The tag-label pills follow the rules too.
+- The sub-list suggests rules from the project's stylesheet: exact `tag[attr='value']` selectors in the CSS named by the project's `schema.css` become one-click "+ attr=value" chips. Rules can also be added from the attributes and values found in the project.
+
+### Undo and Redo include tag colour changes
+
+- Changing a tag's colours, or adding or removing an attribute rule, in the Tag Appearance panel can now be undone and redone with the rest of your edits. In Visual mode they are undone in the order you made them, so typing after a colour change is undone first. A colour-picker drag counts as one step. In Source mode, recent colour changes are undone before text edits. Switching projects or loading a document clears the colour history.

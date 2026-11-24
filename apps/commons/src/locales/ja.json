@@ -732,7 +732,14 @@
         "tag_appearance": "タグの外観",
         "tag_appearance_hint": "Body annotation tags only — not metadata or structure (div, p, …).",
         "tag_appearance_open_file": "Open a file to manage tag appearance.",
-        "tag_appearance_empty": "No annotation tags in the document body yet."
+        "tag_appearance_empty": "No annotation tags in the document body yet.",
+        "tag_appearance_rules": "Attribute rules",
+        "tag_appearance_rules_empty": "No attribute rules yet.",
+        "tag_appearance_rules_no_attributes": "This tag has no attributes in the project yet.",
+        "tag_appearance_rule_attribute": "Attribute",
+        "tag_appearance_rule_value": "Value",
+        "tag_appearance_rule_add": "Add",
+        "tag_appearance_rules_from_css": "From project CSS"
       },
       "scope_fields": {
         "scope": "範囲",

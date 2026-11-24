@@ -1,4 +1,5 @@
 import { redoWysiwygEditor, undoWysiwygEditor } from './find/selectTextInEditor';
+import { redoAppearance, undoAppearance } from './tagging/appearanceHistory';
 
 const isSourceEditorMode = () => window.writer?.overmindState?.ui?.editorViewMode === 'source';
 
@@ -18,6 +19,9 @@ export const undoDocumentEditor = async (): Promise<boolean> => {
     return true;
   }
 
+  // Tag colour changes sit in the same history as document edits, in order.
+  if (await undoAppearance()) return true;
+
   if (isSourceEditorMode()) {
     const content = (await window.__leafWriterSourceFind?.undo?.()) ?? null;
     if (content === null) return false;
@@ -34,6 +38,8 @@ export const redoDocumentEditor = async (): Promise<boolean> => {
   if (translationPane?.isActive() && (await translationPane.redo())) {
     return true;
   }
+
+  if (await redoAppearance()) return true;
 
   if (isSourceEditorMode()) {
     const content = (await window.__leafWriterSourceFind?.redo?.()) ?? null;
