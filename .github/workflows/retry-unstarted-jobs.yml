@@ -6,7 +6,9 @@ name: Retry unstarted jobs
 # re-runs only those jobs, at most twice per run. Jobs that started and failed are left alone.
 on:
   workflow_run:
-    workflows: ['CI', 'Release desktop builds']
+    workflows:
+      - CI
+      - Release desktop builds
     types: [completed]
 
 permissions:

@@ -400,10 +400,11 @@ jobs:
         shell: pwsh
         continue-on-error: true
         run: |
-          node -e "require.resolve('electron'); require.resolve('@cwrc/leafwriter/package.json'); require.resolve('typescript')"
+          # Plain file checks: `require.resolve` fails on packages whose `exports` hide
+          # package.json, and `npm ls` complains about peer ranges this repo tolerates.
+          # existsSync follows the workspace junction, so a broken link fails here.
+          node -e "const fs = require('fs'); const need = ['node_modules/electron/path.txt', 'node_modules/@cwrc/leafwriter/package.json', 'node_modules/typescript/package.json', 'apps/desktop/node_modules']; const missing = need.filter((p) => !fs.existsSync(p)); if (missing.length) { console.error('Missing after restore: ' + missing.join(', ')); process.exit(1); }"
           if ($LASTEXITCODE -ne 0) { throw 'Restored node_modules is not usable.' }
-          npm ls --workspaces --depth=0 | Out-Null
-          if ($LASTEXITCODE -ne 0) { throw 'Restored node_modules does not match the lockfile.' }
           # The desktop postinstall step, which `npm ci` would otherwise have run. It follows its
           # own version stamp, so it is not part of the cached tree.
           node apps/desktop/scripts/download-lemminx.mjs
