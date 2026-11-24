@@ -1182,3 +1182,7 @@ The last step of an import (and `finalize_body` run over a file already in the p
 - Our own code was fixed rather than silenced. One was a real bug: saving project metadata used a stale list of open tabs. The translation pane now also re-reads the project source language when it changes.
 - The code inherited from the original LEAF-Writer no longer warns about explicit `any` and undescribed `@ts-expect-error` comments (about 540 warnings); the rules stay on for our own apps.
 - The Linux CI and release jobs are pinned to Ubuntu 24.04, ahead of the `ubuntu-latest` move to Ubuntu 26.
+
+### CI: Windows arm64 builds cache the installed dependencies
+
+- Installing dependencies took 14 to 20 minutes on the Windows arm64 runner, even with the npm download cache warm, and decided the length of the whole pipeline. That build now restores the installed `node_modules` from a cache keyed on the lockfile, and only runs `npm ci` when there is no cache or the restored tree fails a check. Other platforms and release builds are unchanged.

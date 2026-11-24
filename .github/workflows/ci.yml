@@ -378,7 +378,39 @@ jobs:
           node-version: 24
           cache: npm
 
+      # `npm ci` takes 14-20 minutes on the windows-11-arm runner, even with the npm download
+      # cache warm (the other runners take under 2). The time is spent unpacking ~144k files,
+      # not downloading, so restore the installed tree itself on arm64 and install only on a
+      # miss or when the restored tree turns out to be unusable (Windows junctions for the
+      # workspace links do not always survive a cache round trip).
+      - name: Restore installed dependencies (arm64)
+        id: node-modules
+        if: matrix.arch == 'arm64'
+        uses: actions/cache@v5
+        with:
+          path: |
+            node_modules
+            apps/*/node_modules
+            packages/*/node_modules
+          key: node-modules-${{ runner.os }}-${{ runner.arch }}-node24-${{ hashFiles('package-lock.json') }}
+
+      - name: Check restored dependencies (arm64)
+        id: node-modules-check
+        if: matrix.arch == 'arm64' && steps.node-modules.outputs.cache-hit == 'true'
+        shell: pwsh
+        continue-on-error: true
+        run: |
+          node -e "require.resolve('electron'); require.resolve('@cwrc/leafwriter/package.json'); require.resolve('typescript')"
+          if ($LASTEXITCODE -ne 0) { throw 'Restored node_modules is not usable.' }
+          npm ls --workspaces --depth=0 | Out-Null
+          if ($LASTEXITCODE -ne 0) { throw 'Restored node_modules does not match the lockfile.' }
+          # The desktop postinstall step, which `npm ci` would otherwise have run. It follows its
+          # own version stamp, so it is not part of the cached tree.
+          node apps/desktop/scripts/download-lemminx.mjs
+          if ($LASTEXITCODE -ne 0) { throw 'Could not fetch lemminx.' }
+
       - name: Install dependencies
+        if: matrix.arch != 'arm64' || steps.node-modules.outputs.cache-hit != 'true' || steps.node-modules-check.outcome != 'success'
         run: npm ci
 
       - name: Cache game assets binary
