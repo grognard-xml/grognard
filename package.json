@@ -38,7 +38,7 @@
     "test": "jest --silent --onlyChanged",
     "format": "prettier . --write",
     "format-check": "prettier . --check",
-    "lint": "eslint . && npm run lint --workspaces --if-present",
+    "lint": "eslint . --max-warnings=0 && npm run lint --workspaces --if-present",
     "check:electron-api": "node scripts/check-electron-api-drift.mjs",
     "check:cbeta-schema": "node scripts/check-cbeta-schema-bundle.mjs",
     "typecheck": "npm run check:electron-api && npm run check:cbeta-schema && npm run typecheck --workspaces --if-present",

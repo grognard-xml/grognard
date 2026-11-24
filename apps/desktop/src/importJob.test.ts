@@ -12,8 +12,12 @@ const mockUserData = path.join(os.tmpdir(), `grognard-import-job-test-${process.
 jest.mock('electron', () => ({
   app: { getPath: () => mockUserData },
   Notification: class {
-    on() {}
-    show() {}
+    on() {
+      return undefined;
+    }
+    show() {
+      return undefined;
+    }
   },
   powerSaveBlocker: { start: () => 1, stop: () => undefined },
 }));

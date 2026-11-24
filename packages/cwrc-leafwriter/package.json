@@ -48,7 +48,7 @@
     "clean": "npx rimraf node_modules dist lib",
     "format": "prettier --write \"**/*.{ts,tsx,md}\"",
     "format-check": "prettier . --check",
-    "lint": "eslint .",
+    "lint": "eslint . --max-warnings=0",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "prepublishOnly": "npm run build"
   },

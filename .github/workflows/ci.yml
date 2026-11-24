@@ -17,7 +17,7 @@ permissions:
 jobs:
   test:
     name: Test and lint
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
 
     steps:
       - name: Check out repository
@@ -48,7 +48,7 @@ jobs:
 
   desktop-linux:
     name: Build Linux desktop package (${{ matrix.arch }})
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
       matrix:
@@ -113,7 +113,7 @@ jobs:
 
   desktop-flatpak:
     name: Build Linux desktop Flatpak
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
 
     steps:
       - name: Check out repository

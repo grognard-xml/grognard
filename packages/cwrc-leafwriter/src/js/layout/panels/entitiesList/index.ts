@@ -110,7 +110,6 @@ class EntitiesList {
 
     if (this.writer.isReadOnly) this.$entities.find('.moduleFooter').hide();
 
-    // eslint-disable-next-line @typescript-eslint/ban-ts-comment
     //@ts-expect-error
 
     this.$entities.find('select').selectmenu({

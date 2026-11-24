@@ -108,7 +108,7 @@ class DialogForm {
             switch (type) {
               case 'radio':
                 val = formEl.find('input:checked').val();
-                // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+
                 //@ts-expect-error
                 data[dataKey][mapping] = val;
                 break;
@@ -116,7 +116,7 @@ class DialogForm {
               case 'hidden':
               case 'select':
                 val = formEl.val();
-                // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+
                 //@ts-expect-error
                 if (val !== null) data[dataKey][mapping] = val;
                 break;
@@ -177,7 +177,6 @@ class DialogForm {
               if (!selectedOption[0]) value = 'other'; //if there is no option for the value, select 'other' option
               formEl.val(value);
 
-              // eslint-disable-next-line @typescript-eslint/ban-ts-comment
               //@ts-expect-error
               if (formEl.data('transform') === 'selectmenu') formEl.selectmenu('refresh');
               // formEl.parents('[data-transform="accordion"]').accordion('option', 'active', 0);
@@ -258,7 +257,6 @@ class DialogForm {
         //   formEl.controlgroup({ icon: false });
         //   break;
         case 'controlgroup':
-          // eslint-disable-next-line @typescript-eslint/ban-ts-comment
           //@ts-expect-error
           formEl.controlgroup({ icon: false });
           break;
@@ -272,7 +270,6 @@ class DialogForm {
         //   });
         //   break;
         case 'selectmenu':
-          // eslint-disable-next-line @typescript-eslint/ban-ts-comment
           //@ts-expect-error
           formEl.selectmenu({
             appendTo: this.writer.layoutManager.getContainer(),
@@ -323,7 +320,6 @@ class DialogForm {
 
       switch (type) {
         case 'radio':
-          // eslint-disable-next-line @typescript-eslint/ban-ts-comment
           //@ts-expect-error
           formEl.find('input').checkboxradio({ icon: false });
           formEl.find('input').prop('checked', false); // reset all
@@ -333,7 +329,6 @@ class DialogForm {
         case 'select':
           formEl.val('');
           if (formEl.data('transform') === 'selectmenu') {
-            // eslint-disable-next-line @typescript-eslint/ban-ts-comment
             //@ts-expect-error
             formEl.selectmenu('refresh');
           }
@@ -413,7 +408,6 @@ class DialogForm {
 
       // copy mapped properties to currentData
       mappedProps?.forEach((propName) => {
-        // eslint-disable-next-line @typescript-eslint/ban-ts-comment
         //@ts-expect-error
         this.currentData.properties[propName] = config.entry?.[propName];
       });
@@ -465,7 +459,6 @@ class DialogForm {
           //   formEl.controlgroup('destroy');
           //   break;
           case 'controlgroup':
-            // eslint-disable-next-line @typescript-eslint/ban-ts-comment
             //@ts-expect-error
             formEl.controlgroup('destroy');
             break;
@@ -473,7 +466,6 @@ class DialogForm {
           //   formEl.accordion('destroy');
           //   break;
           case 'selectmenu':
-            // eslint-disable-next-line @typescript-eslint/ban-ts-comment
             //@ts-expect-error
             formEl.selectmenu('destroy');
             break;

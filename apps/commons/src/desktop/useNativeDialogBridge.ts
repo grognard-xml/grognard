@@ -240,7 +240,7 @@ export const useNativeDialogBridge = () => {
     };
     const metadataSaveDeps = () => ({
       electronAPI: window.electronAPI!,
-      openTabs,
+      openTabs: openTabsRef.current,
       reloadTabFromDisk,
       notifyViaSnackbar,
       t,

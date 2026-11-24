@@ -16,7 +16,7 @@
     "build": "tsup",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "test:wikisource": "node --test src/wikisource/*.test.mjs",
-    "lint": "eslint .",
+    "lint": "eslint . --max-warnings=0",
     "icon:export": "node ../../scripts/export-icon.mjs",
     "pmtiles:download": "node scripts/download-pmtiles.mjs",
     "brand-electron": "node scripts/brand-electron-dev.mjs",

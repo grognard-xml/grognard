@@ -128,15 +128,15 @@ export const useCookieConsent = () => {
 
       languages: {
         'en-CA': {
-          //@ts-expect-error
+          //@ts-expect-error -- the library's translation typings are narrower than this content
           consent_modal: consentModalContent('en-CA'),
-          //@ts-expect-error
+          //@ts-expect-error -- the library's translation typings are narrower than this content
           settings_modal: consentSettingsContent('en-CA'),
         },
         'fr-CA': {
-          //@ts-expect-error
+          //@ts-expect-error -- the library's translation typings are narrower than this content
           consent_modal: consentModalContent('fr-CA'),
-          //@ts-expect-error
+          //@ts-expect-error -- the library's translation typings are narrower than this content
           settings_modal: consentSettingsContent('fr-CA'),
         },
       },

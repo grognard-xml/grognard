@@ -8,7 +8,7 @@ import { ProfileProps } from './team-profile';
 
 interface AboutFrontmatter {
   team?: ProfileProps[];
-  [key: string]: any;
+  [key: string]: unknown;
 }
 
 // Static mapping of content by locale. Keyed on `Locales`, so it must stay total:

@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
 import Provider, { ProviderAuth } from '@cwrc/leafwriter-storage-service/types/Provider';
 
 type Providers = Record<string, Provider>;

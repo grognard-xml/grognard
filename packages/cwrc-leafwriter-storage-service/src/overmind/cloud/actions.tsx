@@ -635,7 +635,6 @@ export const forkRepo = async ({ state, actions }: Context): Promise<Repository 
 export const createFolder = async (
   { state, actions }: Context,
   name: string,
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
 ): Promise<any | null> => {
   const provider = actions.cloud.getProvider();
   if (

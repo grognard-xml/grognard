@@ -97,7 +97,7 @@ export interface User {
   firstName?: string;
   lastName?: string;
   username?: string;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+
   identities: Record<string, any>; //Allow more properties
   prefferedID: string;
 }
@@ -133,12 +133,12 @@ export interface Repository {
   default_branch: string;
   owner: {
     username: string;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+
     [x: string]: any;
   };
   path: string;
   writePermission?: boolean;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+
   [x: string]: any;
 }
 
@@ -148,7 +148,7 @@ export interface Content {
   path: string;
   id?: string;
   type?: 'file' | 'folder' | 'dir';
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+
   [x: string]: any;
 }
 
@@ -159,7 +159,7 @@ export interface HighlightParts {
 
 export interface Organization extends Owner {
   avatar_url?: string;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+
   [x: string]: any;
 }
 

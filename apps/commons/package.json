@@ -24,7 +24,7 @@
   "scripts": {
     "format": "prettier --write \"**/*.{ts,tsx,md}\"",
     "format-check": "prettier . --check",
-    "lint": "eslint .",
+    "lint": "eslint . --max-warnings=0",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "clean": "rimraf -rf node_modules public server",
     "glyphs:download": "node scripts/download-glyphs.mjs",

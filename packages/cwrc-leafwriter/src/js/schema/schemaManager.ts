@@ -755,7 +755,6 @@ class SchemaManager {
     let schemaTags = '';
     const elements: string[] = [];
 
-    // eslint-disable-next-line @typescript-eslint/ban-ts-comment
     // @ts-expect-error
 
     $('element', this.schemaXML).each((index, el) => {

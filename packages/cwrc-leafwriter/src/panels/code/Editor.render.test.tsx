@@ -43,9 +43,15 @@ const unsubscribe = jest.fn();
 
 // jsdom has no ResizeObserver; the panel observes its container on mount.
 class StubResizeObserver {
-  observe() {}
-  unobserve() {}
-  disconnect() {}
+  observe() {
+    return undefined;
+  }
+  unobserve() {
+    return undefined;
+  }
+  disconnect() {
+    return undefined;
+  }
 }
 (globalThis as unknown as { ResizeObserver: unknown }).ResizeObserver = StubResizeObserver;
 

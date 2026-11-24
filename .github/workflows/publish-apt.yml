@@ -33,7 +33,7 @@ permissions:
 jobs:
   apt-repo:
     name: Build and deploy apt repo
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     environment:
       name: github-pages
       url: ${{ steps.deploy-pages.outputs.page_url }}

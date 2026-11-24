@@ -148,7 +148,6 @@ class DateDialog implements SchemaDialog {
       $(this).css({ borderBottom: '' });
     });
 
-    // eslint-disable-next-line @typescript-eslint/ban-ts-comment
     //@ts-expect-error
     this.$dateInput.datepicker({
       dateFormat: 'yy-mm-dd',
@@ -178,10 +177,8 @@ class DateDialog implements SchemaDialog {
       $(this).css({ borderBottom: '' });
     });
 
-    // eslint-disable-next-line @typescript-eslint/no-this-alias
     const _this = this;
 
-    // eslint-disable-next-line @typescript-eslint/ban-ts-comment
     //@ts-expect-error
     this.dateRange = $(`#${id}_startDate, #${id}_endDate`).datepicker({
       dateFormat: 'yy-mm-dd',
@@ -199,10 +196,8 @@ class DateDialog implements SchemaDialog {
         const option = this.id.indexOf('startDate') === -1 ? 'maxDate' : 'minDate';
         const instance = $(this).data('datepicker');
 
-        // eslint-disable-next-line @typescript-eslint/ban-ts-comment
         //@ts-expect-error
         const date = $.datepicker.parseDate(
-          // eslint-disable-next-line @typescript-eslint/ban-ts-comment
           //@ts-expect-error
           instance.settings.dateFormat || $.datepicker._defaults.dateFormat,
           selectedDate,
@@ -697,7 +692,7 @@ class DateDialog implements SchemaDialog {
   destroy() {
     this.eastAsianMount?.unmountEastAsianDateFields();
     this.eastAsianMount = null;
-    // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+
     //@ts-expect-error
     this.$dateInput.datepicker('destroy');
     this.dateRange.datepicker('destroy');

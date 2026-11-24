@@ -22,7 +22,6 @@ const referencedTables = (sql: string, knownTables: Set<string>): string[] => {
   const found = new Set<string>();
   const pattern = /REFERENCES\s+"?(\w+)"?\s*\(/gi;
   let match: RegExpExecArray | null;
-  // eslint-disable-next-line no-cond-assign
   while ((match = pattern.exec(sql))) {
     const name = match[1];
     if (name && knownTables.has(name)) found.add(name);

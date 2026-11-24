@@ -139,7 +139,6 @@ class AttributesEditor implements LWDialogProps {
     // check if beforeClose cancelled or not
     if (this.$schemaDialog.is(':hidden')) {
       try {
-        // eslint-disable-next-line @typescript-eslint/ban-ts-comment
         //@ts-expect-error
         $('ins', this.$schemaDialog).tooltip('destroy');
         // eslint-disable-next-line @typescript-eslint/no-unused-vars
@@ -161,7 +160,6 @@ class AttributesEditor implements LWDialogProps {
       this.writer.editor.selection.moveToBookmark(this.writer.editor.currentBookmark);
       // // writer.editor.currentBookmark = null;
       try {
-        // eslint-disable-next-line @typescript-eslint/ban-ts-comment
         //@ts-expect-error
         $('ins', this.$schemaDialog).tooltip('destroy');
         // eslint-disable-next-line @typescript-eslint/no-unused-vars

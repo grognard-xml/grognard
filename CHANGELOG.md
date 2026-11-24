@@ -1175,3 +1175,10 @@ The last step of an import (and `finalize_body` run over a file already in the p
 ### Visual mode: moving the cursor no longer marks the document as modified
 
 - Every key press in the Visual editor marked the document as modified, including the arrow keys, Home, End, Page Up and Page Down, and a bare Shift, so simply moving around left an unsaved-changes mark on a file whose XML had not changed. Keys that only move the caret or the selection, and the modifier, Escape and function keys, no longer count as edits. Typing, Backspace, Delete, Enter, Tab and input-method entry still do.
+
+### Lint: no more warnings in CI
+
+- The linter reported 568 warnings on every CI run, which hid anything new. It now reports none, and `--max-warnings=0` makes any new warning fail the build.
+- Our own code was fixed rather than silenced. One was a real bug: saving project metadata used a stale list of open tabs. The translation pane now also re-reads the project source language when it changes.
+- The code inherited from the original LEAF-Writer no longer warns about explicit `any` and undescribed `@ts-expect-error` comments (about 540 warnings); the rules stay on for our own apps.
+- The Linux CI and release jobs are pinned to Ubuntu 24.04, ahead of the `ubuntu-latest` move to Ubuntu 26.

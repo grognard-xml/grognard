@@ -336,10 +336,14 @@ export const KanripoImportDialog = ({
     if (!punctuateOnly) return selected?.id ?? null;
     const xml = window.__leafWriterProject?.getActiveFileXml?.() ?? '';
     return extractKanripoIdFromXml(xml);
+    // `open` is a deliberate trigger: re-read the active file each time the dialog opens.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [punctuateOnly, selected?.id, open]);
 
   const projectReady = Boolean(window.__leafWriterProject?.isProjectReady?.());
   const hasSources = sources.some((source) => source.text.trim());
+  // `open` and `punctMode` are deliberate triggers: re-read the AI settings when either changes.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   const aiReady = useMemo(() => isAiSuggestReady(aiApiSettingsFromDesktop()), [open, punctMode]);
 
   const search = useCallback(async (text: string) => {

@@ -60,7 +60,6 @@ class ThingDialog implements SchemaDialog {
       </div>
     `).appendTo(parentEl);
 
-    // eslint-disable-next-line @typescript-eslint/ban-ts-comment
     //@ts-expect-error
     const $relinkButton = $(`#${id}_tagAs .relink-bt`, this.$el).button();
     $relinkButton.on('click', () => {
@@ -212,7 +211,6 @@ class ThingDialog implements SchemaDialog {
     `;
   }
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   show(config: { [x: string]: any; entry: Entity; query: string }) {
     this.entry = config.entry ? config.entry : undefined;
     this.selectedText = config.entry ? config.entry.content : config.query;

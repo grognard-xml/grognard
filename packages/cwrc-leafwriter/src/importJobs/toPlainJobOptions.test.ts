@@ -14,7 +14,7 @@ const live = () =>
       schema: { catalogId: 'teiAll' },
       onChange: () => undefined,
       reactive: new Proxy({ a: 1 }, {}),
-      nested: { fn: function () {}, kept: 'yes' },
+      nested: { fn: () => undefined, kept: 'yes' },
     },
     cleanImport: true,
     stripLineBreaks: false,

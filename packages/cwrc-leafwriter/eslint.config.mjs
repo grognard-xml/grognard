@@ -2,6 +2,7 @@ import custom from 'eslint-config-custom';
 
 export default custom({
   tsconfigRootDir: import.meta.dirname,
+  legacyTyping: true,
   project: ['./tsconfig.eslint.json'],
   ignores: [
     'README.md',

@@ -36,11 +36,15 @@ const defaultIgnores = [
  * @param {string[]} [options.project] tsconfig(s) backing the type-aware rules. Workspaces
  *   whose build tsconfig excludes tests should pass a lint-scoped one that includes them.
  * @param {string[]} [options.ignores] extra ignore patterns for this workspace.
+ * @param {boolean} [options.legacyTyping] for code inherited from the original LEAF-Writer
+ *   (largely untyped jQuery/TinyMCE glue): stop warning about explicit `any` and undescribed
+ *   `@ts-expect-error`/`@ts-ignore` comments. New workspaces should leave this off.
  */
 export default function custom({
   tsconfigRootDir,
   project = ['./tsconfig.json'],
   ignores = [],
+  legacyTyping = false,
 } = {}) {
   return tseslint.config(
     { ignores: [...defaultIgnores, ...ignores] },
@@ -170,5 +174,18 @@ export default function custom({
       languageOptions: { globals: globals.node },
       rules: { 'yml/no-empty-mapping-value': 0 },
     },
+
+    // Inherited, largely untyped code: its `any` and ts-comment use is known and stable.
+    ...(legacyTyping
+      ? [
+          {
+            files: ['**/*.ts', '**/*.tsx'],
+            rules: {
+              '@typescript-eslint/no-explicit-any': 'off',
+              '@typescript-eslint/ban-ts-comment': 'off',
+            },
+          },
+        ]
+      : []),
   );
 }

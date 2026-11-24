@@ -46,7 +46,7 @@ const DESKTOP_WINDOW_MODE_STORAGE_KEY = 'desktopWindowMode';
  */
 export const onInitializeOvermind = async (
   { state, actions, effects }: Context,
-  _overmind: any,
+  _overmind: unknown,
 ) => {
   //DARK MODE
   const prefPaletteMode =

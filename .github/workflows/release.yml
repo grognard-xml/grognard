@@ -31,7 +31,7 @@ jobs:
           # otherwise the amd64 host's runtime gets bundled into the arm64
           # .deb, and the app fails to invoke Python on real arm64 machines.
           - arch: amd64
-            runner: ubuntu-latest
+            runner: ubuntu-24.04
             script: build:desktop:linux:amd64
           - arch: arm64
             runner: ubuntu-24.04-arm
@@ -92,7 +92,7 @@ jobs:
 
   linux-flatpak:
     name: Build Linux Flatpak
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
 
     steps:
       - name: Check out repository
@@ -318,7 +318,7 @@ jobs:
 
   browser-extension:
     name: Package browser extension
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
 
     steps:
       - name: Check out repository
@@ -481,7 +481,7 @@ jobs:
       - macos-pkg
       - windows
       - browser-extension
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: write
       id-token: write

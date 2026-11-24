@@ -267,7 +267,6 @@ class PersonDialog implements SchemaDialog {
     return html;
   }
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   show(config: { entry: Entity; query: string; [x: string]: any }) {
     this.entry = config.entry ? config.entry : undefined;
     this.selectedText = config.entry ? config.entry.content : config.query;

@@ -1606,7 +1606,7 @@ export const TranslationPane = () => {
     return () => {
       cancelled = true;
     };
-  }, [alignmentUnit, selectedUnitId, sourcePath, selectedLanguage]);
+  }, [alignmentUnit, selectedUnitId, sourcePath, selectedLanguage, projectSourceLang]);
 
   useEffect(() => {
     const doc = window.writer?.editor?.getDoc?.() ?? document;
@@ -2098,6 +2098,7 @@ export const TranslationPane = () => {
     },
     [
       alignmentUnit,
+      projectSourceLang,
       replaceCurrentUnit,
       selectedLanguage,
       selectedUnitId,

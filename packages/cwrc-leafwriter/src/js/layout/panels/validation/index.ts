@@ -162,7 +162,6 @@ class Validation {
     if (valid) {
       list.append(this.createSucessMessageComponent());
 
-      // eslint-disable-next-line @typescript-eslint/ban-ts-comment
       //@ts-expect-error
 
       const $validateButton = list.find(`.revalidate-button`).button();

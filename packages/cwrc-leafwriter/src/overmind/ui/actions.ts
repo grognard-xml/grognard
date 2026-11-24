@@ -23,7 +23,6 @@ import {
 } from '../../utilities/sourceCursorSync';
 import { refreshGraphicsInBody } from '../../js/schema/mappings/utitlities';
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 export const onInitializeOvermind = ({ state, actions, effects }: Context, _overmind: any) => {
   //DARK MODE
   const prefPaletteMode: PaletteMode =

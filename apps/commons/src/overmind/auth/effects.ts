@@ -32,8 +32,11 @@ interface tokenParsed extends KeycloakTokenParsed {
 /* The Api class is a wrapper for the Keycloak object that provides a set of functions that are used to
 authenticate the user and get the user's profile data */
 
+// The LINCS auth contract is not typed against this client; its calls are checked at runtime.
+/* eslint-disable @typescript-eslint/no-explicit-any */
 const getLincsAuthApi = (baseUrl: string) =>
   initClient(contract as any, { baseUrl, baseHeaders: {} }) as any;
+/* eslint-enable @typescript-eslint/no-explicit-any */
 
 export class Api {
   readonly clientId: string;
@@ -243,7 +246,7 @@ export class Api {
       return { error: { message: t('LWC.auth.api_base_url_undefined') } };
     }
 
-    const authApi = getLincsAuthApi(this.AUTH_API_URL) as any;
+    const authApi = getLincsAuthApi(this.AUTH_API_URL);
     const { body, status } = await authApi.users.getLinkedAccounts({
       headers: { authorization: `Bearer ${keycloakAccessCode}` },
       params: { username },
@@ -289,7 +292,7 @@ export class Api {
       return { error: { message: t('LWC.auth.api_url_undefined') } };
     }
 
-    const authApi = getLincsAuthApi(this.AUTH_API_URL) as any;
+    const authApi = getLincsAuthApi(this.AUTH_API_URL);
     const { body, status } = await authApi.users.getLinkAccountUrl({
       headers: { authorization: `Bearer ${keycloakAccessCode}` },
       params: { username },
@@ -327,7 +330,7 @@ export class Api {
       return new Error('AUTH API URL is unedefined');
     }
 
-    const authApi = getLincsAuthApi(this.AUTH_API_URL) as any;
+    const authApi = getLincsAuthApi(this.AUTH_API_URL);
     const { body, status } = await authApi.providers.getAll();
 
     if (status === 200) return body;

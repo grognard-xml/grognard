@@ -445,6 +445,7 @@ export interface WorkspaceSessionRestore {
 
 export interface ElectronAPI {
   /** IPC methods are versioned independently from the shared renderer contract. */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- open-ended IPC method table
   [method: string]: any;
   openProject: () => Promise<ProjectBundle | null>;
   openProjectAtPath: (projectFilePath: string) => Promise<ProjectBundle | null>;
@@ -947,6 +948,7 @@ export interface ElectronAPI {
 
 declare global {
   interface JQuery {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- jQuery UI option values are untyped
     dialog(method: 'option', optionName: string): any;
     dialog(...args: unknown[]): JQuery;
   }

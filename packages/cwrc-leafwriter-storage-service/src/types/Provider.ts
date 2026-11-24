@@ -173,7 +173,7 @@ export interface AuthenticatedUser {
   userId: string;
   username: string;
   type: UserType;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+
   [key: string]: any;
 }
 
