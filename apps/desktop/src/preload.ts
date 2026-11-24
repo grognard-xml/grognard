@@ -59,7 +59,10 @@ import type {
   SchemaUpdateCheckOptions,
   SchemaUpdateCheckResult,
 } from '../../commons/src/desktop/schemaUpdateTypes';
-import type { AppUpdateCheckResult } from '../../commons/src/desktop/appUpdateTypes';
+import type {
+  AppUpdateCheckResult,
+  AppUpdateStatus,
+} from '../../commons/src/desktop/appUpdateTypes';
 
 export interface FileEntry {
   name: string;
@@ -926,6 +929,8 @@ export interface ElectronAPI {
     ) => void,
   ) => () => void;
   onAuthorityLifecycleUpdated?: (callback: () => void) => () => void;
+  onAppUpdateStatus?: (callback: (status: AppUpdateStatus) => void) => () => void;
+  getAppUpdateStatus?: () => Promise<AppUpdateStatus>;
   onPluginsUpdated?: (callback: () => void) => () => void;
   updateProjectFileConfig: (
     projectFilePath: string,
@@ -1452,6 +1457,13 @@ const electronAPI: ElectronAPI = {
     ipcRenderer.on('authorityLifecycle:updated', listener);
     return () => ipcRenderer.removeListener('authorityLifecycle:updated', listener);
   },
+  onAppUpdateStatus: (callback) => {
+    const listener = (_event: Electron.IpcRendererEvent, status: AppUpdateStatus) =>
+      callback(status);
+    ipcRenderer.on('app:updateStatus', listener);
+    return () => ipcRenderer.removeListener('app:updateStatus', listener);
+  },
+  getAppUpdateStatus: () => ipcRenderer.invoke('app:getUpdateStatus'),
   onPluginsUpdated: (callback) => {
     const listener = () => callback();
     ipcRenderer.on('plugins:updated', listener);

@@ -474,6 +474,12 @@
         "app_update_downloading": "Une nouvelle version ({{version}}) a été trouvée et est en cours de téléchargement. Elle s'installera à la prochaine fermeture de l'application.",
         "app_update_check_failed_title": "Échec de la vérification des mises à jour",
         "app_update_check_failed": "Impossible de vérifier les mises à jour de l'application : {{error}}",
+        "app_update_progress": {
+          "downloading": "Téléchargement de la mise à jour {{version}} · {{percent}} %",
+          "downloading_detail": "Téléchargement de Grognard {{version}} en arrière-plan. Il s’installera à la prochaine fermeture de l’application.",
+          "ready": "Mise à jour {{version}} prête",
+          "ready_detail": "Grognard {{version}} est téléchargé et s’installera à la prochaine fermeture de l’application."
+        },
         "authority_updating": "Mise à jour des paquets d'autorité…",
         "authority_updated": "Paquets d'autorité mis à jour.",
         "authority_update_failed": "Échec de la mise à jour des paquets d'autorité.",

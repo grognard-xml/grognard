@@ -169,13 +169,11 @@ jobs:
 
   desktop-macos:
     name: Build macOS desktop application (${{ matrix.label }})
-    # macos-15 runners are arm64: the arm64 pkg builds natively, and the x64
-    # (Intel) pkg is cross-built via an explicit electron-builder arch flag.
-    # The LJB_*_ARCH vars on the package step below make the bundled Python,
-    # pmtiles and LemMinX binaries follow that flag instead of the runner's
-    # own architecture, which would otherwise ship arm64 payloads inside the
-    # Intel app.
-    runs-on: macos-15
+    # Each arch builds on a native runner (macos-15 is arm64, macos-15-intel is
+    # x64), as the release workflow does. The GROGNARD_*_ARCH vars on the
+    # package step below still pin the bundled Python, pmtiles and LemMinX
+    # binaries to the arch being packaged, so they never depend on the runner.
+    runs-on: ${{ matrix.runner }}
     # The commons webpack build inlines the bundled GlyphWiki JSON (~47 MB),
     # which overruns Node's default ~2 GB heap on 7 GB macOS runners.
     env:
@@ -186,8 +184,10 @@ jobs:
         include:
           - arch: arm64
             label: Apple silicon
+            runner: macos-15
           - arch: x64
             label: Intel
+            runner: macos-15-intel
 
     steps:
       - name: Check out repository

@@ -1,7 +1,10 @@
 import { Notification, app } from 'electron';
 import { autoUpdater } from 'electron-updater';
 
-import type { AppUpdateCheckResult } from '../../commons/src/desktop/appUpdateTypes';
+import type {
+  AppUpdateCheckResult,
+  AppUpdateStatus,
+} from '../../commons/src/desktop/appUpdateTypes';
 import { maybeCheckAuthorityUpdates, runAuthorityLifecyclePipeline } from './authorityLifecycle';
 import { getLocalAuthorityAssetsDir } from './projectPrefs';
 import { updateInstalledPlugins } from './plugins/pluginRegistry';
@@ -29,7 +32,14 @@ export interface InitAutoUpdaterOptions {
   onAuthorityUpdated?: () => void;
   /** Invoked after one or more installed plugins were updated in the background. */
   onPluginsUpdated?: () => void;
+  /** Invoked as an app update is found, downloads, and is ready to install. */
+  onUpdateStatus?: (status: AppUpdateStatus) => void;
 }
+
+let lastUpdateStatus: AppUpdateStatus = { phase: 'idle' };
+
+/** The latest update status, for a window that opened after the download started. */
+export const getAppUpdateStatus = (): AppUpdateStatus => lastUpdateStatus;
 
 let lastAuthorityNotifyKey = '';
 let lastPluginNotifyKey = '';
@@ -128,10 +138,33 @@ export const initAutoUpdater = (options?: InitAutoUpdaterOptions): (() => void) 
     const onError = (error: Error) => {
       console.warn('[updater] update check failed:', error.message);
     };
+    const report = (status: AppUpdateStatus) => {
+      lastUpdateStatus = status;
+      options?.onUpdateStatus?.(status);
+    };
+    const onUpdateAvailable = (info: { version: string }) => {
+      report({ phase: 'downloading', version: info.version, percent: 0 });
+    };
+    const onDownloadProgress = (progress: { percent: number }) => {
+      if (lastUpdateStatus.phase !== 'downloading') return;
+      report({
+        phase: 'downloading',
+        version: lastUpdateStatus.version,
+        percent: Math.max(0, Math.min(100, progress.percent)),
+      });
+    };
     const onUpdateDownloaded = (info: { version: string }) => {
       console.log(`[updater] version ${info.version} downloaded; installs on quit`);
+      report({ phase: 'ready', version: info.version });
+    };
+    const onUpdateError = () => {
+      // A failed download leaves nothing to show; the next scheduled check tries again.
+      if (lastUpdateStatus.phase === 'downloading') report({ phase: 'idle' });
     };
     autoUpdater.on('error', onError);
+    autoUpdater.on('error', onUpdateError);
+    autoUpdater.on('update-available', onUpdateAvailable);
+    autoUpdater.on('download-progress', onDownloadProgress);
     autoUpdater.on('update-downloaded', onUpdateDownloaded);
 
     runScheduledChecks(options);
@@ -140,6 +173,9 @@ export const initAutoUpdater = (options?: InitAutoUpdaterOptions): (() => void) 
     return () => {
       clearInterval(interval);
       autoUpdater.removeListener('error', onError);
+      autoUpdater.removeListener('error', onUpdateError);
+      autoUpdater.removeListener('update-available', onUpdateAvailable);
+      autoUpdater.removeListener('download-progress', onDownloadProgress);
       autoUpdater.removeListener('update-downloaded', onUpdateDownloaded);
     };
   }

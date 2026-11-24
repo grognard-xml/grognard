@@ -436,6 +436,12 @@
         "app_update_downloading": "新しいバージョン（{{version}}）が見つかり、ダウンロード中です。アプリを次回終了するとインストールされます。",
         "app_update_check_failed_title": "更新の確認に失敗しました",
         "app_update_check_failed": "Could not check for app updates: {{error}}",
+        "app_update_progress": {
+          "downloading": "アップデート {{version}} をダウンロード中 · {{percent}}%",
+          "downloading_detail": "Grognard {{version}} をバックグラウンドでダウンロードしています。アプリを次回終了するとインストールされます。",
+          "ready": "アップデート {{version}} の準備完了",
+          "ready_detail": "Grognard {{version}} のダウンロードが完了しました。アプリを次回終了するとインストールされます。"
+        },
         "authority_updating": "権威パックを更新中…",
         "authority_updated": "権威パックを更新しました。",
         "authority_update_failed": "権威パックの更新に失敗しました。",

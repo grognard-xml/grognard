@@ -686,6 +686,12 @@
         "app_update_downloading": "Eine neue Version ({{version}}) wurde gefunden und wird heruntergeladen. Sie wird beim nächsten Beenden der App installiert.",
         "app_update_check_failed_title": "Update-Prüfung fehlgeschlagen",
         "app_update_check_failed": "App-Updates konnten nicht geprüft werden: {{error}}",
+        "app_update_progress": {
+          "downloading": "Update {{version}} wird geladen · {{percent}} %",
+          "downloading_detail": "Grognard {{version}} wird im Hintergrund geladen. Es wird beim nächsten Beenden der App installiert.",
+          "ready": "Update {{version}} bereit",
+          "ready_detail": "Grognard {{version}} ist geladen und wird beim nächsten Beenden der App installiert."
+        },
         "authority_updating": "Autoritätspakete werden aktualisiert…",
         "authority_updated": "Autoritätspakete aktualisiert.",
         "authority_update_failed": "Update der Autoritätspakete fehlgeschlagen.",

@@ -1,0 +1,38 @@
+name: Retry unstarted jobs
+
+# A job that waits too long for a hosted runner fails without running a single step
+# ("The job was not acquired by Runner of type hosted even after multiple attempts").
+# It cannot retry itself, so this workflow looks at each finished CI or release run and
+# re-runs only those jobs, at most twice per run. Jobs that started and failed are left alone.
+on:
+  workflow_run:
+    workflows: ['CI', 'Release desktop builds']
+    types: [completed]
+
+permissions:
+  actions: write
+  contents: read
+
+jobs:
+  retry:
+    name: Re-run jobs that never got a runner
+    if: github.event.workflow_run.conclusion == 'failure' && github.event.workflow_run.run_attempt < 3
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Re-run unstarted jobs
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+          ATTEMPT: ${{ github.event.workflow_run.run_attempt }}
+        run: |
+          job_ids=$(gh api "repos/$REPO/actions/runs/$RUN_ID/attempts/$ATTEMPT/jobs" --paginate \
+            --jq '.jobs[] | select(.conclusion == "failure" and (.steps | length) == 0 and ((.runner_id // 0) == 0)) | .id')
+          if [ -z "$job_ids" ]; then
+            echo "No job failed before getting a runner; nothing to retry."
+            exit 0
+          fi
+          for job_id in $job_ids; do
+            echo "Re-running job $job_id (run $RUN_ID, attempt $ATTEMPT)"
+            gh api -X POST "repos/$REPO/actions/jobs/$job_id/rerun"
+          done

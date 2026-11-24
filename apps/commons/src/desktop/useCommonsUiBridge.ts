@@ -25,6 +25,11 @@ import type {
 } from '@src/desktop/authorityLifecycleTypes';
 import { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import {
+  clearAppUpdateProgress,
+  setAppUpdateProgress,
+} from '../../../../packages/cwrc-leafwriter/src/autoTagging/appUpdateProgress';
+import type { AppUpdateStatus } from '@src/desktop/appUpdateTypes';
 import { createEntitiesScaffold } from '../../../../packages/cwrc-leafwriter/src/autoTagging/entities';
 import { refreshCbdbConcordanceAfterPackLifecycle } from '../../../../packages/cwrc-leafwriter/src/autoTagging/cbdbConcordance';
 import { clearPackContentCache } from '../../../../packages/cwrc-leafwriter/src/services/authority-pack-lookup';
@@ -179,6 +184,40 @@ export const useCommonsUiBridge = () => {
       void refreshAuthorityLifecycle();
     });
   }, [refreshAuthorityLifecycle]);
+
+  useEffect(() => {
+    const api = window.electronAPI;
+    if (!isDesktop() || !api?.onAppUpdateStatus) return;
+
+    const show = (status: AppUpdateStatus) => {
+      if (status.phase === 'downloading') {
+        setAppUpdateProgress({
+          active: true,
+          percent: status.percent,
+          label: t('LWC.desktop.app_update_progress.downloading', {
+            version: status.version,
+            percent: Math.round(status.percent),
+          }),
+          detail: t('LWC.desktop.app_update_progress.downloading_detail', {
+            version: status.version,
+          }),
+        });
+      } else if (status.phase === 'ready') {
+        setAppUpdateProgress({
+          active: true,
+          percent: null,
+          label: t('LWC.desktop.app_update_progress.ready', { version: status.version }),
+          detail: t('LWC.desktop.app_update_progress.ready_detail', { version: status.version }),
+        });
+      } else {
+        clearAppUpdateProgress();
+      }
+    };
+
+    // A window opened after the download started still shows where it stands.
+    void api.getAppUpdateStatus?.().then(show, () => undefined);
+    return api.onAppUpdateStatus(show);
+  }, [t]);
 
   useEffect(() => {
     const api = window.electronAPI;

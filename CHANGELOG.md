@@ -1188,3 +1188,12 @@ The last step of an import (and `finalize_body` run over a file already in the p
 ### CI: Windows arm64 builds cache the installed dependencies
 
 - Installing dependencies took 14 to 20 minutes on the Windows arm64 runner, even with the npm download cache warm, and decided the length of the whole pipeline. That build now restores the installed `node_modules` from a cache keyed on the lockfile, and only runs `npm ci` when there is no cache or the restored tree fails a check. Other platforms and release builds are unchanged.
+
+### Update progress in the bottom bar
+
+- Downloading an app update now shows a small progress bar at the bottom right of the editor, next to the other background indicators: "Downloading update 0.1.2 · 37%", then "Update 0.1.2 ready" once it is downloaded. Updates install the next time you quit the app, so there is no separate installing step; the ready message says so in its tooltip and can be dismissed. A failed download clears the bar, and a window opened mid-download shows where it stands.
+
+### CI: native Intel macOS runner and automatic retries
+
+- The Intel macOS build in CI now runs on a native Intel runner (`macos-15-intel`) instead of being cross-built on an Apple silicon one, as the release workflow already did.
+- A new workflow re-runs, at most twice, the CI and release jobs that failed without ever getting a runner. Jobs that started and failed are not retried.

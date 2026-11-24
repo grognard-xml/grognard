@@ -244,7 +244,7 @@ import {
   startImportJob,
 } from './importJob';
 import type { ImportJobOptions } from '../../commons/src/desktop/importJobTypes';
-import { checkForAppUpdatesManually, initAutoUpdater } from './updater';
+import { checkForAppUpdatesManually, getAppUpdateStatus, initAutoUpdater } from './updater';
 import { installCatalogSchema, installLocalSchema } from './schemaSetup';
 import { ensureSanmiaoDatesSchemaMerged } from './sanmiaoSchemaMerge';
 import { fromLocalFileUrl } from '../../commons/src/desktop/localFileUrl';
@@ -4700,6 +4700,7 @@ app.whenReady().then(() => {
   registerBodyProtocol();
   registerPmtilesProtocol();
   registerIpcHandlers();
+  ipcMain.handle('app:getUpdateStatus', () => getAppUpdateStatus());
   registerNativeDialogIpc();
   browserImportServer = startBrowserImportBridge(() => mainWindow);
   registerLemminxIpc(() => mainWindow);
@@ -4707,6 +4708,10 @@ app.whenReady().then(() => {
     onAuthorityUpdated: () => {
       if (!mainWindow || mainWindow.isDestroyed()) return;
       mainWindow.webContents.send('authorityLifecycle:updated');
+    },
+    onUpdateStatus: (status) => {
+      if (!mainWindow || mainWindow.isDestroyed()) return;
+      mainWindow.webContents.send('app:updateStatus', status);
     },
     onPluginsUpdated: () => {
       buildApplicationMenu();

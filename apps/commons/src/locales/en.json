@@ -442,6 +442,12 @@
         "app_update_downloading": "A new version ({{version}}) was found and is downloading. It will install the next time you quit the app.",
         "app_update_check_failed_title": "Update check failed",
         "app_update_check_failed": "Could not check for app updates: {{error}}",
+        "app_update_progress": {
+          "downloading": "Downloading update {{version}} · {{percent}}%",
+          "downloading_detail": "Downloading Grognard {{version}} in the background. It installs the next time you quit the app.",
+          "ready": "Update {{version}} ready",
+          "ready_detail": "Grognard {{version}} is downloaded and installs the next time you quit the app."
+        },
         "authority_updating": "Updating authority packs…",
         "authority_updated": "Authority packs updated.",
         "authority_update_failed": "Authority pack update failed.",

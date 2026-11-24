@@ -19,7 +19,7 @@ import type {
   SchemaUpdateCheckOptions,
   SchemaUpdateCheckResult,
 } from '@src/desktop/schemaUpdateTypes';
-import type { AppUpdateCheckResult } from '@src/desktop/appUpdateTypes';
+import type { AppUpdateCheckResult, AppUpdateStatus } from '@src/desktop/appUpdateTypes';
 
 export interface FileEntry {
   name: string;
@@ -722,6 +722,9 @@ export interface ElectronAPI {
   ) => () => void;
   onAuthorityLifecycleUpdated?: (callback: () => void) => () => void;
   /** Fired after the background updater replaced one or more installed plugins. */
+  /** Progress of the background app-update download. */
+  onAppUpdateStatus?: (callback: (status: AppUpdateStatus) => void) => () => void;
+  getAppUpdateStatus?: () => Promise<AppUpdateStatus>;
   onPluginsUpdated?: (callback: () => void) => () => void;
   pluginsEnsureSchemaContribution?: (
     pluginId: string,

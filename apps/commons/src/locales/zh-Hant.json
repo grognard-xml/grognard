@@ -442,6 +442,12 @@
         "app_update_downloading": "找到新版本（{{version}}），正在下載。下次結束應用程式時將安裝。",
         "app_update_check_failed_title": "更新檢查失敗",
         "app_update_check_failed": "Could not check for app updates: {{error}}",
+        "app_update_progress": {
+          "downloading": "正在下載更新 {{version}} · {{percent}}%",
+          "downloading_detail": "正在背景下載 Grognard {{version}}。下次結束應用程式時會安裝。",
+          "ready": "更新 {{version}} 已就緒",
+          "ready_detail": "Grognard {{version}} 已下載完成，下次結束應用程式時會安裝。"
+        },
         "authority_updating": "正在更新權威套件…",
         "authority_updated": "權威套件已更新。",
         "authority_update_failed": "權威套件更新失敗。",
