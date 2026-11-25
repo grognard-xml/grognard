@@ -114,6 +114,66 @@ export const ensureGlyphCharDeclEntry = (xml: string, spec: GlyphGraphicSpec): s
   return new XMLSerializer().serializeToString(doc);
 };
 
+/**
+ * Where a glyph's SVG lives when its `<charDecl>` entry is missing. Both composed glyphs
+ * (`chhiv-0012`) and pasted or imported ones (`glyph-<hash>`) are written to `_glyphs/<id>.svg`,
+ * so a `<g ref>` can still be drawn from that name alone.
+ */
+export const conventionalGlyphSvgUrl = (glyphId: string): string => `_glyphs/${glyphId}.svg`;
+
+/** The ids that `<g ref="#id">` elements point to, in document order, without repeats. */
+export const collectGlyphRefIds = (xml: string): string[] => {
+  if (!/<g\s[^>]*\bref="#/.test(xml)) return [];
+  const doc = new DOMParser().parseFromString(xml, 'application/xml');
+  if (doc.querySelector('parsererror')) return [];
+  const ids = new Set<string>();
+  for (const el of Array.from(doc.getElementsByTagName('*'))) {
+    const ref = el.localName === 'g' ? el.getAttribute('ref') : null;
+    if (ref?.startsWith('#') && ref.length > 1) ids.add(ref.slice(1));
+  }
+  return [...ids];
+};
+
+/** The `xml:id`s of every `<glyph>` registered in the document's `<charDecl>`. */
+export const collectDeclaredGlyphIds = (xml: string): Set<string> => {
+  const doc = new DOMParser().parseFromString(xml, 'application/xml');
+  const ids = new Set<string>();
+  if (doc.querySelector('parsererror')) return ids;
+  for (const el of Array.from(doc.getElementsByTagName('*'))) {
+    const id = el.localName === 'glyph' ? el.getAttributeNS(XML_NS, 'id') : null;
+    if (id) ids.add(id);
+  }
+  return ids;
+};
+
+/**
+ * Adds a `<charDecl>` entry for every `<g ref="#id">` that has none, provided `svgExists(id)` finds
+ * the glyph's file, so a glyph whose registration was lost keeps drawing and the reference does
+ * not dangle. The SVG stands in as its own source, as it does for composed glyphs.
+ */
+export const repairMissingGlyphDeclarations = async (
+  xml: string,
+  svgExists: (glyphId: string) => Promise<boolean>,
+): Promise<string> => {
+  const refs = collectGlyphRefIds(xml);
+  if (refs.length === 0) return xml;
+  const declared = collectDeclaredGlyphIds(xml);
+  let result = xml;
+  for (const glyphId of refs) {
+    if (declared.has(glyphId) || !(await svgExists(glyphId))) continue;
+    const url = conventionalGlyphSvgUrl(glyphId);
+    const updated = ensureGlyphCharDeclEntry(result, {
+      glyphId,
+      sourceUrl: url,
+      svgUrl: url,
+      svgWidth: 200,
+      svgHeight: 200,
+    });
+    if (updated) result = updated;
+  }
+  return result;
+};
+
 /** Resolves a `<g ref="#id">` back to its `<charDecl><glyph xml:id="id">` entry. */
 export const findGlyphCharDeclEntry = (xml: string, glyphId: string): GlyphGraphicEntry | null => {
   const doc = new DOMParser().parseFromString(xml, 'application/xml');

@@ -1,7 +1,7 @@
 import $ from 'jquery';
 
 import { fetchDocumentAssetText, resolveDocumentAssetUrl } from '../../../utilities/fetchResource';
-import { findGlyphCharDeclEntry } from '../../../utilities/glyphCharDecl';
+import { conventionalGlyphSvgUrl, findGlyphCharDeclEntry } from '../../../utilities/glyphCharDecl';
 
 /** The full document XML (with header) lives separately from the visual
  * editor's DOM - it's stripped before load and merged back in at save time
@@ -258,13 +258,13 @@ const applyGlyphRefElement = ($tag: JQuery<Element>, documentFilePath: string | 
   const glyphId = refAttr.startsWith('#') ? refAttr.slice(1) : refAttr;
   if (!glyphId) return;
 
+  // The registration can be missing from the stored header (it is rewritten by several paths),
+  // so fall back to where glyph files are always written rather than drawing nothing.
   const storedXml = getStoredDocumentXml();
-  if (!storedXml) return;
+  const entry = storedXml ? findGlyphCharDeclEntry(storedXml, glyphId) : null;
+  const svgUrl = entry?.svgUrl ?? conventionalGlyphSvgUrl(glyphId);
 
-  const entry = findGlyphCharDeclEntry(storedXml, glyphId);
-  if (!entry) return;
-
-  applyMaskedGlyph($tag, true, () => fetchDocumentAssetText(entry.svgUrl, documentFilePath));
+  applyMaskedGlyph($tag, true, () => fetchDocumentAssetText(svgUrl, documentFilePath));
 };
 
 const applyEmSizedGraphic = ($tag: JQuery<Element>, url: string, heightAttr: string) => {

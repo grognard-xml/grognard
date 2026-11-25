@@ -1,6 +1,6 @@
 import type Writer from '../js/Writer';
 import { resolveDocumentAssetUrl } from './fetchResource';
-import { findGlyphCharDeclEntry } from './glyphCharDecl';
+import { conventionalGlyphSvgUrl, findGlyphCharDeclEntry } from './glyphCharDecl';
 import { generatePastedGlyphId, placeCaretAfterElement } from './glyphEditor';
 import { refreshGraphicsInBody } from '../js/schema/mappings/utitlities';
 
@@ -41,11 +41,13 @@ export const scanGlyphOccurrences = (writer: Writer): GlyphOccurrence[] => {
   for (const el of Array.from(body.querySelectorAll('[_tag="g"][type="glyph"][ref]'))) {
     const refAttr = el.getAttribute('ref') ?? '';
     const glyphId = refAttr.startsWith('#') ? refAttr.slice(1) : refAttr;
-    if (!glyphId || !storedXml || seen.has(glyphId)) continue;
-    const entry = findGlyphCharDeclEntry(storedXml, glyphId);
-    if (!entry) continue;
-    const previewUrl = resolveDocumentAssetUrl(entry.svgUrl, documentFilePath);
-    seen.set(glyphId, { kind: 'ref', glyphId, previewUrl, relativeUrl: entry.svgUrl });
+    if (!glyphId || seen.has(glyphId)) continue;
+    // A glyph whose registration is missing from the header is still listed, from where its file
+    // is always written; a thumbnail that cannot load shows as "?".
+    const entry = storedXml ? findGlyphCharDeclEntry(storedXml, glyphId) : null;
+    const relativeUrl = entry?.svgUrl ?? conventionalGlyphSvgUrl(glyphId);
+    const previewUrl = resolveDocumentAssetUrl(relativeUrl, documentFilePath);
+    seen.set(glyphId, { kind: 'ref', glyphId, previewUrl, relativeUrl });
   }
 
   for (const el of Array.from(

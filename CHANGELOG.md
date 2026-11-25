@@ -1244,3 +1244,8 @@ The last step of an import (and `finalize_body` run over a file already in the p
 - On macOS the file navigator follows Finder: Return renames the focused item, ⌘O or ⌘↓ opens it (a folder expands), ⌘↑ moves to the parent folder, ⌘Delete deletes it and ⌘⇧N makes a new folder. With the file tree focused, ⌘O opens the focused item instead of the Open Project dialog; everywhere else it still opens a project.
 - On Windows and Linux it follows Explorer: Enter opens, F2 renames, Delete deletes, Ctrl+Shift+N makes a new folder and Alt+↑ moves to the parent folder.
 - Backspace and a bare Delete on macOS no longer delete files, since neither does in Finder. A new folder made from the keyboard goes inside the focused folder, or beside the focused file.
+
+### Glyphs that lose their registration in the header
+
+- A character from the composer (or a pasted image character) could stop drawing, and vanish from "Insert existing glyph", when the document's `<charDecl>` entry for it went missing from the header; the text still held `<g ref="#chhiv-…"/>`. Such glyphs are now drawn, and listed in the palette, from their file in `_glyphs/` (beside the document or in the project folder).
+- Saving now adds a `<charDecl>` entry back for any `<g ref>` that has none, when its SVG is found in `_glyphs/`, so the reference no longer dangles in the saved file.

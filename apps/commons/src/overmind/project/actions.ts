@@ -60,6 +60,7 @@ import { getEnabledCatalogSchemas } from '@src/desktop/schemaCatalog';
 import { warmMetadataDialogStateCache } from '@src/desktop/projectMetadataDialogState';
 import { maybeCheckSchemaUpdateOnOpen } from '@src/desktop/schemaUpdateCheck';
 import { processSaveForAchievements } from '@src/desktop/achievements/engine';
+import { repairGlyphDeclarationsForSave } from '@src/desktop/glyphDeclarationRepair';
 import { stampContentBeforeSave } from '@src/desktop/revisionDescXml';
 import { separateBlockElements } from '@src/desktop/xmlBlockSpacing';
 import {
@@ -1607,7 +1608,11 @@ export const saveActiveTab = async (
   try {
     const savedFromSourceMode = isSourceEditorMode();
     const baseXml = window.__desktopStoredDocumentXml ?? tab?.content ?? content;
-    const merged = prepareXmlForDiskSave(content, baseXml);
+    const merged = await repairGlyphDeclarationsForSave(
+      prepareXmlForDiskSave(content, baseXml),
+      filePath,
+      state.project.rootPath,
+    );
     const stamped = separateBlockElements(
       await stampContentBeforeSave(merged, state.project.config?.schema?.catalogId),
     );
@@ -1864,7 +1869,11 @@ export const saveActiveTabAs = async (
       ? state.project.openTabs.find((item) => item.filePath === previousPath)
       : state.project.openTabs.find((item) => item.filePath === state.project.activeTabPath);
     const baseXml = window.__desktopStoredDocumentXml ?? sourceTab?.content ?? content;
-    const merged = prepareXmlForDiskSave(content, baseXml);
+    const merged = await repairGlyphDeclarationsForSave(
+      prepareXmlForDiskSave(content, baseXml),
+      filePath,
+      state.project.rootPath,
+    );
     const stamped = separateBlockElements(
       await stampContentBeforeSave(merged, state.project.config?.schema?.catalogId),
     );

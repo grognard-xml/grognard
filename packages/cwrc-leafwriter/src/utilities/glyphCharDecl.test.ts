@@ -1,8 +1,11 @@
 import {
   clearPrunedGlyphDeclarations,
+  collectGlyphRefIds,
+  conventionalGlyphSvgUrl,
   ensureGlyphCharDeclEntry,
   findGlyphCharDeclEntry,
   reconcileGlyphDeclarations,
+  repairMissingGlyphDeclarations,
 } from './glyphCharDecl';
 
 const TEI_NS = 'http://www.tei-c.org/ns/1.0';
@@ -234,5 +237,44 @@ describe('reconcileGlyphDeclarations', () => {
       width: 41,
       height: 49,
     });
+  });
+});
+
+describe('glyphs whose <charDecl> entry was lost', () => {
+  const withRefs = baseXml.replace(
+    '<p>Hello</p>',
+    '<p>a<g type="glyph" ref="#chhiv-0001"/>b<g type="glyph" ref="#glyph-9"/><g type="glyph" ref="#chhiv-0001"/></p>',
+  );
+
+  it('names glyph files by the convention both composed and pasted glyphs follow', () => {
+    expect(conventionalGlyphSvgUrl('chhiv-0012')).toBe('_glyphs/chhiv-0012.svg');
+  });
+
+  it('lists each referenced glyph once', () => {
+    expect(collectGlyphRefIds(withRefs)).toEqual(['chhiv-0001', 'glyph-9']);
+    expect(collectGlyphRefIds(baseXml)).toEqual([]);
+  });
+
+  it('declares the missing ones whose file exists, and only those', async () => {
+    const repaired = await repairMissingGlyphDeclarations(
+      withRefs,
+      async (id) => id === 'chhiv-0001',
+    );
+    expect(findGlyphCharDeclEntry(repaired, 'chhiv-0001')?.svgUrl).toBe('_glyphs/chhiv-0001.svg');
+    expect(findGlyphCharDeclEntry(repaired, 'glyph-9')).toBeNull();
+  });
+
+  it('leaves an existing declaration and an unreferenced document alone', async () => {
+    const declared = ensureGlyphCharDeclEntry(withRefs, {
+      glyphId: 'chhiv-0001',
+      sourceUrl: 'a.png',
+      svgUrl: 'a.svg',
+      svgWidth: 5,
+      svgHeight: 5,
+    })!;
+    expect(await repairMissingGlyphDeclarations(declared, async () => false)).toBe(declared);
+    expect(await repairMissingGlyphDeclarations(baseXml, async () => true)).toBe(baseXml);
+    const again = await repairMissingGlyphDeclarations(declared, async (id) => id === 'chhiv-0001');
+    expect(findGlyphCharDeclEntry(again, 'chhiv-0001')?.svgUrl).toBe('a.svg');
   });
 });
