@@ -78,7 +78,13 @@ import {
   type BoundaryInsertSnapshot,
   type TextCaret,
 } from './tagBoundaryInput';
-import { chooseBoundaryEdge, matchesTagBoundaryMove, moveTagBoundary } from './tagBoundaryMove';
+import { attachTagBoundaryDrag } from './tagBoundaryDrag';
+import {
+  caretInsideBoundary,
+  chooseBoundaryEdge,
+  matchesTagBoundaryMove,
+  moveTagBoundary,
+} from './tagBoundaryMove';
 import { DEFAULT_EDITOR_FONT_SIZE } from '../../overmind/editor/state';
 import {
   isChineseLanguageCode,
@@ -1052,6 +1058,7 @@ export const tinymceWrapperInit = function ({
           rememberEditorRange(editor);
         });
         body.addEventListener('mouseup', () => rememberEditorRange(editor), true);
+        initTagBoundaryDrag(editor);
         body.addEventListener('focusin', () => rememberEditorRange(editor), true);
         body.addEventListener(
           'beforeinput',
@@ -2164,6 +2171,31 @@ export const tinymceWrapperInit = function ({
 
     commitBoundaryCaret(moved.caret, target, edge === 'start', false);
     finishBoundaryEdit();
+  };
+
+  /** Drag a tag label (show-tags pill) to move its boundary. See tagBoundaryDrag.ts. */
+  const initTagBoundaryDrag = (editor: LeafWriterEditor) => {
+    const detach = attachTagBoundaryDrag({
+      body: editor.getBody(),
+      doc: editor.getDoc(),
+      isEnabled: () => writer.isReadOnly !== true,
+      tagsVisible: () => editor.getBody().classList.contains('showTags'),
+      isInlineTag: isInlineEdgeTag,
+      isImmovable: (node) =>
+        editor.dom.isBlock(node) || !isElement(node) || !isTagOrCombinedEl(node),
+      beginUndoStep: () => editor.undoManager.add(),
+      withoutUndo: (fn) => editor.undoManager.ignore(fn),
+      onFinish: (tag, edge) => {
+        commitBoundaryCaret(
+          caretInsideBoundary(tag, edge, editor.getDoc()),
+          tag,
+          edge === 'start',
+          false,
+        );
+        finishBoundaryEdit();
+      },
+    });
+    editor.on('remove', detach);
   };
 
   // === End tag boundary visualization ===

@@ -1,4 +1,11 @@
-import { chooseBoundaryEdge, matchesTagBoundaryMove, moveTagBoundary } from './tagBoundaryMove';
+import {
+  boundaryZones,
+  chooseBoundaryEdge,
+  dragTagBoundaryTo,
+  matchesTagBoundaryMove,
+  moveTagBoundary,
+  zoneAt,
+} from './tagBoundaryMove';
 
 const setup = (html: string) => {
   document.body.innerHTML = `<p id="p">${html}</p>`;
@@ -100,5 +107,125 @@ describe('matchesTagBoundaryMove', () => {
     expect(
       matchesTagBoundaryMove(key({ code: 'ArrowUp', altKey: true, shiftKey: true }), false),
     ).toBe(false);
+  });
+});
+
+describe('dragTagBoundaryTo', () => {
+  const textOf = (p: Element, selector: string) => p.querySelector(selector)!.firstChild as Text;
+
+  test('drags the opening boundary left over text, and back right', () => {
+    const { p, tag } = setup('abcd<span _tag="seg">ef</span>gh');
+    const first = p.firstChild as Text;
+    dragTagBoundaryTo(tag, 'start', { node: first, offset: 1 }, document);
+    expect(html(p)).toBe('a<span _tag="seg">bcdef</span>gh');
+    dragTagBoundaryTo(tag, 'start', { node: textOf(p, '[_tag="seg"]'), offset: 3 }, document);
+    expect(html(p)).toBe('abcd<span _tag="seg">ef</span>gh');
+  });
+
+  test('drags the closing boundary right over text, and back left', () => {
+    const { p, tag } = setup('ab<span _tag="seg">cd</span>efgh');
+    dragTagBoundaryTo(tag, 'end', { node: p.lastChild!, offset: 3 }, document);
+    expect(html(p)).toBe('ab<span _tag="seg">cdefg</span>h');
+    dragTagBoundaryTo(tag, 'end', { node: textOf(p, '[_tag="seg"]'), offset: 3 }, document);
+    expect(html(p)).toBe('ab<span _tag="seg">cde</span>fgh');
+  });
+
+  test('does nothing when the target is already at the boundary', () => {
+    const { p, tag } = setup('ab<span _tag="seg">cd</span>ef');
+    expect(dragTagBoundaryTo(tag, 'end', { node: p.lastChild!, offset: 0 }, document)).toBe(0);
+    expect(dragTagBoundaryTo(tag, 'start', { node: p.firstChild!, offset: 2 }, document)).toBe(0);
+    expect(html(p)).toBe('ab<span _tag="seg">cd</span>ef');
+  });
+
+  test('stops at the parent edge and never empties the tag', () => {
+    const { p, tag } = setup('ab<span _tag="seg">cd</span>ef');
+    dragTagBoundaryTo(tag, 'start', { node: p, offset: 0 }, document);
+    expect(html(p)).toBe('<span _tag="seg">abcd</span>ef');
+    dragTagBoundaryTo(tag, 'end', { node: tag, offset: 0 }, document);
+    expect(html(p)).toBe('<span _tag="seg">a</span>bcdef');
+  });
+
+  test('takes a neighbouring element in whole and leaves it while the target is inside it', () => {
+    const { p, tag } = setup('<span _tag="a">xyz</span><span _tag="seg">cd</span>');
+    const inner = textOf(p, '[_tag="a"]');
+    dragTagBoundaryTo(tag, 'start', { node: inner, offset: 1 }, document);
+    expect(html(p)).toBe('<span _tag="seg"><span _tag="a">xyz</span>cd</span>');
+    // The target is still inside the absorbed element: no flicker back out.
+    expect(dragTagBoundaryTo(tag, 'start', { node: inner, offset: 1 }, document)).toBe(0);
+    // Now past the element, it is pushed out again.
+    dragTagBoundaryTo(tag, 'start', { node: tag.lastChild!, offset: 1 }, document);
+    expect(html(p)).toBe('<span _tag="a">xyz</span>c<span _tag="seg">d</span>');
+  });
+});
+
+describe('boundaryZones', () => {
+  const rect = (left: number, right: number, top = 0, bottom = 20) =>
+    ({ left, right, top, bottom, width: right - left, height: bottom - top }) as DOMRect;
+
+  beforeEach(() => {
+    // jsdom has no layout: the tag spans 10-80, its text 25-65.
+    jest
+      .spyOn(Element.prototype, 'getClientRects')
+      .mockReturnValue([rect(10, 80)] as unknown as DOMRectList);
+    (Range.prototype as unknown as { getClientRects: () => DOMRect[] }).getClientRects = function (
+      this: Range,
+    ) {
+      return [this.startOffset === 0 ? rect(25, 33) : rect(57, 65)];
+    };
+  });
+
+  afterEach(() => {
+    jest.restoreAllMocks();
+    delete (Range.prototype as unknown as { getClientRects?: unknown }).getClientRects;
+  });
+
+  test('finds the labels as the gaps either side of the content', () => {
+    const { tag } = setup('<span _tag="seg">abcdefgh</span>');
+    const zones = boundaryZones(tag);
+    expect(zones.start).toEqual({ left: 10, right: 25, top: 0, bottom: 20 });
+    expect(zones.end).toEqual({ left: 65, right: 80, top: 0, bottom: 20 });
+    expect(zoneAt(zones, 15, 10)).toBe('start');
+    expect(zoneAt(zones, 70, 10)).toBe('end');
+    expect(zoneAt(zones, 40, 10)).toBeNull();
+    expect(zoneAt(zones, 15, 40)).toBeNull();
+  });
+
+  test('has no label zones when the tags are hidden (no gap)', () => {
+    (Range.prototype as unknown as { getClientRects: () => DOMRect[] }).getClientRects = () => [
+      rect(10, 18),
+    ];
+    const { tag } = setup('<span _tag="seg">abcdefgh</span>');
+    expect(boundaryZones(tag).start).toBeNull();
+  });
+});
+
+describe('boundaryZones with edge grab (labels hidden)', () => {
+  const rect = (left: number, right: number) =>
+    ({ left, right, top: 0, bottom: 20, width: right - left, height: 20 }) as DOMRect;
+
+  beforeEach(() => {
+    jest
+      .spyOn(Element.prototype, 'getClientRects')
+      .mockReturnValue([rect(10, 80)] as unknown as DOMRectList);
+    (Range.prototype as unknown as { getClientRects: () => DOMRect[] }).getClientRects = function (
+      this: Range,
+    ) {
+      return [this.startOffset === 0 ? rect(10, 18) : rect(72, 80)];
+    };
+  });
+
+  afterEach(() => {
+    jest.restoreAllMocks();
+    delete (Range.prototype as unknown as { getClientRects?: unknown }).getClientRects;
+  });
+
+  test('a narrow band at each end counts, and none without edge grab', () => {
+    const { tag } = setup('<span _tag="seg">abcdefgh</span>');
+    expect(boundaryZones(tag).start).toBeNull();
+    const zones = boundaryZones(tag, true);
+    expect(zoneAt(zones, 12, 10)).toBe('start');
+    expect(zoneAt(zones, 8, 10)).toBe('start'); // a little outside the tag still counts
+    expect(zoneAt(zones, 78, 10)).toBe('end');
+    expect(zoneAt(zones, 45, 10)).toBeNull();
   });
 });

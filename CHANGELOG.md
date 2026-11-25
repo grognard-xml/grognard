@@ -1217,3 +1217,9 @@ The last step of an import (and `finalize_body` run over a file already in the p
 
 - Alt+Shift+←/→ (Ctrl+Option+←/→ on Mac) moves a boundary of the tag at the caret by one character: whichever of the opening and closing boundaries the caret is nearer to, or the one it is touching when it sits just outside the tag. The opening boundary grows to the left and shrinks to the right; the closing boundary grows to the right and shrinks to the left. The caret stays just inside the boundary that moved, so repeated presses keep moving the same one.
 - A character is a whole user-perceived character (a base with its accent or variation selector, a Tibetan stack), and a neighbouring inline tag is taken in or pushed out whole, never split. Nothing happens at the edge of the parent, next to a block element, or if the tag would be left without a visible character. Each press is one undo step.
+
+### Drag a tag's boundaries with the mouse
+
+- With show-tags on, press on a tag's opening or closing label and drag: the boundary follows the pointer one character at a time, under the same rules as the keyboard move (Alt+Shift+←/→). Hovering a label shows a resize cursor. A neighbouring inline tag is taken in or pushed out whole, and nothing happens at the edge of the parent, next to a block element, or if the tag would be left without a visible character. The whole drag is one undo step, and a press that does not move is still an ordinary click.
+- Hold Alt to grab a narrow band at either end of a tag's text instead, which also works when the labels are hidden. With nested tags that start at the same place and labels hidden, Alt grabs the innermost one.
+- Left-to-right horizontal text only.
