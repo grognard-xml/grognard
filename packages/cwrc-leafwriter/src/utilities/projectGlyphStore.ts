@@ -5,7 +5,10 @@ import { findGlyphwikiCandidates, type GlyphwikiCandidate } from './glyphwikiInd
 import { findEncodedCharacterForIds } from './idsUnicodeIndex';
 import {
   composeIds,
+  boxesEqual,
   composeKageData,
+  defaultBoxesFor,
+  type KageBox,
   displayNameFor,
   guessOperatorFromKageData,
   type IdsOperator,
@@ -185,6 +188,7 @@ export const previewComposerTree = (
   operator: IdsOperator,
   parts: ComposerSlot[],
   registry: ProjectGlyphRegistry,
+  layoutBoxes?: KageBox[] | null,
 ): ComposePreview => {
   previewSyntheticCounter = 0;
   const resolvedParts = parts.map((part, index) =>
@@ -193,6 +197,7 @@ export const previewComposerTree = (
   const kageData = composeKageData(
     operator,
     resolvedParts.map((p) => p.name),
+    layoutBoxes,
   );
   const ids = `${operator}${resolvedParts.map((p) => p.ids).join('')}`;
   const extraComponents = Object.assign(
@@ -201,18 +206,20 @@ export const previewComposerTree = (
     ...resolvedParts.map((p) => p.components),
   ) as Record<string, string>;
   const { svg, unresolvedComponents } = renderKageToSvg(kageData, extraComponents);
+  // Hand-tuned boxes no longer match the standard IDS → Unicode layout.
+  const handAdjusted = Boolean(layoutBoxes && !boxesEqual(layoutBoxes, defaultBoxesFor(operator)));
   return {
     svg,
     kageData,
     ids,
     unresolvedComponents,
-    existingUnicodeChar: findEncodedCharacterForIds(ids),
+    existingUnicodeChar: handAdjusted ? null : findEncodedCharacterForIds(ids),
     // A direct component-pair search only makes sense for a plain two-leaf
     // binary composition - the bundled GlyphWiki compound index is strictly
     // pairs (see build-glyphwiki-compound-index.mjs), so a three-part (⿲/⿳)
     // or nested composition has no matching shape to look up at all.
     glyphwikiCandidates:
-      parts.length === 2 && parts.every((p) => p.kind === 'leaf')
+      !handAdjusted && parts.length === 2 && parts.every((p) => p.kind === 'leaf')
         ? findGlyphwikiCandidates(resolvedParts[0].name, resolvedParts[1].name)
         : [],
   };
@@ -383,6 +390,7 @@ export const composeTreeAndInsertProjectGlyph = async (
   writer: Writer,
   operator: IdsOperator,
   parts: ComposerSlot[],
+  layoutBoxes?: KageBox[] | null,
 ): Promise<ComposeResult> => {
   const projectRoot = getProjectRootPath();
   if (!projectRoot) return { ok: false, error: 'No project is open.' };
@@ -414,7 +422,7 @@ export const composeTreeAndInsertProjectGlyph = async (
     }
   }
 
-  const kageData = composeKageData(operator, partNames);
+  const kageData = composeKageData(operator, partNames, layoutBoxes);
   const { svg, unresolvedComponents } = renderKageToSvg(kageData, extraComponents);
   if (unresolvedComponents.length > 0) {
     return {
@@ -437,6 +445,28 @@ export const composeTreeAndInsertProjectGlyph = async (
     },
     svg,
   );
+};
+
+/** Insert a glyph already in the project registry at the cursor. */
+export const insertProjectGlyphAtCursor = async (
+  writer: Writer,
+  glyph: ProjectGlyph,
+): Promise<ComposeResult> => {
+  const inserted = await insertGlyph(writer, {
+    glyphId: glyph.id,
+    sourceUrl: glyph.svgRelativeUrl,
+    svgUrl: glyph.svgRelativeUrl,
+    svgWidth: 200,
+    svgHeight: 200,
+    reuseExistingDeclaration: true,
+    mappings: [
+      { type: 'ids', value: glyph.ids ?? '' },
+      { type: 'kage', value: glyph.kage ?? '' },
+      ...(glyph.glyphwikiId ? [{ type: 'glyphwiki', value: glyph.glyphwikiId }] : []),
+    ],
+  });
+  if (!inserted) return { ok: false, error: 'Could not insert the glyph into the document.' };
+  return { ok: true, glyph };
 };
 
 /** Flat two-string convenience wrapper over `composeTreeAndInsertProjectGlyph`,

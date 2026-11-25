@@ -60,6 +60,14 @@ When shipping releases, keep this document in sync with the actual dependency se
     any later version"); combined into this AGPL-3.0-only program under
     each license's section 13 compatibility clause, same reasoning as
     `@kurgm/kage-engine` above.
+- **Character display info** (`packages/cwrc-leafwriter/src/resources/charInfo/`)
+  - Unihan-derived per-character metadata (strokes, pinyin, gloss, variants,
+    旧字体/新字体, etc.) for the CHHIV Compose dialog Examine panel. Built with
+    marinaMoji’s `build_char_info.py` pipeline from Unicode Unihan plus
+    publicly redistributable variant tables (cjkvi, tghb, 入管, GlyphWiki
+    itaiji). Unicode data under the Unicode Terms of Use — keep
+    `UNICODE_NOTICE.txt` with the shipped files. See
+    `packages/cwrc-leafwriter/src/resources/charInfo/README.md`.
 - **BabelStone Han** (`apps/commons/src/fonts/BabelStoneHan.woff2`)
   - version 16.0.3 (2025-01-01) by Andrew West, derived in part from Arphic
     Technology's AR PL fonts. The complete font, converted losslessly from

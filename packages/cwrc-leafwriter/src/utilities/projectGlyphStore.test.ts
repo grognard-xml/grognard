@@ -296,6 +296,36 @@ describe('adoptGlyphwikiCandidateAndInsert', () => {
   });
 });
 
+describe('previewComposerTree layout boxes', () => {
+  it('skips Unicode Insert when boxes differ from the operator defaults', () => {
+    const defaults = previewComposerTree(
+      '⿰',
+      [
+        { kind: 'leaf', input: '木' },
+        { kind: 'leaf', input: '木' },
+      ],
+      emptyProjectGlyphRegistry(),
+    );
+    expect(defaults.existingUnicodeChar).toBeTruthy();
+
+    const adjusted = previewComposerTree(
+      '⿰',
+      [
+        { kind: 'leaf', input: '木' },
+        { kind: 'leaf', input: '木' },
+      ],
+      emptyProjectGlyphRegistry(),
+      [
+        { left: 0, top: 0, right: 50, bottom: 200 },
+        { left: 50, top: 0, right: 200, bottom: 200 },
+      ],
+    );
+    expect(adjusted.existingUnicodeChar).toBeNull();
+    expect(adjusted.glyphwikiCandidates).toEqual([]);
+    expect(adjusted.kageData).not.toBe(defaults.kageData);
+  });
+});
+
 describe('previewComposerTree (Phase D nesting, Phase B three-part operators)', () => {
   it('renders a nested composition (a slot that is itself a two-part sub-composition)', () => {
     const nestedSlot: ComposerSlot = {

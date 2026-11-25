@@ -34,6 +34,13 @@ const pickLayout = (name: RegExp) => {
 };
 
 describe('ComposeCharacterDialog', () => {
+  beforeAll(async () => {
+    const { preloadCharInfo } = await import('../../utilities/charInfo');
+    const { findAndSortContaining } = await import('../../utilities/idsContainingSearch');
+    await preloadCharInfo();
+    findAndSortContaining('木');
+  }, 120000);
+
   it('mounts without throwing', () => {
     expect(() =>
       renderWithOvermind(<ComposeCharacterDialog writer={makeFakeWriter()} />),
@@ -46,7 +53,7 @@ describe('ComposeCharacterDialog', () => {
     expect(screen.getByRole('group', { name: 'Composition' })).toBeTruthy();
     expect(screen.getByLabelText('Left')).toBeTruthy();
     expect(screen.getByLabelText('Right')).toBeTruthy();
-    expect(screen.getByText('⿰??')).toBeTruthy();
+    expect((screen.getByLabelText('IDS') as HTMLInputElement).value).toBe('⿰??');
   });
 
   it('adds a third box when the outer layout is the three-part left/middle/right', () => {
@@ -57,7 +64,7 @@ describe('ComposeCharacterDialog', () => {
     expect(screen.getByLabelText('Left')).toBeTruthy();
     expect(screen.getByLabelText('Middle')).toBeTruthy();
     expect(screen.getByLabelText('Right')).toBeTruthy();
-    expect(screen.getByText('⿲???')).toBeTruthy();
+    expect((screen.getByLabelText('IDS') as HTMLInputElement).value).toBe('⿲???');
   });
 
   it('nests a layout inside the field that is focused', () => {
@@ -71,7 +78,20 @@ describe('ComposeCharacterDialog', () => {
     expect(screen.getByLabelText('Below')).toBeTruthy();
     expect(screen.queryByLabelText('Right')).toBeNull();
     expect(screen.getByRole('button', { name: 'Remove this layout' })).toBeTruthy();
-    expect(screen.getByText('⿰?⿱??')).toBeTruthy();
+    expect((screen.getByLabelText('IDS') as HTMLInputElement).value).toBe('⿰?⿱??');
+  });
+
+  it('loads an IDS abbreviation into the layout square', () => {
+    renderWithOvermind(<ComposeCharacterDialog writer={makeFakeWriter()} />);
+
+    const ids = screen.getByLabelText('IDS') as HTMLInputElement;
+    fireEvent.focus(ids);
+    fireEvent.change(ids, { target: { value: 'LR言某' } });
+    fireEvent.blur(ids);
+
+    expect((screen.getByLabelText('Left') as HTMLInputElement).value).toBe('言');
+    expect((screen.getByLabelText('Right') as HTMLInputElement).value).toBe('某');
+    expect(ids.value).toBe('⿰言某');
   });
 
   it('changes the inner layout when that region, not a field, is selected', () => {
@@ -116,7 +136,7 @@ describe('ComposeCharacterDialog', () => {
 
       expect((screen.getByLabelText('Left') as HTMLInputElement).value).toBe('言');
       expect((screen.getByLabelText('Right') as HTMLInputElement).value).toBe('某');
-      expect(screen.getByText('⿰言某', { selector: 'p' })).toBeTruthy();
+      expect((screen.getByLabelText('IDS') as HTMLInputElement).value).toBe('⿰言某');
     });
 
     it('nests where the decomposition nests', () => {
@@ -147,7 +167,7 @@ describe('ComposeCharacterDialog', () => {
 
       expect((screen.getByLabelText('Left') as HTMLInputElement).value).toBe('言');
       expect((screen.getByLabelText('Right') as HTMLInputElement).value).toBe('某');
-      expect(screen.getByText(/left alone/)).toBeTruthy();
+      expect(screen.getByText(/composer already holds something/)).toBeTruthy();
       expect(screen.getByRole('button', { name: '一' })).toBeTruthy();
       // Picking the decomposition replaces the boxes, on request.
       fireEvent.click(screen.getByRole('button', { name: /^⿱一/ }));
@@ -174,6 +194,58 @@ describe('ComposeCharacterDialog', () => {
       fireEvent.click(screen.getByRole('button', { name: '⿱一去' }));
       expect((screen.getByLabelText('Above') as HTMLInputElement).value).toBe('一');
       expect((screen.getByLabelText('Below') as HTMLInputElement).value).toBe('去');
+    });
+  });
+
+  describe('components catalogue', () => {
+    it('opens the Components tab and toggles a radical into Find', () => {
+      renderWithOvermind(<ComposeCharacterDialog writer={makeFakeWriter()} />);
+
+      fireEvent.click(screen.getByRole('tab', { name: 'Components' }));
+      expect(screen.getByText(/First stroke/i)).toBeTruthy();
+
+      fireEvent.click(screen.getByRole('button', { name: 'Toggle component 木' }));
+      expect((screen.getByLabelText('Find components') as HTMLInputElement).value).toContain('木');
+    });
+  });
+
+  describe('find by components', () => {
+    it('lists characters that contain the typed components and opens examine on click', async () => {
+      renderWithOvermind(<ComposeCharacterDialog writer={makeFakeWriter()} />);
+
+      fireEvent.change(screen.getByLabelText('Find components'), {
+        target: { value: '言木' },
+      });
+      fireEvent.click(screen.getByRole('button', { name: 'Find' }));
+
+      expect(await screen.findByText(/\d+ characters? found/)).toBeTruthy();
+      fireEvent.click(screen.getByRole('button', { name: 'Examine 謀' }));
+
+      expect(screen.getByRole('button', { name: /Return to composition/i })).toBeTruthy();
+      expect(screen.getByText(/U\+8B00/i)).toBeTruthy();
+    }, 30000);
+  });
+
+  describe('Phase 3: Adjust layout + project glyphs', () => {
+    it('enables Adjust layout once both components are filled', () => {
+      renderWithOvermind(<ComposeCharacterDialog writer={makeFakeWriter()} />);
+
+      const adjust = screen.getByRole('button', { name: /Adjust layout/ }) as HTMLButtonElement;
+      expect(adjust.disabled).toBe(true);
+
+      fireEvent.change(screen.getByLabelText('Left'), { target: { value: '言' } });
+      fireEvent.change(screen.getByLabelText('Right'), { target: { value: '某' } });
+      expect(adjust.disabled).toBe(false);
+
+      fireEvent.click(adjust);
+      expect(screen.getByRole('dialog', { name: /Adjust layout/i })).toBeTruthy();
+      expect(screen.getByLabelText('Layout drawing')).toBeTruthy();
+      fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    });
+
+    it('shows an empty project-glyphs browse section', () => {
+      renderWithOvermind(<ComposeCharacterDialog writer={makeFakeWriter()} />);
+      expect(screen.getByText(/No project glyphs yet/i)).toBeTruthy();
     });
   });
 

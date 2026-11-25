@@ -25,20 +25,52 @@
 export type IdsOperator =
   '⿰' | '⿱' | '⿲' | '⿳' | '⿴' | '⿵' | '⿶' | '⿷' | '⿸' | '⿹' | '⿺' | '⿻';
 
-export const IDS_OPERATORS: { operator: IdsOperator; label: string; partCount: 2 | 3 }[] = [
-  { operator: '⿰', label: 'Left / right', partCount: 2 },
-  { operator: '⿱', label: 'Above / below', partCount: 2 },
-  { operator: '⿲', label: 'Left / middle / right', partCount: 3 },
-  { operator: '⿳', label: 'Top / middle / bottom', partCount: 3 },
-  { operator: '⿴', label: 'Full enclosure', partCount: 2 },
-  { operator: '⿵', label: 'Surround from above', partCount: 2 },
-  { operator: '⿶', label: 'Surround from below', partCount: 2 },
-  { operator: '⿷', label: 'Surround from left', partCount: 2 },
-  { operator: '⿸', label: 'Upper-left enclosure', partCount: 2 },
-  { operator: '⿹', label: 'Upper-right enclosure', partCount: 2 },
-  { operator: '⿺', label: 'Lower-left enclosure', partCount: 2 },
-  { operator: '⿻', label: 'Overlap', partCount: 2 },
+/** `abbr` matches zi.tools / marinaMoji (`LR` → ⿰, …) for the editable IDS box. */
+export const IDS_OPERATORS: {
+  operator: IdsOperator;
+  label: string;
+  abbr: string;
+  partCount: 2 | 3;
+}[] = [
+  { operator: '⿰', label: 'Left / right', abbr: 'LR', partCount: 2 },
+  { operator: '⿱', label: 'Above / below', abbr: 'UD', partCount: 2 },
+  { operator: '⿲', label: 'Left / middle / right', abbr: 'LL', partCount: 3 },
+  { operator: '⿳', label: 'Top / middle / bottom', abbr: 'UU', partCount: 3 },
+  { operator: '⿴', label: 'Full enclosure', abbr: 'OC', partCount: 2 },
+  { operator: '⿵', label: 'Surround from above', abbr: 'OD', partCount: 2 },
+  { operator: '⿶', label: 'Surround from below', abbr: 'OU', partCount: 2 },
+  { operator: '⿷', label: 'Surround from left', abbr: 'OR', partCount: 2 },
+  { operator: '⿸', label: 'Upper-left enclosure', abbr: 'RD', partCount: 2 },
+  { operator: '⿹', label: 'Upper-right enclosure', abbr: 'LD', partCount: 2 },
+  { operator: '⿺', label: 'Lower-left enclosure', abbr: 'RU', partCount: 2 },
+  { operator: '⿻', label: 'Overlap', abbr: 'XX', partCount: 2 },
 ];
+
+/**
+ * Rewrite zi.tools-style two-letter abbreviations to IDS operators
+ * (case-insensitive). Already-encoded ⿰… strings pass through unchanged.
+ * Port of marinaMoji `ExpandIdsAbbreviations`.
+ */
+export const expandIdsAbbreviations = (ids: string): string => {
+  let out = ids;
+  for (let i = 0; i + 1 < out.length;) {
+    const a = out[i];
+    const b = out[i + 1];
+    if (!/[A-Za-z]/.test(a) || !/[A-Za-z]/.test(b)) {
+      i += 1;
+      continue;
+    }
+    const pair = (a + b).toUpperCase();
+    const match = IDS_OPERATORS.find((entry) => entry.abbr === pair);
+    if (match) {
+      out = out.slice(0, i) + match.operator + out.slice(i + 2);
+      i += match.operator.length;
+    } else {
+      i += 1;
+    }
+  }
+  return out;
+};
 
 /** How many components an operator describes - 2 for every binary operator,
  * 3 only for ⿲/⿳. Falls back to 2 for anything not in `IDS_OPERATORS`
@@ -46,14 +78,15 @@ export const IDS_OPERATORS: { operator: IdsOperator; label: string; partCount: 2
 export const partCountFor = (operator: IdsOperator): 2 | 3 =>
   IDS_OPERATORS.find((o) => o.operator === operator)?.partCount ?? 2;
 
-interface Box {
+/** Component bounding box in KAGE's 0–200 canvas (inclusive edges). */
+export interface KageBox {
   left: number;
   top: number;
   right: number;
   bottom: number;
 }
 
-const FULL: Box = { left: 0, top: 0, right: 200, bottom: 200 };
+const FULL: KageBox = { left: 0, top: 0, right: 200, bottom: 200 };
 
 /**
  * Default bounding boxes for each component, per operator, in the order
@@ -71,7 +104,11 @@ const FULL: Box = { left: 0, top: 0, right: 200, bottom: 200 };
  * spirit as ⿴/⿸/⿹/⿺ already did in Phase 1 - worth the same real-data
  * tuning pass later if visual feedback calls for it, same as ⿰/⿱ got.
  */
-const boxesFor = (operator: IdsOperator): Box[] => {
+/** Default boxes for an operator (copy — safe to mutate for Adjust layout). */
+export const defaultBoxesFor = (operator: IdsOperator): KageBox[] =>
+  boxesFor(operator).map((box) => ({ ...box }));
+
+const boxesFor = (operator: IdsOperator): KageBox[] => {
   switch (operator) {
     case '⿰':
       return [
@@ -119,18 +156,34 @@ const boxesFor = (operator: IdsOperator): Box[] => {
   }
 };
 
-const componentRecord = (box: Box, name: string): string =>
+const componentRecord = (box: KageBox, name: string): string =>
   `99:0:0:${box.left}:${box.top}:${box.right}:${box.bottom}:${name}:0:0:0`;
+
+export const boxesEqual = (a: KageBox[], b: KageBox[]): boolean =>
+  a.length === b.length &&
+  a.every(
+    (box, i) =>
+      box.left === b[i]!.left &&
+      box.top === b[i]!.top &&
+      box.right === b[i]!.right &&
+      box.bottom === b[i]!.bottom,
+  );
 
 /** Builds the new glyph's own KAGE data - a `$`-joined list of "99:" records
  * referencing `names` in order (2 names for a binary operator, 3 for ⿲/⿳ -
  * see `partCountFor`), each of which must already be resolvable (either in
  * the bundled kageCore.json or in an already-composed project glyph's own
- * KAGE data) for kage-engine to render the result. */
-export const composeKageData = (operator: IdsOperator, names: string[]): string => {
-  const boxes = boxesFor(operator);
+ * KAGE data) for kage-engine to render the result.
+ * Optional `layoutBoxes` overrides the operator defaults (Adjust layout…). */
+export const composeKageData = (
+  operator: IdsOperator,
+  names: string[],
+  layoutBoxes?: KageBox[] | null,
+): string => {
+  const boxes =
+    layoutBoxes && layoutBoxes.length >= names.length ? layoutBoxes : boxesFor(operator);
   return names
-    .map((name, i) => componentRecord(boxes[i] ?? boxes[boxes.length - 1], name))
+    .map((name, i) => componentRecord(boxes[i] ?? boxes[boxes.length - 1]!, name))
     .join('$');
 };
 
@@ -164,7 +217,7 @@ export const displayNameFor = (name: string): string => canonicalUnicodeChar(nam
 export const composeIds = (operator: IdsOperator, names: string[]): string =>
   `${operator}${names.map(displayNameFor).join('')}`;
 
-const parseBox = (record: string): Box => {
+const parseBox = (record: string): KageBox => {
   const fields = record.split(':');
   return {
     left: Number(fields[3]),
@@ -174,10 +227,10 @@ const parseBox = (record: string): Box => {
   };
 };
 
-const area = (box: Box): number =>
+const area = (box: KageBox): number =>
   Math.max(0, box.right - box.left) * Math.max(0, box.bottom - box.top);
 
-const overlapArea = (a: Box, b: Box): number => {
+const overlapArea = (a: KageBox, b: KageBox): number => {
   const width = Math.max(0, Math.min(a.right, b.right) - Math.max(a.left, b.left));
   const height = Math.max(0, Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top));
   return width * height;

@@ -1249,3 +1249,12 @@ The last step of an import (and `finalize_body` run over a file already in the p
 
 - A character from the composer (or a pasted image character) could stop drawing, and vanish from "Insert existing glyph", when the document's `<charDecl>` entry for it went missing from the header; the text still held `<g ref="#chhiv-…"/>`. Such glyphs are now drawn, and listed in the palette, from their file in `_glyphs/` (beside the document or in the project folder).
 - Saving now adds a `<charDecl>` entry back for any `<g ref>` that has none, when its SVG is found in `_glyphs/`, so the reference no longer dangles in the saved file.
+
+### Compose character: marinaMoji-style three-column composer
+
+- The Compose dialog is now laid out as Construct (layouts and an editable IDS box that accepts `LR日月` as well as `⿰日月`), Examine (character details and a Components catalogue) and Discover (break apart, find characters containing given components with stroke filters, and your project glyphs).
+- Character details come from a bundled Unihan-based table: pinyin, meaning, strokes, radical, Japanese readings, old and new forms, and clickable variants. The Unicode notice ships with the data.
+- "Adjust layout…" lets you drag and resize the component boxes of the outer layout by hand, or type their numbers. A hand-tuned layout skips the Unicode and GlyphWiki matches, since it no longer matches the standard form.
+- Find containing no longer builds a multi-second index the first time: it warms up in about 0.2 s and answers in milliseconds. Stroke filters wait for the character table to load instead of returning nothing.
+- Project glyph tiles are drawn only when scrolled into view; pasted or imported glyphs without KAGE data show their saved SVG instead of their id.
+- A `<g ref>` whose id has no `<charDecl>` entry is now styled and drawn from `_glyphs/`, and its test was updated to match.

@@ -1,7 +1,9 @@
 import {
+  boxesEqual,
   canonicalUnicodeChar,
   composeIds,
   composeKageData,
+  defaultBoxesFor,
   displayNameFor,
   guessOperatorFromKageData,
   IDS_OPERATORS,
@@ -20,6 +22,28 @@ describe('composeKageData', () => {
     }
     expect(records[0]).toContain(':u8a00:');
     expect(records[1]).toContain(':u67d0:');
+  });
+
+  it('honours optional layoutBoxes overrides', () => {
+    const custom = [
+      { left: 10, top: 20, right: 90, bottom: 180 },
+      { left: 100, top: 10, right: 190, bottom: 190 },
+    ];
+    const data = composeKageData('⿰', ['a', 'b'], custom);
+    const records = data.split('$').map((r) => r.split(':'));
+    expect(records[0]!.slice(3, 7).map(Number)).toEqual([10, 20, 90, 180]);
+    expect(records[1]!.slice(3, 7).map(Number)).toEqual([100, 10, 190, 190]);
+  });
+});
+
+describe('defaultBoxesFor / boxesEqual', () => {
+  it('returns independent copies of the operator defaults', () => {
+    const a = defaultBoxesFor('⿰');
+    const b = defaultBoxesFor('⿰');
+    expect(boxesEqual(a, b)).toBe(true);
+    a[0]!.left = 99;
+    expect(boxesEqual(a, b)).toBe(false);
+    expect(b[0]!.left).toBe(0);
   });
 
   it('produces three 99: records for a three-part operator (⿲/⿳)', () => {

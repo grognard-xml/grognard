@@ -59,7 +59,7 @@ const openComposeCharacter = async (writer: Writer) => {
   writer.overmindActions?.ui?.openDialog({
     type: 'simple',
     props: {
-      maxWidth: 'md',
+      maxWidth: 'lg',
       title: 'Compose character',
       Body: () => <ComposeCharacterDialog writer={writer} />,
       actions: [{ action: 'close', label: 'Close' }],

@@ -40,7 +40,7 @@ describe('handleGraphics / refreshGraphicsInBody - glyph shapes', () => {
     expect($g.text()).toBe('');
   });
 
-  it('does not style a <g ref> element when the id cannot be resolved', () => {
+  it('falls back to the conventional _glyphs/<id>.svg when the id has no charDecl entry', () => {
     window.__desktopStoredDocumentXml = baseXmlWithCharDecl();
 
     document.body.innerHTML =
@@ -49,7 +49,7 @@ describe('handleGraphics / refreshGraphicsInBody - glyph shapes', () => {
     refreshGraphicsInBody(document.body);
 
     const $g = $('[_tag="g"]', document.body);
-    expect($g.hasClass('lw-inline-glyph')).toBe(false);
+    expect($g.hasClass('lw-inline-glyph')).toBe(true);
   });
 
   it('renders a bare TEI-Lite <graphic type="glyph"> standalone, with no wrapper needed', () => {

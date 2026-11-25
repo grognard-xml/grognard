@@ -7,7 +7,7 @@ import { LayoutGlyph } from './LayoutGlyph';
 
 /** Names spoken by the text fields. The position in the square is the
  * label, so "Left" means the left box of a left/right layout. */
-const PART_NAMES: Record<IdsOperator, string[]> = {
+export const PART_NAMES: Record<IdsOperator, string[]> = {
   '⿰': ['Left', 'Right'],
   '⿱': ['Above', 'Below'],
   '⿲': ['Left', 'Middle', 'Right'],
@@ -22,7 +22,7 @@ const PART_NAMES: Record<IdsOperator, string[]> = {
   '⿻': ['Back', 'Front'],
 };
 
-const partName = (operator: IdsOperator, index: number): string =>
+export const partName = (operator: IdsOperator, index: number): string =>
   PART_NAMES[operator][index] ?? `Part ${index + 1}`;
 
 const pathsEqual = (a: number[], b: number[]): boolean =>
