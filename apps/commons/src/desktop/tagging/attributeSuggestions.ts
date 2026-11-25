@@ -174,6 +174,9 @@ export const rankAttributeValues = (values: string[], query: string): string[] =
   return [...starts, ...contains];
 };
 
+/** Rows shown at once. Drawing thousands of rows (every xml:id or corresp in a project) is slow. */
+export const MAX_VALUE_SUGGESTIONS = 50;
+
 const lastAttributeByTag = new Map<string, string>();
 let lastAttributeOverall: string | null = null;
 

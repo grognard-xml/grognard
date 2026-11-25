@@ -28,8 +28,12 @@ export interface AttributeCommandPopupProps {
   schemaAttributes: SchemaAttributeDetail[];
   tagName: string;
   valueFilter: string;
+  /** The value box shows the attribute's current value; select it so typing replaces it. */
+  valueIsPrefill: boolean;
   valueHighlightedIndex: number;
   valueSuggestions: string[];
+  /** Matching values not listed; type more to narrow them. */
+  valueSuggestionsHidden: number;
 }
 
 /** Keep the keyboard-selected row visible in a scrolling list. */
@@ -53,8 +57,10 @@ export const AttributeCommandPopup = ({
   schemaAttributes,
   tagName,
   valueFilter,
+  valueIsPrefill,
   valueHighlightedIndex,
   valueSuggestions,
+  valueSuggestionsHidden,
 }: AttributeCommandPopupProps) => {
   const nameInputRef = useRef<HTMLInputElement>(null);
   const valueInputRef = useRef<HTMLInputElement>(null);
@@ -83,6 +89,10 @@ export const AttributeCommandPopup = ({
   useEffect(() => {
     if (open && focusedField === 'name' && nameIsPrefill) nameInputRef.current?.select();
   }, [focusedField, nameFilter, nameIsPrefill, open]);
+
+  useEffect(() => {
+    if (open && focusedField === 'value' && valueIsPrefill) valueInputRef.current?.select();
+  }, [focusedField, open, valueFilter, valueIsPrefill]);
 
   if (!open || !anchor) return null;
 
@@ -133,7 +143,10 @@ export const AttributeCommandPopup = ({
           placeholder="Attribute value"
           value={valueFilter}
           onChange={(event) => onValueFilterChange(event.target.value)}
-          onFocus={() => onFocusedFieldChange('value')}
+          onFocus={(event) => {
+            onFocusedFieldChange('value');
+            if (valueIsPrefill) event.target.select();
+          }}
           sx={{ mt: 1 }}
           autoComplete="off"
         />
@@ -181,6 +194,11 @@ export const AttributeCommandPopup = ({
               <ListItemText primary={value} />
             </ListItemButton>
           ))}
+          {valueSuggestionsHidden > 0 ? (
+            <Typography color="text.secondary" sx={{ px: 2, py: 0.5 }} variant="caption">
+              +{valueSuggestionsHidden} more — keep typing to narrow
+            </Typography>
+          ) : null}
         </List>
       ) : null}
 

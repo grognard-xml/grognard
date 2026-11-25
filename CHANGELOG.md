@@ -1223,3 +1223,9 @@ The last step of an import (and `finalize_body` run over a file already in the p
 - With show-tags on, press on a tag's opening or closing label and drag: the boundary follows the pointer one character at a time, under the same rules as the keyboard move (Alt+Shift+←/→). Hovering a label shows a resize cursor. A neighbouring inline tag is taken in or pushed out whole, and nothing happens at the edge of the parent, next to a block element, or if the tag would be left without a visible character. The whole drag is one undo step, and a press that does not move is still an ordinary click.
 - Hold Alt to grab a narrow band at either end of a tag's text instead, which also works when the labels are hidden. With nested tags that start at the same place and labels hidden, Alt grabs the innermost one.
 - Left-to-right horizontal text only.
+
+### Add attribute popup (Alt+Enter): focus, current value, faster value list
+
+- Committing or cancelling the popup now puts the caret back where it was and refocuses the editor, so you can keep typing at once.
+- The value field starts with the attribute's current value on the tag (for instance an existing `xml:id`), selected so typing replaces it. Before, it was empty, and pressing Enter would have removed the attribute. The suggestion list stays complete until you type.
+- The value list shows at most 50 suggestions, best matches first, with a "+N more" line. Attributes such as `corresp`, with thousands of values in a project, no longer make the popup slow to open. No suggestions are offered for `xml:id`, since ids are unique.

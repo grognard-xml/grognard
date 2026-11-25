@@ -1,9 +1,11 @@
 import { useActions, useAppState } from '@src/overmind';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { applyAttributeToTag } from './attributeCommand';
+import { applyAttributeToTag, readTagAttributes } from './attributeCommand';
 import { getCaretScreenPosition } from './editorAnchor';
+import { isSchemaIdAttribute } from './attributeIdHelpers';
 import {
+  MAX_VALUE_SUGGESTIONS,
   fetchSchemaAttributes,
   filterAttributeSuggestions,
   orderAttributeSuggestions,
@@ -16,6 +18,7 @@ import {
 } from './attributeSuggestions';
 import { matchesEditorAttribute } from './keybindings';
 import { isImeKeyboardEvent } from './ime';
+import { getBookmark, moveToBookmark } from './taggerRuntime';
 import { getEditorTagContext } from './tagSuggestions';
 import { loadTagStats, updateTagStatsForFile } from './tagStats';
 
@@ -44,6 +47,10 @@ export interface AttributeCommandController {
   tagName: string;
   /** The name box holds a remembered attribute the user has not typed over yet. */
   nameIsPrefill: boolean;
+  /** The value box shows the attribute's current value on the tag, not yet edited. */
+  valueIsPrefill: boolean;
+  /** Matching values beyond the ones listed. */
+  valueSuggestionsHidden: number;
   valueFilter: string;
   valueHighlightedIndex: number;
   valueSuggestions: string[];
@@ -64,12 +71,16 @@ export const useAttributeCommandController = (): AttributeCommandController => {
   const [valueFilter, setValueFilterRaw] = useState('');
   const [valueHighlightedIndex, setValueHighlightedIndex] = useState(-1);
   const [valueNavigated, setValueNavigated] = useState(false);
+  // False while the value box mirrors what the tag already has for the chosen attribute.
+  const [valueTouched, setValueTouched] = useState(false);
   const [focusedField, setFocusedField] = useState<'name' | 'value'>('name');
   const [highlightedIndex, setHighlightedIndex] = useState(0);
   const [schemaAttributes, setSchemaAttributes] = useState<SchemaAttributeDetail[]>([]);
   const [stats, setStats] = useState<Awaited<ReturnType<typeof loadTagStats>> | null>(null);
 
   const applyingRef = useRef(false);
+  // Where the caret was when the popup opened, so closing it puts the user back there.
+  const bookmarkRef = useRef<unknown>(null);
 
   const setNameFilter = useCallback((value: string) => {
     setNameFilterRaw(value);
@@ -78,6 +89,7 @@ export const useAttributeCommandController = (): AttributeCommandController => {
 
   const setValueFilter = useCallback((value: string) => {
     setValueFilterRaw(value);
+    setValueTouched(true);
     setValueNavigated(false);
     setValueHighlightedIndex(value.trim() ? 0 : -1);
   }, []);
@@ -122,14 +134,42 @@ export const useAttributeCommandController = (): AttributeCommandController => {
 
   const highlightedAttribute = visibleAttributes[highlightedIndex] ?? null;
 
-  const valueSuggestions = useMemo(() => {
+  const allValueSuggestions = useMemo(() => {
     const attr = resolveAttributeNameForApply(schemaAttributes, nameFilter, highlightedAttribute);
     if (!attr?.name || !stats || !tagName) return [];
+    // Ids are unique, so earlier values are never a useful suggestion.
+    if (isSchemaIdAttribute(attr.name)) return [];
     return rankAttributeValues(
       suggestAttributeValues(tagName, attr.name, stats, attr.choices),
-      valueFilter,
+      valueTouched ? valueFilter : '',
     );
-  }, [highlightedAttribute, nameFilter, schemaAttributes, stats, tagName, valueFilter]);
+  }, [
+    highlightedAttribute,
+    nameFilter,
+    schemaAttributes,
+    stats,
+    tagName,
+    valueFilter,
+    valueTouched,
+  ]);
+
+  // Until the user edits the value, show what the tag already has for the chosen attribute.
+  const chosenAttributeName = resolveAttributeNameForApply(
+    schemaAttributes,
+    nameFilter,
+    highlightedAttribute,
+  )?.name;
+  useEffect(() => {
+    if (!open || valueTouched || !tagElement) return;
+    const existing = chosenAttributeName ? readTagAttributes(tagElement)[chosenAttributeName] : '';
+    setValueFilterRaw(existing ?? '');
+  }, [chosenAttributeName, open, tagElement, valueTouched]);
+
+  const valueSuggestions = useMemo(
+    () => allValueSuggestions.slice(0, MAX_VALUE_SUGGESTIONS),
+    [allValueSuggestions],
+  );
+  const valueSuggestionsHidden = allValueSuggestions.length - valueSuggestions.length;
 
   const highlightedValue =
     valueHighlightedIndex >= 0 ? (valueSuggestions[valueHighlightedIndex] ?? null) : null;
@@ -139,10 +179,24 @@ export const useAttributeCommandController = (): AttributeCommandController => {
   }, [effectiveNameFilter]);
 
   const closePopup = useCallback(() => {
+    const editor = window.writer?.editor;
+    const bookmark = bookmarkRef.current;
+    bookmarkRef.current = null;
+    if (editor) {
+      if (bookmark) {
+        try {
+          moveToBookmark(editor, bookmark);
+        } catch {
+          // The saved range goes stale if the document changed while the popup was open.
+        }
+      }
+      editor.focus();
+    }
     setOpen(false);
     setNameFilterRaw('');
     setNameFilterActive(true);
     setValueFilterRaw('');
+    setValueTouched(false);
     setValueHighlightedIndex(-1);
     setValueNavigated(false);
     setFocusedField('name');
@@ -192,11 +246,14 @@ export const useAttributeCommandController = (): AttributeCommandController => {
       }
 
       const name = element.getAttribute('_tag') ?? '';
+      const editor = window.writer?.editor;
+      bookmarkRef.current = editor ? getBookmark(editor) : null;
       setTagElement(element);
       setTagName(name);
       setNameFilterRaw('');
       setNameFilterActive(true);
       setValueFilterRaw('');
+      setValueTouched(false);
       setValueHighlightedIndex(-1);
       setValueNavigated(false);
       setFocusedField('name');
@@ -367,6 +424,8 @@ export const useAttributeCommandController = (): AttributeCommandController => {
     setFocusedField,
     setHighlightedIndex,
     nameIsPrefill: !nameFilterActive && nameFilter !== '',
+    valueIsPrefill: !valueTouched && valueFilter !== '',
+    valueSuggestionsHidden,
     setNameFilter,
     setValueFilter,
     tagElement,

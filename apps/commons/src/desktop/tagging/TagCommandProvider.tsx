@@ -138,8 +138,10 @@ export const TagCommandProvider = () => {
         schemaAttributes={attrController.schemaAttributes}
         tagName={attrController.tagName}
         valueFilter={attrController.valueFilter}
+        valueIsPrefill={attrController.valueIsPrefill}
         valueHighlightedIndex={attrController.valueHighlightedIndex}
         valueSuggestions={attrController.valueSuggestions}
+        valueSuggestionsHidden={attrController.valueSuggestionsHidden}
       />
       {tagController.walkMode ? (
         <TagWalkToolbar
