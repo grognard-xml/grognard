@@ -191,10 +191,5 @@ export const useExplorerDragDrop = (enabled: boolean) => {
     [enabled, moveExplorerItem, notifyViaSnackbar, rootPath, schemaDirPath, showMoveError, t],
   );
 
-  const isDropTarget = useCallback(
-    (folderPath: string) => dropTargetPath === folderPath,
-    [dropTargetPath],
-  );
-
-  return { getDragProps, getDropProps, isDropTarget };
+  return { dropTargetPath, getDragProps, getDropProps };
 };

@@ -1229,3 +1229,8 @@ The last step of an import (and `finalize_body` run over a file already in the p
 - Committing or cancelling the popup now puts the caret back where it was and refocuses the editor, so you can keep typing at once.
 - The value field starts with the attribute's current value on the tag (for instance an existing `xml:id`), selected so typing replaces it. Before, it was empty, and pressing Enter would have removed the attribute. The suggestion list stays complete until you type.
 - The value list shows at most 50 suggestions, best matches first, with a "+N more" line. Attributes such as `corresp`, with thousands of values in a project, no longer make the popup slow to open. No suggestions are offered for `xml:id`, since ids are unique.
+
+### Folder navigator: faster expand and collapse
+
+- Expanding or collapsing a folder no longer re-renders every row in the tree, which made folders with many files lag. Only the rows whose own state changes are redrawn, and rows scrolled out of view are skipped by the browser.
+- Folders now open and close instantly, without the height animation, and rows no longer show a click ripple.

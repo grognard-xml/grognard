@@ -5,7 +5,6 @@ import RefreshIcon from '@mui/icons-material/Refresh';
 import {
   Box,
   Button,
-  Collapse,
   IconButton,
   InputAdornment,
   List,
@@ -27,7 +26,7 @@ import { useActions, useAppState } from '@src/overmind';
 import { ExplorerNameDialog } from './ExplorerNameDialog';
 import type { FileTreeNode } from '@src/overmind/project/state';
 import { modShortcut } from '@src/utils/platform';
-import { useCallback, useEffect, useMemo, useRef } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   type ExplorerTarget,
@@ -38,16 +37,16 @@ import { useExplorerDragDrop } from './useExplorerDragDrop';
 import { useExplorerFileFilter } from './useExplorerFileFilter';
 import { useExplorerTreeKeyboard } from './useExplorerTreeKeyboard';
 
-interface TreeNodeProps {
-  activeTabPath: string | null;
+interface TreeRowProps {
   depth: number;
+  expanded: boolean;
   focusRow: (path: string) => void;
-  focusedPath: string | null;
   focusedRowRef: React.RefObject<HTMLDivElement>;
   getDragProps: ReturnType<typeof useExplorerDragDrop>['getDragProps'];
   getDropProps: ReturnType<typeof useExplorerDragDrop>['getDropProps'];
-  isDropTarget: ReturnType<typeof useExplorerDragDrop>['isDropTarget'];
-  isExpanded: (path: string) => boolean;
+  isActiveFile: boolean;
+  isDropHighlighted: boolean;
+  isFocused: boolean;
   loadDirectoryChildren: (dirPath: string) => Promise<void>;
   node: FileTreeNode;
   onActivatePane: () => void;
@@ -56,62 +55,64 @@ interface TreeNodeProps {
   setExpanded: (path: string, expanded: boolean) => void;
 }
 
-const TreeNode = ({
-  activeTabPath,
-  depth,
-  focusRow,
-  focusedPath,
-  focusedRowRef,
-  getDragProps,
-  getDropProps,
-  isDropTarget,
-  isExpanded,
-  loadDirectoryChildren,
-  node,
-  onActivatePane,
-  onContextMenu,
-  onOpenFile,
-  setExpanded,
-}: TreeNodeProps) => {
-  const item: ExplorerTarget = {
-    isDirectory: node.isDirectory,
-    name: node.name,
-    path: node.path,
-  };
-  const dragProps = getDragProps(item);
-  const dropProps = node.isDirectory ? getDropProps(item) : {};
-  const interactionProps = { ...dragProps, ...dropProps } as React.HTMLAttributes<HTMLDivElement>;
-  const expanded = node.isDirectory && isExpanded(node.path);
-  const isActiveFile = !node.isDirectory && node.path === activeTabPath;
-  const isFocused = focusedPath === node.path;
-  const isHighlightedDrop = node.isDirectory && isDropTarget(node.path);
+/**
+ * One visible row. Every prop is a primitive or a stable callback, so a row only re-renders when
+ * its own state changes. Expanding a folder in a large tree used to re-render every visible row,
+ * and each row is a fairly heavy MUI button.
+ */
+const TreeRow = memo(
+  ({
+    depth,
+    expanded,
+    focusRow,
+    focusedRowRef,
+    getDragProps,
+    getDropProps,
+    isActiveFile,
+    isDropHighlighted,
+    isFocused,
+    loadDirectoryChildren,
+    node,
+    onActivatePane,
+    onContextMenu,
+    onOpenFile,
+    setExpanded,
+  }: TreeRowProps) => {
+    const item: ExplorerTarget = {
+      isDirectory: node.isDirectory,
+      name: node.name,
+      path: node.path,
+    };
+    const dragProps = getDragProps(item);
+    const dropProps = node.isDirectory ? getDropProps(item) : {};
+    const interactionProps = { ...dragProps, ...dropProps } as React.HTMLAttributes<HTMLDivElement>;
 
-  const toggleExpand = async () => {
-    if (!node.isDirectory) return;
-    if (!node.childrenLoaded) {
-      await loadDirectoryChildren(node.path);
-      setExpanded(node.path, true);
-      return;
-    }
-    setExpanded(node.path, !expanded);
-  };
+    const toggleExpand = async () => {
+      if (!node.isDirectory) return;
+      if (!node.childrenLoaded) {
+        await loadDirectoryChildren(node.path);
+        setExpanded(node.path, true);
+        return;
+      }
+      setExpanded(node.path, !expanded);
+    };
 
-  const handleClick = async () => {
-    onActivatePane();
-    focusRow(node.path);
-    if (node.isDirectory) {
-      await toggleExpand();
-      return;
-    }
-    onOpenFile(node.path);
-  };
+    const handleClick = async () => {
+      onActivatePane();
+      focusRow(node.path);
+      if (node.isDirectory) {
+        await toggleExpand();
+        return;
+      }
+      onOpenFile(node.path);
+    };
 
-  return (
-    <>
+    return (
       <ListItemButton
         component="div"
         ref={isFocused ? focusedRowRef : undefined}
         dense
+        disableRipple
         data-explorer-row
         selected={isActiveFile || isFocused}
         onClick={() => void handleClick()}
@@ -124,9 +125,12 @@ const TreeNode = ({
           pl: 1 + depth * 1.5,
           py: 0.125,
           minHeight: 26,
+          // Let the browser skip layout and paint for rows that are scrolled out of view.
+          contentVisibility: 'auto',
+          containIntrinsicSize: 'auto 26px',
           ...(isActiveFile && { bgcolor: 'action.selected' }),
           ...(isFocused && !isActiveFile && { outline: '1px solid', outlineColor: 'primary.main' }),
-          ...(isHighlightedDrop && { bgcolor: 'action.hover' }),
+          ...(isDropHighlighted && { bgcolor: 'action.hover' }),
         }}
       >
         <ListItemIcon sx={{ minWidth: 26 }}>
@@ -142,31 +146,57 @@ const TreeNode = ({
           primaryTypographyProps={{ noWrap: true, fontSize: '0.8125rem', lineHeight: 1.2 }}
         />
       </ListItemButton>
-      {node.isDirectory && node.children && (
-        <Collapse in={expanded} timeout="auto" unmountOnExit>
-          <List disablePadding>
-            {node.children.map((child) => (
-              <TreeNode
-                key={child.path}
-                activeTabPath={activeTabPath}
-                depth={depth + 1}
-                focusRow={focusRow}
-                focusedPath={focusedPath}
-                focusedRowRef={focusedRowRef}
-                getDragProps={getDragProps}
-                getDropProps={getDropProps}
-                isDropTarget={isDropTarget}
-                isExpanded={isExpanded}
-                loadDirectoryChildren={loadDirectoryChildren}
-                node={child}
-                onActivatePane={onActivatePane}
-                onContextMenu={onContextMenu}
-                onOpenFile={onOpenFile}
-                setExpanded={setExpanded}
-              />
-            ))}
-          </List>
-        </Collapse>
+    );
+  },
+);
+TreeRow.displayName = 'TreeRow';
+
+interface TreeNodeProps extends Omit<
+  TreeRowProps,
+  'expanded' | 'isActiveFile' | 'isDropHighlighted' | 'isFocused'
+> {
+  activeTabPath: string | null;
+  dropTargetPath: string | null;
+  expandedPaths: Set<string>;
+  focusedPath: string | null;
+}
+
+// Not memoized on purpose: it is cheap (it only builds elements) and has to follow
+// `expandedPaths`; the expensive part, TreeRow, bails out on its own.
+const TreeNode = ({
+  activeTabPath,
+  dropTargetPath,
+  expandedPaths,
+  focusedPath,
+  ...rowProps
+}: TreeNodeProps) => {
+  const { node } = rowProps;
+  const expanded = node.isDirectory && expandedPaths.has(node.path);
+
+  return (
+    <>
+      <TreeRow
+        {...rowProps}
+        expanded={expanded}
+        isActiveFile={!node.isDirectory && node.path === activeTabPath}
+        isDropHighlighted={node.isDirectory && dropTargetPath === node.path}
+        isFocused={focusedPath === node.path}
+      />
+      {expanded && node.children && (
+        <List disablePadding>
+          {node.children.map((child) => (
+            <TreeNode
+              key={child.path}
+              {...rowProps}
+              activeTabPath={activeTabPath}
+              depth={rowProps.depth + 1}
+              dropTargetPath={dropTargetPath}
+              expandedPaths={expandedPaths}
+              focusedPath={focusedPath}
+              node={child}
+            />
+          ))}
+        </List>
       )}
     </>
   );
@@ -188,7 +218,7 @@ export const SidebarExplorerTab = () => {
     rootPath,
     isProjectReady,
   );
-  const { getDragProps, getDropProps, isDropTarget } = useExplorerDragDrop(!isFiltering);
+  const { dropTargetPath, getDragProps, getDropProps } = useExplorerDragDrop(!isFiltering);
   const {
     anchorPos,
     closeMenu,
@@ -224,9 +254,20 @@ export const SidebarExplorerTab = () => {
     [matches, schemaDirPath],
   );
 
-  const handleOpenFile = (filePath: string) => {
-    void openFile(filePath);
-  };
+  const handleOpenFile = useCallback(
+    (filePath: string) => {
+      void openFile(filePath);
+    },
+    [openFile],
+  );
+
+  // `handleContextMenu` is rebuilt on every render; rows take a stable wrapper so they can be memoized.
+  const contextMenuHandlerRef = useRef(handleContextMenu);
+  contextMenuHandlerRef.current = handleContextMenu;
+  const handleRowContextMenu = useCallback(
+    (event: React.MouseEvent, item: ExplorerTarget) => contextMenuHandlerRef.current(event, item),
+    [],
+  );
 
   const treeKeyboard = useExplorerTreeKeyboard(
     tree,
@@ -287,9 +328,9 @@ export const SidebarExplorerTab = () => {
 
   const showRootOnlyMenu = Boolean(target && rootPath && target.path === rootPath);
 
-  const activatePane = () => {
+  const activatePane = useCallback(() => {
     treePaneRef.current?.focus();
-  };
+  }, []);
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
@@ -420,12 +461,12 @@ export const SidebarExplorerTab = () => {
                 focusedRowRef={focusedRowRef}
                 getDragProps={getDragProps}
                 getDropProps={getDropProps}
-                isDropTarget={isDropTarget}
-                isExpanded={treeKeyboard.isExpanded}
+                dropTargetPath={dropTargetPath}
+                expandedPaths={treeKeyboard.expandedPaths}
                 loadDirectoryChildren={loadDirectoryChildren}
                 node={node}
                 onActivatePane={activatePane}
-                onContextMenu={handleContextMenu}
+                onContextMenu={handleRowContextMenu}
                 onOpenFile={handleOpenFile}
                 setExpanded={treeKeyboard.setExpanded}
               />
