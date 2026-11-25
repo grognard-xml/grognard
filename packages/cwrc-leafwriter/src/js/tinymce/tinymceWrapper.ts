@@ -78,6 +78,7 @@ import {
   type BoundaryInsertSnapshot,
   type TextCaret,
 } from './tagBoundaryInput';
+import { chooseBoundaryEdge, matchesTagBoundaryMove, moveTagBoundary } from './tagBoundaryMove';
 import { DEFAULT_EDITOR_FONT_SIZE } from '../../overmind/editor/state';
 import {
   isChineseLanguageCode,
@@ -2126,6 +2127,45 @@ export const tinymceWrapperInit = function ({
     placeCaret(step.caret);
   };
 
+  /**
+   * Alt+Shift+←/→ (Ctrl+Option on Mac): move the opening or closing boundary of the tag at the
+   * caret, whichever the caret is nearer to, by one character. See tagBoundaryMove.ts.
+   */
+  const moveBoundaryByKeyboard = (direction: 'left' | 'right') => {
+    const editor = writer.editor;
+    if (!editor || writer.isReadOnly === true) return;
+    const rng = editor.selection.getRng();
+    if (!rng.collapsed) return;
+
+    let tag: Element | null;
+    let edge: 'start' | 'end' = 'end';
+    if (currentBoundaryElement && currentBoundaryIsExternal) {
+      // Caret is just outside the tag: the boundary it is touching.
+      tag = currentBoundaryElement;
+      edge = currentBoundarySide === 'before' ? 'start' : 'end';
+    } else {
+      let node: Node | null = rng.startContainer;
+      while (node && !(isElement(node) && isInlineEdgeTag(node))) node = node.parentNode;
+      tag = node as Element | null;
+      if (tag) edge = chooseBoundaryEdge(tag, rng.startContainer, rng.startOffset);
+    }
+    if (!tag) return;
+
+    const target = tag;
+    // Only inline tags can be absorbed or pushed out; blocks and plain markup are left alone.
+    const isImmovable = (node: Node) =>
+      editor.dom.isBlock(node) || !isElement(node) || !isTagOrCombinedEl(node);
+    let result: ReturnType<typeof moveTagBoundary> | null = null;
+    editor.undoManager.transact(() => {
+      result = moveTagBoundary(target, edge, direction, editor.getDoc(), isImmovable);
+    });
+    const moved = result as ReturnType<typeof moveTagBoundary> | null;
+    if (!moved?.moved || !moved.caret) return;
+
+    commitBoundaryCaret(moved.caret, target, edge === 'start', false);
+    finishBoundaryEdit();
+  };
+
   // === End tag boundary visualization ===
 
   const onMouseUpHandler = (event: MouseEvent) => {
@@ -2251,6 +2291,13 @@ export const tinymceWrapperInit = function ({
     // landing before the boundary. Replaces the browser's Latin-centric "word" jump,
     // which is nearly useless for Chinese and other no-space scripts.
     const isMac = tinymce.Env.os.isMacOS() || tinymce.Env.os.isiOS();
+    if (matchesTagBoundaryMove(event, isMac)) {
+      event.preventDefault();
+      event.stopPropagation();
+      moveBoundaryByKeyboard(event.code === 'ArrowLeft' ? 'left' : 'right');
+      return;
+    }
+
     if (isPunctuationBoundaryNavEvent(event, isMac)) {
       const sel = writer.editor.selection.getSel();
       if (sel) {

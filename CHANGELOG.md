@@ -1212,3 +1212,8 @@ The last step of an import (and `finalize_body` run over a file already in the p
 - The attribute name now starts with the one you added last on the same kind of tag, or the last one added anywhere if the schema allows it here. It is selected, so typing replaces it, and the list of attributes stays complete until you type.
 - Values are ranked with those starting with what you typed first, and the schema's allowed choices are offered after the values already used in the project. The typed text is no longer inserted at the top of the list.
 - In the value field, Up and Down move through the suggestions, Tab completes to the highlighted one, and Enter uses a suggestion only when it was picked with the arrow keys; text you typed stays as typed. The highlighted row scrolls into view in both lists.
+
+### Move a tag's boundaries from the keyboard
+
+- Alt+Shift+←/→ (Ctrl+Option+←/→ on Mac) moves a boundary of the tag at the caret by one character: whichever of the opening and closing boundaries the caret is nearer to, or the one it is touching when it sits just outside the tag. The opening boundary grows to the left and shrinks to the right; the closing boundary grows to the right and shrinks to the left. The caret stays just inside the boundary that moved, so repeated presses keep moving the same one.
+- A character is a whole user-perceived character (a base with its accent or variation selector, a Tibetan stack), and a neighbouring inline tag is taken in or pushed out whole, never split. Nothing happens at the edge of the parent, next to a block element, or if the tag would be left without a visible character. Each press is one undo step.
