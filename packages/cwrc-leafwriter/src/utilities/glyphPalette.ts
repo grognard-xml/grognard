@@ -12,13 +12,16 @@ import { refreshGraphicsInBody } from '../js/schema/mappings/utitlities';
  * file: a `ref` entry points at the same charDecl registration; the other
  * two shapes point at the same existing `_glyphs/*.svg`.
  *
- * `previewUrl` is resolved (grognard://…) for rendering a thumbnail;
+ * `previewUrl` is resolved (grognard://…) for rendering a thumbnail, but only
+ * against the document's own folder - composed glyphs live in the project-level
+ * `_glyphs/`, so load thumbnails with `fetchDocumentAssetText(relativeUrl)`,
+ * which also tries the project root;
  * `relativeUrl` is the original document-relative path as it must be
  * written back into a new `url` attribute - never the resolved one, which
  * is a runtime-only, machine-specific value.
  */
 export type GlyphOccurrence =
-  | { kind: 'ref'; glyphId: string; previewUrl: string }
+  | { kind: 'ref'; glyphId: string; previewUrl: string; relativeUrl: string }
   | { kind: 'legacy' | 'bare'; relativeUrl: string; previewUrl: string };
 
 const activeDocumentFilePath = (): string | null =>
@@ -42,7 +45,7 @@ export const scanGlyphOccurrences = (writer: Writer): GlyphOccurrence[] => {
     const entry = findGlyphCharDeclEntry(storedXml, glyphId);
     if (!entry) continue;
     const previewUrl = resolveDocumentAssetUrl(entry.svgUrl, documentFilePath);
-    seen.set(glyphId, { kind: 'ref', glyphId, previewUrl });
+    seen.set(glyphId, { kind: 'ref', glyphId, previewUrl, relativeUrl: entry.svgUrl });
   }
 
   for (const el of Array.from(

@@ -1,7 +1,7 @@
 import { Box, ButtonBase, Tooltip, Typography } from '@mui/material';
 import { useEffect, useState } from 'react';
 import type Writer from '../../js/Writer';
-import { fetchResourceText } from '../../utilities/fetchResource';
+import { fetchDocumentAssetText } from '../../utilities/fetchResource';
 import { insertExistingGlyph, type GlyphOccurrence } from '../../utilities/glyphPalette';
 
 interface ThumbnailEntry {
@@ -37,7 +37,10 @@ export const ChhivGlyphPaletteDialog = ({
     let cancelled = false;
     void Promise.all(
       occurrences.map(async (occurrence) => {
-        const svgText = await fetchResourceText(occurrence.previewUrl);
+        const svgText = await fetchDocumentAssetText(
+          occurrence.relativeUrl,
+          window.__leafWriterProject?.getActiveFilePath?.() ?? null,
+        );
         const dataUrl = svgText ? `data:image/svg+xml,${encodeURIComponent(svgText)}` : '';
         return { occurrence, dataUrl };
       }),

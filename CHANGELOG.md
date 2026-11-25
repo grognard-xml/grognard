@@ -1234,3 +1234,7 @@ The last step of an import (and `finalize_body` run over a file already in the p
 
 - Expanding or collapsing a folder no longer re-renders every row in the tree, which made folders with many files lag. Only the rows whose own state changes are redrawn, and rows scrolled out of view are skipped by the browser.
 - Folders now open and close instantly, without the height animation, and rows no longer show a click ripple.
+
+### Insert existing glyph: thumbnails for composed characters
+
+- Characters made in the character composer now show their image in the "Insert existing glyph" palette. It looked for the image only next to the open document, but composed glyphs are stored in the project's `_glyphs/` folder, so for any document in a subfolder the thumbnail came up as "?" and the glyph could not be picked for reinsertion. It now also looks in the project folder.
