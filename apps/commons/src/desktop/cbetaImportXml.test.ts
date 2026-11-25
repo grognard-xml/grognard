@@ -160,4 +160,54 @@ describe('wrapCbetaTeiDocument', () => {
     expect(xml).toContain('<imprint><date/></imprint>');
     expect(xml).not.toContain('<edition>');
   });
+
+  test('declares gaiji kept as <g ref> in the header <charDecl>, before <revisionDesc>', () => {
+    const bodyXml =
+      '<text xmlns="http://www.tei-c.org/ns/1.0"><body><p>罫同胡卦反<g ref="#CB07560">網</g>礙</p></body></text>';
+    const gaiji = [{ id: 'CB07560', composition: '[絅-口+又]', normalized: '網', pua: 'U+F1D88' }];
+    for (const config of [cbetaConfig, teiConfig]) {
+      const xml = wrapCbetaTeiDocument({
+        config,
+        meta: { ...meta, gaiji },
+        bodyXml,
+      });
+      expect(xml).toContain('<g ref="#CB07560">網</g>');
+      expect(xml).toMatch(
+        /<char xml:id="CB07560">\s*<charProp><localName>composition<\/localName><value>\[絅-口\+又\]<\/value><\/charProp>\s*<charProp><localName>normalized form<\/localName><value>網<\/value><\/charProp>\s*<mapping type="PUA">U\+F1D88<\/mapping>/,
+      );
+      expect(xml.indexOf('<charDecl>')).toBeLessThan(xml.indexOf('<revisionDesc>'));
+      const profile = xml.indexOf('<profileDesc>');
+      if (profile >= 0) expect(xml.indexOf('<charDecl>')).toBeLessThan(profile);
+      expect(xml.indexOf('</fileDesc>')).toBeLessThan(xml.indexOf('<charDecl>'));
+    }
+  });
+
+  test('writes no <charDecl> when no gaiji were kept', () => {
+    const xml = wrapCbetaTeiDocument({ config: teiConfig, meta, bodyXml: teiBodyXml });
+    expect(xml).not.toContain('<charDecl>');
+  });
+
+  test('mulu split: a body that already opens with its heads gets no second <head>, and names its juan', () => {
+    const bodyXml =
+      '<text xmlns="http://www.tei-c.org/ns/1.0"><body>' +
+      '<head type="context" n="2">正法念經</head><head>第一卷</head><p>甲。</p></body></text>';
+    const sectionMeta: CbetaTeiMeta = {
+      ...meta,
+      split_unit: 'mulu',
+      section_n: '776',
+      section_title: '第一卷',
+      in_juan: '11',
+      heads_included: true,
+      juan_n: undefined,
+      juan_title: undefined,
+    };
+    for (const config of [cbetaConfig, teiConfig]) {
+      const xml = wrapCbetaTeiDocument({ config, meta: sectionMeta, bodyXml });
+      expect(xml.match(/<head[ >]/g)).toHaveLength(2);
+      expect(xml).toMatch(
+        /<head [^>]*type="context" n="2">正法念經<\/head><head[^>]*>第一卷<\/head>/,
+      );
+      expect(xml).toContain('section 776 (in CBETA 卷11)');
+    }
+  });
 });

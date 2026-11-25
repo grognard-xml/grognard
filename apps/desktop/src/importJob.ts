@@ -818,7 +818,15 @@ const runCbetaJob = async (runtime: RuntimeJob, tickElapsed: () => void): Promis
     undefined,
     { signal },
   )) as {
-    juan: { n: string; title: string; body_xml: string; straddles?: string[] }[];
+    juan: {
+      n: string;
+      title: string;
+      body_xml: string;
+      straddles?: string[];
+      gaiji?: CbetaTeiMeta['gaiji'];
+      in_juan?: string;
+      heads_included?: boolean;
+    }[];
     title?: string;
     work_id: string;
     canon: string;
@@ -901,6 +909,9 @@ const runCbetaJob = async (runtime: RuntimeJob, tickElapsed: () => void): Promis
         authorship: converted.authorship,
         work_qid: converted.work_qid,
         importNotes: importNotes || undefined,
+        gaiji: juan.gaiji,
+        in_juan: juan.in_juan || undefined,
+        heads_included: juan.heads_included,
       };
       const xml = wrapCbetaTeiDocument({
         config: options.projectConfig as unknown as Parameters<

@@ -30,6 +30,39 @@ export interface CbetaAuthorshipMeta {
   dates?: string;
 }
 
+/**
+ * A character CBETA gives no Unicode value (only a private-use code point). The body keeps it as
+ * `<g ref="#CBnnnnn">` showing the normalised form; this is what goes in the header's
+ * `<charDecl>`.
+ */
+export interface CbetaGaijiMeta {
+  id: string;
+  /** CBETA composition, e.g. `[絅-口+又]`. */
+  composition?: string;
+  /** The ordinary character it stands for, e.g. 網. */
+  normalized?: string;
+  /** The CBETA private-use code point, e.g. `U+F1D88`. */
+  pua?: string;
+}
+
+/** `<charDecl>` for unresolved gaiji, in the shape CBETA's own files use. */
+export const cbetaCharDeclXml = (gaiji: CbetaGaijiMeta[] | undefined): string => {
+  const rows = (gaiji ?? []).filter((g) => /^[A-Za-z][\w.-]*$/.test(g.id));
+  if (!rows.length) return '';
+  const prop = (name: string, value?: string) =>
+    value
+      ? `\n        <charProp><localName>${name}</localName><value>${escapeXmlText(value)}</value></charProp>`
+      : '';
+  const chars = rows.map(
+    (g) =>
+      `      <char xml:id="${escapeXmlAttr(g.id)}">${prop('composition', g.composition)}${prop(
+        'normalized form',
+        g.normalized,
+      )}${g.pua ? `\n        <mapping type="PUA">${escapeXmlText(g.pua)}</mapping>` : ''}\n      </char>`,
+  );
+  return `  <encodingDesc>\n    <charDecl>\n${chars.join('\n')}\n    </charDecl>\n  </encodingDesc>\n`;
+};
+
 export interface CbetaTeiMeta {
   title: string;
   /** CBETA work id, e.g. ``T01n0001`` (also ``T0001``). */
@@ -57,6 +90,15 @@ export interface CbetaTeiMeta {
   work_qid?: string;
   /** Extra provenance appended to ``<revisionDesc><change>``. */
   importNotes?: string;
+  /** Mulu split: the CBETA juan this section lies in (a section is not a juan of the work). */
+  in_juan?: string;
+  /**
+   * Mulu split: the converted body already opens with the section's `<head>`s — ancestor headings
+   * as `<head type="context">`, then its own — so none is added here from `section_title`.
+   */
+  heads_included?: boolean;
+  /** Gaiji left as `<g ref>` in this file's body (no Unicode value). */
+  gaiji?: CbetaGaijiMeta[];
 }
 
 const escapeXmlText = (value: string): string =>
@@ -168,7 +210,9 @@ export const wrapCbetaTeiDocument = ({
 
   const sourcePara = `${escapeXmlText(meta.source)}; CBETA work ${escapeXmlText(meta.work_id)}${
     meta.split_unit === 'mulu' && meta.section_n
-      ? ` section ${escapeXmlText(meta.section_n)}`
+      ? ` section ${escapeXmlText(meta.section_n)}${
+          meta.in_juan ? ` (in CBETA 卷${escapeXmlText(meta.in_juan)})` : ''
+        }`
       : meta.juan_n
         ? ` 卷${escapeXmlText(meta.juan_n)}`
         : ''
@@ -231,6 +275,22 @@ ${idnoBlocks(meta)}${editionImprintBlocks(meta)}
     `<revisionDesc>\n    <change when="${when}">${change}</change>\n  </revisionDesc>\n</teiHeader>`,
   );
 
+  // `<g ref="#CB…">` in the body points at these (teiHeader order: …encodingDesc, profileDesc, revisionDesc).
+  const charDecl = cbetaCharDeclXml(meta.gaiji);
+  if (charDecl) {
+    if (/<encodingDesc[\s>]/.test(xml)) {
+      const block = charDecl.replace(/^\s*<encodingDesc>\s*|\s*<\/encodingDesc>\s*$/g, '');
+      xml = /<charDecl>/.test(xml)
+        ? xml.replace(
+            /<\/charDecl>/,
+            `${block.replace(/^\s*<charDecl>\s*|\s*<\/charDecl>\s*$/g, '')}\n    </charDecl>`,
+          )
+        : xml.replace(/<\/encodingDesc>/, `  ${block}\n  </encodingDesc>`);
+    } else {
+      xml = xml.replace(/(\s*)(<profileDesc>|<revisionDesc>)/, `\n${charDecl}$1$2`);
+    }
+  }
+
   const doc = new (domImpl().DOMParser)().parseFromString(bodyXml, 'application/xml');
   if (doc.getElementsByTagName('parsererror').length > 0) {
     throw new Error('CBETA conversion returned malformed juan XML.');
@@ -254,7 +314,7 @@ ${idnoBlocks(meta)}${editionImprintBlocks(meta)}
     // only in `meta.section_title` — as its leading `<head>` unless `inner`
     // already opens with one.
     const sectionHead =
-      meta.section_title && !/^\s*<head[\s/>]/.test(inner)
+      meta.section_title && !meta.heads_included && !/^\s*<head[\s/>]/.test(inner)
         ? `<head>${escapeXmlText(meta.section_title)}</head>`
         : '';
     xml = xml.replace(
@@ -265,7 +325,11 @@ ${idnoBlocks(meta)}${editionImprintBlocks(meta)}
     const divType = isSection ? 'section' : 'juan';
     const divN = isSection ? meta.section_n : meta.juan_n;
     const divAttrs = divN ? ` n="${escapeXmlAttr(divN)}"` : '';
-    const headTitle = isSection ? meta.section_title : meta.juan_title;
+    const headTitle = isSection
+      ? meta.heads_included
+        ? undefined // the body already opens with its <head>s
+        : meta.section_title
+      : meta.juan_title;
     const bodyDiv = `<div type="${divType}"${divAttrs}>${
       headTitle ? `<head>${escapeXmlText(headTitle)}</head>` : ''
     }${inner}</div>`;
