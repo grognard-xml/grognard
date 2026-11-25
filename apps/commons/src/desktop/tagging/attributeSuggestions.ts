@@ -147,21 +147,59 @@ export const filterAttributeSuggestions = (
   );
 };
 
+/** Known values for an attribute: most-used in the project first, then the schema's choices. */
 export const suggestAttributeValues = (
   tagName: string,
   attrName: string,
   stats: TagUsageStats,
-  currentValue?: string,
+  choices: string[] = [],
 ): string[] => {
   const fromStats = Object.entries(getAttrValueCounts(stats, tagName, attrName))
     .sort((a, b) => b[1] - a[1])
     .map(([value]) => value);
+  return [...new Set([...fromStats, ...choices])];
+};
 
-  const values = [...fromStats];
-  if (currentValue?.trim() && !values.includes(currentValue.trim())) {
-    values.unshift(currentValue.trim());
+/** Values matching what has been typed, those starting with it ahead of those merely containing it. */
+export const rankAttributeValues = (values: string[], query: string): string[] => {
+  const needle = query.trim().toLowerCase();
+  if (!needle) return values;
+  const starts: string[] = [];
+  const contains: string[] = [];
+  for (const value of values) {
+    const lower = value.toLowerCase();
+    if (lower.startsWith(needle)) starts.push(value);
+    else if (lower.includes(needle)) contains.push(value);
   }
-  return values;
+  return [...starts, ...contains];
+};
+
+const lastAttributeByTag = new Map<string, string>();
+let lastAttributeOverall: string | null = null;
+
+export const rememberLastAttribute = (tagName: string, attrName: string): void => {
+  lastAttributeByTag.set(tagName, attrName);
+  lastAttributeOverall = attrName;
+};
+
+export const resetLastAttributeMemory = (): void => {
+  lastAttributeByTag.clear();
+  lastAttributeOverall = null;
+};
+
+/**
+ * Attribute to offer pre-filled: the last one added on this kind of tag, otherwise the last
+ * one added anywhere, as long as the schema allows it here.
+ */
+export const pickPrefillAttributeName = (
+  attrs: SchemaAttributeDetail[],
+  tagName: string,
+): string | null => {
+  const allowed = (name: string | null | undefined): name is string =>
+    Boolean(name) && attrs.some((attr) => attr.name === name && !attr.invalid);
+  const forTag = lastAttributeByTag.get(tagName);
+  if (allowed(forTag)) return forTag;
+  return allowed(lastAttributeOverall) ? lastAttributeOverall : null;
 };
 
 export const resolveAttributeNameForApply = (

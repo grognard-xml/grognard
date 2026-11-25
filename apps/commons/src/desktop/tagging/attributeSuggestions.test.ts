@@ -5,6 +5,10 @@ import {
   resolveAttributeNameForApply,
   schemaAttributeContextKey,
   sortAttributeSuggestions,
+  pickPrefillAttributeName,
+  rankAttributeValues,
+  rememberLastAttribute,
+  resetLastAttributeMemory,
   suggestAttributeValues,
   type SchemaAttributeDetail,
 } from './attributeSuggestions';
@@ -79,10 +83,43 @@ describe('filterAttributeSuggestions', () => {
 });
 
 describe('suggestAttributeValues', () => {
-  test('returns values sorted by usage with current value first if new', () => {
-    const values = suggestAttributeValues('persName', 'ref', stats, 'http://new');
-    expect(values[0]).toBe('http://new');
-    expect(values).toContain('http://a');
+  test('returns values sorted by usage, then schema choices without duplicates', () => {
+    expect(suggestAttributeValues('persName', 'ref', stats)).toEqual(['http://a', 'http://b']);
+    expect(suggestAttributeValues('persName', 'ref', stats, ['http://b', 'other'])).toEqual([
+      'http://a',
+      'http://b',
+      'other',
+    ]);
+  });
+});
+
+describe('rankAttributeValues', () => {
+  test('puts values that start with the query before those that contain it', () => {
+    expect(rankAttributeValues(['subtype', 'type', 'typo', 'x'], 'ty')).toEqual([
+      'type',
+      'typo',
+      'subtype',
+    ]);
+    expect(rankAttributeValues(['b', 'a'], '  ')).toEqual(['b', 'a']);
+  });
+});
+
+describe('pickPrefillAttributeName', () => {
+  beforeEach(() => resetLastAttributeMemory());
+
+  test('prefers the last attribute for the same tag, then the last overall', () => {
+    expect(pickPrefillAttributeName(attrs, 'persName')).toBeNull();
+    rememberLastAttribute('persName', 'key');
+    rememberLastAttribute('seg', 'cert');
+    expect(pickPrefillAttributeName(attrs, 'persName')).toBe('key');
+    expect(pickPrefillAttributeName(attrs, 'date')).toBe('cert');
+  });
+
+  test('ignores attributes the schema does not allow here', () => {
+    rememberLastAttribute('seg', 'missing');
+    expect(pickPrefillAttributeName(attrs, 'seg')).toBeNull();
+    rememberLastAttribute('seg', 'ref');
+    expect(pickPrefillAttributeName([{ name: 'ref', invalid: true }], 'seg')).toBeNull();
   });
 });
 

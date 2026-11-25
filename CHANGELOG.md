@@ -1206,3 +1206,9 @@ The last step of an import (and `finalize_body` run over a file already in the p
 ### Undo and Redo include tag colour changes
 
 - Changing a tag's colours, or adding or removing an attribute rule, in the Tag Appearance panel can now be undone and redone with the rest of your edits. In Visual mode they are undone in the order you made them, so typing after a colour change is undone first. A colour-picker drag counts as one step. In Source mode, recent colour changes are undone before text edits. Switching projects or loading a document clears the colour history.
+
+### Add attribute popup (Alt+Enter): pre-filled name, completion, arrow keys
+
+- The attribute name now starts with the one you added last on the same kind of tag, or the last one added anywhere if the schema allows it here. It is selected, so typing replaces it, and the list of attributes stays complete until you type.
+- Values are ranked with those starting with what you typed first, and the schema's allowed choices are offered after the values already used in the project. The typed text is no longer inserted at the top of the list.
+- In the value field, Up and Down move through the suggestions, Tab completes to the highlighted one, and Enter uses a suggestion only when it was picked with the arrow keys; text you typed stays as typed. The highlighted row scrolls into view in both lists.

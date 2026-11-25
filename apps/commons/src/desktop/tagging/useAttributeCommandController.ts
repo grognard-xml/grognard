@@ -7,6 +7,9 @@ import {
   fetchSchemaAttributes,
   filterAttributeSuggestions,
   orderAttributeSuggestions,
+  pickPrefillAttributeName,
+  rankAttributeValues,
+  rememberLastAttribute,
   resolveAttributeNameForApply,
   suggestAttributeValues,
   type SchemaAttributeDetail,
@@ -39,7 +42,10 @@ export interface AttributeCommandController {
   setValueFilter: (value: string) => void;
   tagElement: Element | null;
   tagName: string;
+  /** The name box holds a remembered attribute the user has not typed over yet. */
+  nameIsPrefill: boolean;
   valueFilter: string;
+  valueHighlightedIndex: number;
   valueSuggestions: string[];
 }
 
@@ -52,14 +58,31 @@ export const useAttributeCommandController = (): AttributeCommandController => {
   const [anchor, setAnchor] = useState<{ left: number; top: number } | null>(null);
   const [tagElement, setTagElement] = useState<Element | null>(null);
   const [tagName, setTagName] = useState('');
-  const [nameFilter, setNameFilter] = useState('');
-  const [valueFilter, setValueFilter] = useState('');
+  const [nameFilter, setNameFilterRaw] = useState('');
+  // False while the name box shows a prefilled or arrow-selected name: the list stays unfiltered.
+  const [nameFilterActive, setNameFilterActive] = useState(true);
+  const [valueFilter, setValueFilterRaw] = useState('');
+  const [valueHighlightedIndex, setValueHighlightedIndex] = useState(-1);
+  const [valueNavigated, setValueNavigated] = useState(false);
   const [focusedField, setFocusedField] = useState<'name' | 'value'>('name');
   const [highlightedIndex, setHighlightedIndex] = useState(0);
   const [schemaAttributes, setSchemaAttributes] = useState<SchemaAttributeDetail[]>([]);
   const [stats, setStats] = useState<Awaited<ReturnType<typeof loadTagStats>> | null>(null);
 
   const applyingRef = useRef(false);
+
+  const setNameFilter = useCallback((value: string) => {
+    setNameFilterRaw(value);
+    setNameFilterActive(true);
+  }, []);
+
+  const setValueFilter = useCallback((value: string) => {
+    setValueFilterRaw(value);
+    setValueNavigated(false);
+    setValueHighlightedIndex(value.trim() ? 0 : -1);
+  }, []);
+
+  const effectiveNameFilter = nameFilterActive ? nameFilter : '';
 
   useEffect(() => {
     if (!rootPath) return;
@@ -89,34 +112,39 @@ export const useAttributeCommandController = (): AttributeCommandController => {
   const visibleAttributes = useMemo(
     () =>
       orderAttributeSuggestions(
-        filterAttributeSuggestions(schemaAttributes, nameFilter),
+        filterAttributeSuggestions(schemaAttributes, effectiveNameFilter),
         tagName,
         stats,
-        nameFilter,
+        effectiveNameFilter,
       ),
-    [nameFilter, schemaAttributes, stats, tagName],
+    [effectiveNameFilter, schemaAttributes, stats, tagName],
   );
 
   const highlightedAttribute = visibleAttributes[highlightedIndex] ?? null;
 
   const valueSuggestions = useMemo(() => {
-    const attrName = resolveAttributeNameForApply(
-      schemaAttributes,
-      nameFilter,
-      highlightedAttribute,
-    )?.name;
-    if (!attrName || !stats || !tagName) return [];
-    return suggestAttributeValues(tagName, attrName, stats, valueFilter);
+    const attr = resolveAttributeNameForApply(schemaAttributes, nameFilter, highlightedAttribute);
+    if (!attr?.name || !stats || !tagName) return [];
+    return rankAttributeValues(
+      suggestAttributeValues(tagName, attr.name, stats, attr.choices),
+      valueFilter,
+    );
   }, [highlightedAttribute, nameFilter, schemaAttributes, stats, tagName, valueFilter]);
+
+  const highlightedValue =
+    valueHighlightedIndex >= 0 ? (valueSuggestions[valueHighlightedIndex] ?? null) : null;
 
   useEffect(() => {
     setHighlightedIndex(0);
-  }, [nameFilter]);
+  }, [effectiveNameFilter]);
 
   const closePopup = useCallback(() => {
     setOpen(false);
-    setNameFilter('');
-    setValueFilter('');
+    setNameFilterRaw('');
+    setNameFilterActive(true);
+    setValueFilterRaw('');
+    setValueHighlightedIndex(-1);
+    setValueNavigated(false);
     setFocusedField('name');
     setHighlightedIndex(0);
     setTagElement(null);
@@ -130,7 +158,21 @@ export const useAttributeCommandController = (): AttributeCommandController => {
         ? orderAttributeSuggestions(attrs, element.getAttribute('_tag') ?? '', stats, '')
         : attrs;
       setSchemaAttributes(sorted);
-      setHighlightedIndex(0);
+
+      // Offer the attribute added last, selected so typing replaces it.
+      const prefill = pickPrefillAttributeName(sorted, element.getAttribute('_tag') ?? '');
+      if (prefill) {
+        setNameFilterRaw(prefill);
+        setNameFilterActive(false);
+        setHighlightedIndex(
+          Math.max(
+            0,
+            sorted.findIndex((attr) => attr.name === prefill),
+          ),
+        );
+      } else {
+        setHighlightedIndex(0);
+      }
     },
     [stats],
   );
@@ -152,8 +194,11 @@ export const useAttributeCommandController = (): AttributeCommandController => {
       const name = element.getAttribute('_tag') ?? '';
       setTagElement(element);
       setTagName(name);
-      setNameFilter('');
-      setValueFilter('');
+      setNameFilterRaw('');
+      setNameFilterActive(true);
+      setValueFilterRaw('');
+      setValueHighlightedIndex(-1);
+      setValueNavigated(false);
       setFocusedField('name');
       setHighlightedIndex(0);
       setAnchor(getCaretScreenPosition(anchorOverride));
@@ -165,44 +210,49 @@ export const useAttributeCommandController = (): AttributeCommandController => {
     [loadSchemaForTag, notifyViaSnackbar, t],
   );
 
-  const commitAttribute = useCallback(async () => {
-    if (applyingRef.current || !tagElement) return;
+  const commitAttribute = useCallback(
+    async (valueOverride?: string) => {
+      if (applyingRef.current || !tagElement) return;
 
-    const attr = resolveAttributeNameForApply(schemaAttributes, nameFilter, highlightedAttribute);
-    if (!attr) {
-      notifyViaSnackbar({
-        message: nameFilter.trim()
-          ? `Attribute "${nameFilter.trim()}" is not valid here.`
-          : 'Enter an attribute name.',
-        options: { variant: 'info' },
-      });
-      return;
-    }
-
-    applyingRef.current = true;
-    try {
-      const result = applyAttributeToTag(tagElement, attr.name, valueFilter);
-      if (!result.applied) {
-        if (result.error) {
-          notifyViaSnackbar({ message: result.error, options: { variant: 'warning' } });
-        }
+      const attr = resolveAttributeNameForApply(schemaAttributes, nameFilter, highlightedAttribute);
+      if (!attr) {
+        notifyViaSnackbar({
+          message: nameFilter.trim()
+            ? `Attribute "${nameFilter.trim()}" is not valid here.`
+            : 'Enter an attribute name.',
+          options: { variant: 'info' },
+        });
         return;
       }
-      await refreshStatsForActiveFile();
-      closePopup();
-    } finally {
-      applyingRef.current = false;
-    }
-  }, [
-    highlightedAttribute,
-    nameFilter,
-    notifyViaSnackbar,
-    refreshStatsForActiveFile,
-    schemaAttributes,
-    tagElement,
-    valueFilter,
-    closePopup,
-  ]);
+
+      applyingRef.current = true;
+      try {
+        const result = applyAttributeToTag(tagElement, attr.name, valueOverride ?? valueFilter);
+        if (!result.applied) {
+          if (result.error) {
+            notifyViaSnackbar({ message: result.error, options: { variant: 'warning' } });
+          }
+          return;
+        }
+        rememberLastAttribute(tagName, attr.name);
+        await refreshStatsForActiveFile();
+        closePopup();
+      } finally {
+        applyingRef.current = false;
+      }
+    },
+    [
+      highlightedAttribute,
+      nameFilter,
+      notifyViaSnackbar,
+      refreshStatsForActiveFile,
+      schemaAttributes,
+      tagElement,
+      tagName,
+      valueFilter,
+      closePopup,
+    ],
+  );
 
   const handlePopupKeyDown = useCallback(
     (event: React.KeyboardEvent) => {
@@ -224,6 +274,9 @@ export const useAttributeCommandController = (): AttributeCommandController => {
           );
           if (attr) setNameFilter(attr.name);
           setFocusedField('value');
+        } else if (highlightedValue !== null && highlightedValue !== valueFilter) {
+          // Complete the value to the highlighted suggestion.
+          setValueFilter(highlightedValue);
         }
         return;
       }
@@ -236,29 +289,47 @@ export const useAttributeCommandController = (): AttributeCommandController => {
 
       if (event.key === 'Enter' || event.key === 'NumpadEnter') {
         event.preventDefault();
-        void commitAttribute();
+        // A suggestion chosen with the arrow keys is used; merely typed text stays as typed.
+        const chosen = focusedField === 'value' && valueNavigated ? highlightedValue : null;
+        void commitAttribute(chosen ?? undefined);
         return;
       }
 
+      if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return;
+      event.preventDefault();
+      const step = event.key === 'ArrowDown' ? 1 : -1;
+
       if (focusedField === 'name') {
-        if (event.key === 'ArrowDown') {
-          event.preventDefault();
-          setHighlightedIndex((current) => Math.min(current + 1, visibleAttributes.length - 1));
-        }
-        if (event.key === 'ArrowUp') {
-          event.preventDefault();
-          setHighlightedIndex((current) => Math.max(current - 1, 0));
-        }
+        const next = Math.min(Math.max(highlightedIndex + step, 0), visibleAttributes.length - 1);
+        setHighlightedIndex(next);
+        // Show the selection in the box, without narrowing the list to it.
+        const attr = visibleAttributes[next];
+        if (attr && !nameFilterActive) setNameFilterRaw(attr.name);
+        return;
       }
+
+      if (valueSuggestions.length === 0) return;
+      setValueNavigated(true);
+      setValueHighlightedIndex((current) =>
+        Math.min(Math.max(current + step, 0), valueSuggestions.length - 1),
+      );
     },
     [
       closePopup,
       commitAttribute,
       focusedField,
       highlightedAttribute,
+      highlightedIndex,
+      highlightedValue,
       nameFilter,
+      nameFilterActive,
       schemaAttributes,
-      visibleAttributes.length,
+      setNameFilter,
+      setValueFilter,
+      valueFilter,
+      valueNavigated,
+      valueSuggestions.length,
+      visibleAttributes,
     ],
   );
 
@@ -295,11 +366,13 @@ export const useAttributeCommandController = (): AttributeCommandController => {
     schemaAttributes: visibleAttributes,
     setFocusedField,
     setHighlightedIndex,
+    nameIsPrefill: !nameFilterActive && nameFilter !== '',
     setNameFilter,
     setValueFilter,
     tagElement,
     tagName,
     valueFilter,
+    valueHighlightedIndex,
     valueSuggestions,
   };
 };

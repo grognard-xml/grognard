@@ -7,7 +7,7 @@ import {
   TextField,
   Typography,
 } from '@mui/material';
-import { useLayoutEffect, useRef } from 'react';
+import { useEffect, useLayoutEffect, useRef } from 'react';
 import type { SchemaAttributeDetail } from './attributeSuggestions';
 import { useClampedPopupPosition } from './clampPopupPosition';
 
@@ -16,6 +16,8 @@ export interface AttributeCommandPopupProps {
   focusedField: 'name' | 'value';
   highlightedIndex: number;
   nameFilter: string;
+  /** The name box shows a remembered attribute; select it so typing replaces it. */
+  nameIsPrefill: boolean;
   onClose: () => void;
   onFocusedFieldChange: (field: 'name' | 'value') => void;
   onHighlightChange: (index: number) => void;
@@ -26,14 +28,21 @@ export interface AttributeCommandPopupProps {
   schemaAttributes: SchemaAttributeDetail[];
   tagName: string;
   valueFilter: string;
+  valueHighlightedIndex: number;
   valueSuggestions: string[];
 }
+
+/** Keep the keyboard-selected row visible in a scrolling list. */
+const scrollIntoViewIfSelected = (element: HTMLElement | null) => {
+  element?.scrollIntoView?.({ block: 'nearest' });
+};
 
 export const AttributeCommandPopup = ({
   anchor,
   focusedField,
   highlightedIndex,
   nameFilter,
+  nameIsPrefill,
   onClose,
   onFocusedFieldChange,
   onHighlightChange,
@@ -44,6 +53,7 @@ export const AttributeCommandPopup = ({
   schemaAttributes,
   tagName,
   valueFilter,
+  valueHighlightedIndex,
   valueSuggestions,
 }: AttributeCommandPopupProps) => {
   const nameInputRef = useRef<HTMLInputElement>(null);
@@ -70,11 +80,11 @@ export const AttributeCommandPopup = ({
     }
   }, [focusedField, open]);
 
-  if (!open || !anchor) return null;
+  useEffect(() => {
+    if (open && focusedField === 'name' && nameIsPrefill) nameInputRef.current?.select();
+  }, [focusedField, nameFilter, nameIsPrefill, open]);
 
-  const visibleValues = valueSuggestions.filter((value) =>
-    value.toLowerCase().includes(valueFilter.trim().toLowerCase()),
-  );
+  if (!open || !anchor) return null;
 
   return (
     <Paper
@@ -109,7 +119,10 @@ export const AttributeCommandPopup = ({
           placeholder="Filter attributes..."
           value={nameFilter}
           onChange={(event) => onNameFilterChange(event.target.value)}
-          onFocus={() => onFocusedFieldChange('name')}
+          onFocus={(event) => {
+            onFocusedFieldChange('name');
+            if (nameIsPrefill) event.target.select();
+          }}
           autoComplete="off"
         />
         <TextField
@@ -132,6 +145,7 @@ export const AttributeCommandPopup = ({
             <ListItemButton
               key={attr.name}
               disabled={Boolean(attr.invalid)}
+              ref={index === highlightedIndex ? scrollIntoViewIfSelected : undefined}
               selected={index === highlightedIndex}
               onClick={() => {
                 if (attr.invalid) return;
@@ -155,12 +169,13 @@ export const AttributeCommandPopup = ({
         </List>
       ) : null}
 
-      {focusedField === 'value' && visibleValues.length > 0 ? (
+      {focusedField === 'value' && valueSuggestions.length > 0 ? (
         <List dense sx={{ flex: 1, overflow: 'auto', py: 0 }}>
-          {visibleValues.map((value, index) => (
+          {valueSuggestions.map((value, index) => (
             <ListItemButton
               key={value}
-              selected={index === highlightedIndex}
+              ref={index === valueHighlightedIndex ? scrollIntoViewIfSelected : undefined}
+              selected={index === valueHighlightedIndex}
               onClick={() => onValueFilterChange(value)}
             >
               <ListItemText primary={value} />

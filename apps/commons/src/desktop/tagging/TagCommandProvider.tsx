@@ -127,6 +127,7 @@ export const TagCommandProvider = () => {
         focusedField={attrController.focusedField}
         highlightedIndex={attrController.highlightedIndex}
         nameFilter={attrController.nameFilter}
+        nameIsPrefill={attrController.nameIsPrefill}
         onClose={attrController.closePopup}
         onFocusedFieldChange={attrController.setFocusedField}
         onHighlightChange={attrController.setHighlightedIndex}
@@ -137,6 +138,7 @@ export const TagCommandProvider = () => {
         schemaAttributes={attrController.schemaAttributes}
         tagName={attrController.tagName}
         valueFilter={attrController.valueFilter}
+        valueHighlightedIndex={attrController.valueHighlightedIndex}
         valueSuggestions={attrController.valueSuggestions}
       />
       {tagController.walkMode ? (
