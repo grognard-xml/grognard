@@ -18,6 +18,11 @@ import {
   Typography,
 } from '@mui/material';
 import {
+  EXPLORER_OPEN_FOCUSED_EVENT,
+  resolveExplorerShortcut,
+} from '@src/desktop/explorer/explorerShortcuts';
+import {
+  getParentPath,
   getProjectSchemaDirPath,
   getRelativeFolderLabel,
   isPathUnder,
@@ -25,7 +30,7 @@ import {
 import { useActions, useAppState } from '@src/overmind';
 import { ExplorerNameDialog } from './ExplorerNameDialog';
 import type { FileTreeNode } from '@src/overmind/project/state';
-import { modShortcut } from '@src/utils/platform';
+import { isMacOS, modShortcut } from '@src/utils/platform';
 import { memo, useCallback, useEffect, useMemo, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
@@ -232,6 +237,7 @@ export const SidebarExplorerTab = () => {
     handleRenameClick,
     handleShowInFolderClick,
     handleRenameConfirm,
+    openNewFolderIn,
     isProtected,
     menuOpen,
     newFolderOpen,
@@ -304,22 +310,49 @@ export const SidebarExplorerTab = () => {
   }, [refreshExplorer]);
 
   const handleTreeKeyDown = async (event: React.KeyboardEvent) => {
-    if (event.key === 'F2') {
+    const shortcut = resolveExplorerShortcut(event, isMacOS());
+    if (shortcut) {
       const item = treeKeyboard.getFocusedItem();
-      if (!item || isExplorerItemProtected(item, rootPath, schemaDirPath)) return;
+      if (!item) return;
       event.preventDefault();
-      openRenameForItem(item);
-      return;
-    }
-    if (event.key === 'Delete' || event.key === 'Backspace') {
-      const item = treeKeyboard.getFocusedItem();
-      if (!item || isExplorerItemProtected(item, rootPath, schemaDirPath)) return;
-      event.preventDefault();
-      await deleteTargetItem(item);
-      return;
+      switch (shortcut) {
+        case 'rename':
+          if (!isExplorerItemProtected(item, rootPath, schemaDirPath)) openRenameForItem(item);
+          return;
+        case 'delete':
+          if (!isExplorerItemProtected(item, rootPath, schemaDirPath)) await deleteTargetItem(item);
+          return;
+        case 'open':
+          await treeKeyboard.openFocused();
+          return;
+        case 'parent':
+          treeKeyboard.focusParent();
+          return;
+        case 'newFolder':
+          openNewFolderIn(
+            item.isDirectory
+              ? item
+              : { isDirectory: true, name: '', path: getParentPath(item.path) },
+          );
+          return;
+      }
     }
     await treeKeyboard.handleTreeKeyDown(event);
   };
+
+  // Cmd+O is the app's Open Project accelerator, so it reaches us through the menu bridge rather
+  // than as a key press. With the file tree focused on macOS it opens the focused item, as in Finder.
+  useEffect(() => {
+    if (!isMacOS()) return;
+    const onOpenFocused = (event: Event) => {
+      const pane = treePaneRef.current;
+      if (!pane || !pane.contains(document.activeElement) || !treeKeyboard.getFocusedItem()) return;
+      (event as CustomEvent<{ handled: boolean }>).detail.handled = true;
+      void treeKeyboard.openFocused();
+    };
+    window.addEventListener(EXPLORER_OPEN_FOCUSED_EVENT, onOpenFocused);
+    return () => window.removeEventListener(EXPLORER_OPEN_FOCUSED_EVENT, onOpenFocused);
+  });
 
   const handleTreePaneContextMenu = (event: React.MouseEvent) => {
     if ((event.target as HTMLElement).closest('[data-explorer-row]')) return;

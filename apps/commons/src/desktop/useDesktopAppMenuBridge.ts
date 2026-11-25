@@ -1,3 +1,4 @@
+import { EXPLORER_OPEN_FOCUSED_EVENT } from '@src/desktop/explorer/explorerShortcuts';
 import { openFindPanel } from '@src/desktop/desktopLeftPanelBridge';
 import { redoDocumentEditor, undoDocumentEditor } from '@src/desktop/editorUndoRedo';
 import { useActions } from '@src/overmind';
@@ -29,7 +30,12 @@ export const useDesktopAppMenuBridge = () => {
 
     const unsubscribe = window.electronAPI.onAppMenuAction((action) => {
       if (action === 'open-project') {
-        void openProject();
+        // With the file tree focused, Cmd+O opens the focused item rather than a project.
+        const request = new CustomEvent(EXPLORER_OPEN_FOCUSED_EVENT, {
+          detail: { handled: false },
+        });
+        window.dispatchEvent(request);
+        if (!request.detail.handled) void openProject();
         return;
       }
 

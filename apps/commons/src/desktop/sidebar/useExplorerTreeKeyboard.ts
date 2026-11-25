@@ -91,6 +91,20 @@ export const useExplorerTreeKeyboard = (
     [loadDirectoryChildren, setExpanded],
   );
 
+  /** Open the focused row: a file opens, a folder expands. */
+  const openFocused = useCallback(async () => {
+    const row = flatRows.find((item) => item.node.path === focusedPath);
+    if (!row) return;
+    if (row.node.isDirectory) await expandFolder(row.node);
+    else onOpenFile(row.node.path);
+  }, [expandFolder, flatRows, focusedPath, onOpenFile]);
+
+  const focusParent = useCallback(() => {
+    if (!focusedPath) return;
+    const parentPath = getParentPath(focusedPath);
+    if (parentPath) setFocusedPath(parentPath);
+  }, [focusedPath, getParentPath]);
+
   const handleTreeKeyDown = useCallback(
     async (event: React.KeyboardEvent) => {
       if (!enabled || flatRows.length === 0) return;
@@ -182,11 +196,13 @@ export const useExplorerTreeKeyboard = (
   return {
     expandedPaths,
     flatRows,
+    focusParent,
     focusRow,
     focusedPath,
     getFocusedItem,
     handleTreeKeyDown,
     isExpanded,
+    openFocused,
     setExpanded,
   };
 };

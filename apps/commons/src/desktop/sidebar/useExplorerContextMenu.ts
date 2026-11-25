@@ -151,6 +151,13 @@ export const useExplorerContextMenu = () => {
     setRenameOpen(true);
   };
 
+  const openNewFolderIn = (folder: ExplorerTarget) => {
+    if (!folder.isDirectory) return;
+    setTarget(folder);
+    setNewFolderValue('');
+    setNewFolderOpen(true);
+  };
+
   const handleNewFolderClick = () => {
     if (!target?.isDirectory) return;
     closeMenu();
@@ -228,6 +235,7 @@ export const useExplorerContextMenu = () => {
     menuOpen: Boolean(anchorPos),
     newFolderOpen,
     newFolderValue,
+    openNewFolderIn,
     openRenameForItem,
     renameOpen,
     renameValue,

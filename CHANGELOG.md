@@ -1238,3 +1238,9 @@ The last step of an import (and `finalize_body` run over a file already in the p
 ### Insert existing glyph: thumbnails for composed characters
 
 - Characters made in the character composer now show their image in the "Insert existing glyph" palette. It looked for the image only next to the open document, but composed glyphs are stored in the project's `_glyphs/` folder, so for any document in a subfolder the thumbnail came up as "?" and the glyph could not be picked for reinsertion. It now also looks in the project folder.
+
+### File navigator: system keyboard shortcuts
+
+- On macOS the file navigator follows Finder: Return renames the focused item, ⌘O or ⌘↓ opens it (a folder expands), ⌘↑ moves to the parent folder, ⌘Delete deletes it and ⌘⇧N makes a new folder. With the file tree focused, ⌘O opens the focused item instead of the Open Project dialog; everywhere else it still opens a project.
+- On Windows and Linux it follows Explorer: Enter opens, F2 renames, Delete deletes, Ctrl+Shift+N makes a new folder and Alt+↑ moves to the parent folder.
+- Backspace and a bare Delete on macOS no longer delete files, since neither does in Finder. A new folder made from the keyboard goes inside the focused folder, or beside the focused file.
