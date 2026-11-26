@@ -1258,3 +1258,7 @@ The last step of an import (and `finalize_body` run over a file already in the p
 - Find containing no longer builds a multi-second index the first time: it warms up in about 0.2 s and answers in milliseconds. Stroke filters wait for the character table to load instead of returning nothing.
 - Project glyph tiles are drawn only when scrolled into view; pasted or imported glyphs without KAGE data show their saved SVG instead of their id.
 - A `<g ref>` whose id has no `<charDecl>` entry is now styled and drawn from `_glyphs/`, and its test was updated to match.
+
+### Find panel: results refresh when you save
+
+- Saving a document while the Find panel has results now re-runs the search, so the listed matches no longer point at stale locations. The match you had selected stays selected, and the editor does not move.

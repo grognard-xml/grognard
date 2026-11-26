@@ -1,5 +1,6 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router';
+import { useAppState } from '@src/overmind';
 import { SidebarFindTab } from './SidebarFindTab';
 import { searchText } from '../find/searchText';
 
@@ -41,6 +42,51 @@ describe('SidebarFindTab', () => {
   it('offers a find field', () => {
     renderPanel();
     expect(screen.getAllByRole('textbox').length).toBeGreaterThan(0);
+  });
+
+  describe('saving a document', () => {
+    it('re-runs the search so results do not point at stale locations', async () => {
+      const tab = (dirty: boolean) => ({
+        filePath: '/p/a.xml',
+        content: '<TEI/>',
+        lastSavedContent: '<TEI/>',
+        dirty,
+      });
+      const project = useAppState().project as unknown as { openTabs: unknown[] };
+      project.openTabs = [tab(false)];
+      const search = searchText as jest.Mock;
+      search.mockResolvedValue({
+        results: [
+          {
+            filePath: '/p/a.xml',
+            matches: [{ start: 0, end: 1, line: 1, column: 1, snippet: 'x' }],
+          },
+        ],
+        totalMatches: 1,
+        error: null,
+      });
+
+      const { rerender } = renderPanel();
+      const find = screen.getByLabelText('LWC.desktop.sidebar.find.find_label');
+      fireEvent.change(find, { target: { value: 'x' } });
+      fireEvent.keyDown(find, { key: 'Enter' });
+      await waitFor(() => expect(search).toHaveBeenCalledTimes(1));
+      await waitFor(() => expect(document.body.textContent).toContain('1 match in 1 file'));
+
+      // A fresh element each time: re-rendering the very same element is skipped by React.
+      const panel = () => (
+        <MemoryRouter>
+          <SidebarFindTab />
+        </MemoryRouter>
+      );
+      project.openTabs = [tab(true)];
+      rerender(panel());
+      expect(search).toHaveBeenCalledTimes(1); // an edit alone does not re-search
+
+      project.openTabs = [tab(false)];
+      rerender(panel());
+      await waitFor(() => expect(search).toHaveBeenCalledTimes(2));
+    });
   });
 
   describe('search history', () => {

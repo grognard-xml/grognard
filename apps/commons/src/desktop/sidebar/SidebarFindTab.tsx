@@ -330,6 +330,61 @@ export const SidebarFindTab = () => {
 
   const selectedHit = selectedIndex >= 0 ? (flatResults[selectedIndex] ?? null) : null;
 
+  /** Saving rewrites the file (header merge, stamping) and can change what is on disk, so results
+   * computed before it point at stale offsets. Re-run the search when a tab goes from dirty to
+   * saved, keeping the same match selected (by index within its file) and without moving the
+   * editor. Held in a ref so the effect below only fires on tab changes. */
+  const searchRequestRef = useRef(0);
+  const rerunAfterSaveRef = useRef<() => Promise<void>>(async () => undefined);
+  rerunAfterSaveRef.current = async () => {
+    if (!findQuery.trim() || results.length === 0) return;
+    const previous = selectedIndexRef.current >= 0 ? flatResults[selectedIndexRef.current] : null;
+    const request = (searchRequestRef.current += 1);
+    const {
+      results: nextResults,
+      totalMatches: count,
+      error: searchError,
+    } = await searchText({
+      activeTabPath,
+      customPath,
+      docScope,
+      openTabs,
+      query: findQuery,
+      rootPath,
+      scope,
+      ignoreCase,
+      useRegex,
+    });
+    if (request !== searchRequestRef.current) return;
+    const nextFlat = flattenResults(nextResults, collapsedFilePaths);
+    const target = previous
+      ? nextFlat.findIndex(
+          (hit) =>
+            hit.filePath === previous.filePath &&
+            hit.matchIndexInFile === previous.matchIndexInFile,
+        )
+      : -1;
+    handleSearchComplete({
+      results: nextResults,
+      totalMatches: count,
+      error: searchError,
+      selectedIndex: target >= 0 ? target : previous ? 0 : undefined,
+    });
+  };
+
+  const dirtyByPathRef = useRef<Map<string, boolean>>(new Map());
+  useEffect(() => {
+    const previous = dirtyByPathRef.current;
+    let saved = false;
+    const next = new Map<string, boolean>();
+    for (const tab of openTabs) {
+      next.set(tab.filePath, tab.dirty);
+      if (previous.get(tab.filePath) === true && !tab.dirty) saved = true;
+    }
+    dirtyByPathRef.current = next;
+    if (saved) void rerunAfterSaveRef.current();
+  }, [openTabs]);
+
   const { replaceAllInScope, replaceCurrentHit } = useFindReplace({
     activeTabPath,
     allowMarkupReplace: sourceMode,
