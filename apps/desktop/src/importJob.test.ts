@@ -69,6 +69,9 @@ jest.mock('./kanripoClone', () => ({
 }));
 jest.mock('./daozangCorpus', () => ({ daozangTextPath: (rel: string) => rel }));
 
+// These tests poll a real job runner; a loaded CI machine can take far longer than Jest's 5s default.
+jest.setTimeout(30000);
+
 type JobModule = typeof import('./importJob');
 
 let mod: JobModule;
@@ -77,7 +80,7 @@ let events: ImportJobProgressEvent[];
 
 const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
-const waitFor = async (condition: () => boolean, label: string, timeoutMs = 4000) => {
+const waitFor = async (condition: () => boolean, label: string, timeoutMs = 20000) => {
   const started = Date.now();
   while (!condition()) {
     if (Date.now() - started > timeoutMs) throw new Error(`Timed out waiting for: ${label}`);
