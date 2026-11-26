@@ -77,9 +77,14 @@ export const DesktopAiApi = () => {
   const [checking, setChecking] = useState(false);
   const [forgetting, setForgetting] = useState(false);
 
+  // The temperature is edited as text so a half-typed "0." or an emptied field is not rewritten
+  // under the cursor; it is clamped and saved when the field is left.
+  const [temperatureText, setTemperatureText] = useState(String(settings.temperature));
+
   useEffect(() => {
     if (!bridge?.aiApiSettings) return;
     setSettings(bridge.aiApiSettings);
+    setTemperatureText(String(bridge.aiApiSettings.temperature));
   }, [bridge?.aiApiSettings]);
 
   if (!bridge) return null;
@@ -93,6 +98,17 @@ export const DesktopAiApi = () => {
     setSettings((current) => ({ ...current, ...patch }));
     setStatus(null);
     await bridge.setAiApiSettings(patch);
+  };
+
+  const commitTemperature = async () => {
+    const parsed = Number(temperatureText);
+    if (temperatureText.trim() === '' || !Number.isFinite(parsed)) {
+      setTemperatureText(String(settings.temperature));
+      return;
+    }
+    const next = Math.round(Math.min(2, Math.max(0, parsed)) * 100) / 100;
+    setTemperatureText(String(next));
+    if (next !== settings.temperature) await persistPreference({ temperature: next });
   };
 
   const establishConnection = async () => {
@@ -209,13 +225,14 @@ export const DesktopAiApi = () => {
             fullWidth
             inputProps={{ max: 2, min: 0, step: 0.1 }}
             label={t('LW.settings.ai_api.temperature')}
-            onChange={(event) => {
-              const next = Number(event.target.value);
-              updateSetting('temperature', Number.isFinite(next) ? next : 0.1);
+            onBlur={() => void commitTemperature()}
+            onChange={(event) => setTemperatureText(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter') void commitTemperature();
             }}
             size="small"
             type="number"
-            value={settings.temperature}
+            value={temperatureText}
           />
           <TextField
             fullWidth

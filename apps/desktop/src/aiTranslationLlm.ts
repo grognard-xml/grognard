@@ -81,6 +81,40 @@ export function isStructuredOutputRetryable(status: number, bodyText: string): b
   );
 }
 
+/** Models whose API refuses any temperature but the default (OpenAI's reasoning families:
+ * o1/o3/o4 and gpt-5). Sending `0.1` to them is an HTTP 400. */
+const FIXED_TEMPERATURE_MODEL = /^(o\d|gpt-5)/i;
+
+/** `baseUrl|model` pairs a server has refused a temperature for, learned from a 400 so the
+ * request is not repeated with it. */
+const temperatureRejected = new Set<string>();
+const temperatureKey = (baseUrl: string, model: string) => `${baseUrl}|${model}`;
+
+export function rememberTemperatureRejected(baseUrl: string, model: string): void {
+  temperatureRejected.add(temperatureKey(baseUrl, model));
+}
+
+/** True for the 400 a server sends when it will not take the temperature we sent. */
+export function isTemperatureRejection(status: number, bodyText: string): boolean {
+  return (
+    status === 400 &&
+    /temperature/i.test(bodyText) &&
+    /unsupported|not support|only the default|invalid|not allowed/i.test(bodyText)
+  );
+}
+
+/** `{ temperature }` for the request body, or nothing when the model only takes its default. */
+export function temperatureExtras(
+  baseUrl: string,
+  model: string,
+  temperature: number,
+): Record<string, unknown> {
+  if (!Number.isFinite(temperature)) return {};
+  if (temperatureRejected.has(temperatureKey(baseUrl, model))) return {};
+  if (baseUrl.includes('api.openai.com') && FIXED_TEMPERATURE_MODEL.test(model.trim())) return {};
+  return { temperature };
+}
+
 export function groqChatExtras(baseUrl: string, model: string): Record<string, unknown> {
   if (!baseUrl.includes('groq.com')) return {};
   if (model.includes('qwen')) return { reasoning_effort: 'none' };
@@ -115,7 +149,7 @@ export function buildTranslationRequestBody(
 
   return {
     model,
-    temperature: settings.temperature,
+    ...temperatureExtras(baseUrl, model, settings.temperature),
     ...groqChatExtras(baseUrl, model),
     messages: [
       { role: 'system', content: systemContent },

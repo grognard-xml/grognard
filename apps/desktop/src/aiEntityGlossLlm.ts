@@ -2,6 +2,7 @@ import type { AiApiSettings } from './projectPrefs';
 import {
   groqChatExtras,
   isStructuredOutputRetryable,
+  temperatureExtras,
   translationStructuredOutputModes,
   type StructuredOutputMode,
 } from './aiTranslationLlm';
@@ -66,7 +67,7 @@ export function buildEntityGlossRequestBody(
 
   return {
     model,
-    temperature: settings.temperature,
+    ...temperatureExtras(baseUrl, model, settings.temperature),
     ...groqChatExtras(baseUrl, model),
     messages: [
       { role: 'system', content: systemContent },

@@ -1262,3 +1262,8 @@ The last step of an import (and `finalize_body` run over a file already in the p
 ### Find panel: results refresh when you save
 
 - Saving a document while the Find panel has results now re-runs the search, so the listed matches no longer point at stale locations. The match you had selected stays selected, and the editor does not move.
+
+### AI settings: temperature saves, and OpenAI reasoning models work
+
+- The temperature in the AI settings is now saved when you leave the field or press Enter (limited to 0–2). Before, it was only kept by "Establish connection", and the field rewrote what you typed, turning an emptied field into 0.
+- The default temperature of 0.1 no longer breaks OpenAI's reasoning models (gpt-5 and the o-series), which only accept their default. It is left out of requests to them, for translation and entity glosses alike. Any other model whose server answers that it won't take a temperature is retried without one, and remembered until the app restarts.

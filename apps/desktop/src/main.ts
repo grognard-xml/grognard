@@ -45,6 +45,8 @@ import {
 } from './leaderboardAuth';
 import {
   buildTranslationRequestBody,
+  isTemperatureRejection,
+  rememberTemperatureRejected,
   isStructuredOutputRetryable,
   translationStructuredOutputModes,
   type StructuredOutputMode,
@@ -591,6 +593,12 @@ const postAiTranslationWithStructuredOutputFallback = async (
 
   if (!response.ok) {
     let error = await readErrorResponse(response.clone());
+    // A model that only takes its default temperature: remember that, and ask again without.
+    if (isTemperatureRejection(response.status, error)) {
+      rememberTemperatureRejected(baseUrl, model);
+      response = await postAiTranslation(baseUrl, settings, request, model, signal, modes[0]!);
+      if (!response.ok) error = await readErrorResponse(response.clone());
+    }
     for (let i = 1; i < modes.length; i++) {
       if (!isStructuredOutputRetryable(response.status, error)) break;
       response = await postAiTranslation(baseUrl, settings, request, model, signal, modes[i]!);
@@ -758,6 +766,12 @@ const postAiEntityGlossWithStructuredOutputFallback = async (
 
   if (!response.ok) {
     let error = await readErrorResponse(response.clone());
+    // A model that only takes its default temperature: remember that, and ask again without.
+    if (isTemperatureRejection(response.status, error)) {
+      rememberTemperatureRejected(baseUrl, model);
+      response = await postAiEntityGloss(baseUrl, settings, request, model, signal, modes[0]!);
+      if (!response.ok) error = await readErrorResponse(response.clone());
+    }
     for (let i = 1; i < modes.length; i++) {
       if (!isStructuredOutputRetryable(response.status, error)) break;
       response = await postAiEntityGloss(baseUrl, settings, request, model, signal, modes[i]!);
